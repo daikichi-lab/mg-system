@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MG 管理者ビュー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = { theme:{ extend:{ colors:{
+    ink:{ DEFAULT:'#1b2230', 400:'#5b6472', 300:'#9aa3b2', 600:'#46505f' },
+    line:'#e4e7ec', canvas:'#f6f7f9', accent:{ DEFAULT:'#c8322b', ink:'#a02620' },
+  } } } };
+</script>
+<style>
+  html,body{ font-family:"Zen Kaku Gothic New",system-ui,sans-serif; background:#f6f7f9; color:#1b2230; }
+  .num{ font-family:"Roboto Mono","Zen Kaku Gothic New",monospace; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body class="min-h-screen">
+  <header class="bg-white border-b border-line px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap sticky top-0 z-20">
+    <div class="flex items-center gap-2">
+      <span class="grid place-items-center w-9 h-9 rounded-lg bg-accent text-white font-black text-xs">MG</span>
+      <div><div class="font-black leading-tight">戦略MG 管理者ビュー</div><div class="text-ink-400 text-[11px] leading-tight">組織コード単位で参加者の状況を確認</div></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <label class="text-sm text-ink-400">組織コード</label>
+      <select id="org-sel" class="h-10 border border-line rounded-lg px-3 text-base bg-white outline-none focus:border-ink/40"></select>
+      <button id="refresh" class="h-10 px-3 rounded-lg border border-line text-ink-600 text-sm font-bold hover:bg-canvas">更新</button>
+      <button id="logout" class="h-10 px-3 rounded-lg border border-line text-ink-400 text-sm hover:bg-canvas">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- 講師ログイン（デモ）-->
+  <div id="login" class="fixed inset-0 z-50 bg-ink/40 grid place-items-center p-4">
+    <div class="bg-white rounded-2xl shadow-card border border-line p-6 w-full max-w-sm">
+      <div class="flex items-center gap-2 mb-3"><span class="grid place-items-center w-9 h-9 rounded-lg bg-accent text-white font-black text-xs">MG</span><div class="font-black">講師ログイン</div></div>
+      <p class="text-ink-400 text-sm mb-3">管理者（講師）のみログインします。参加者はログイン不要で、配布された組織コード付きURLから参加します。</p>
+      <input id="login-pw" type="password" placeholder="パスワード" class="w-full h-11 border border-line rounded-lg px-3 text-base outline-none focus:border-ink/40">
+      <p id="login-err" class="text-accent-ink text-xs mt-1 h-4"></p>
+      <button id="login-go" class="mt-1 w-full h-11 rounded-xl bg-ink text-white font-bold hover:bg-ink-600">ログイン</button>
+      <p class="text-ink-300 text-[11px] mt-3">デモ用パスワード：<b class="num">mg</b>（本番はサーバ認証に置き換え）</p>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-[300px_1fr] gap-0">
+    <!-- 参加者一覧 -->
+    <aside class="bg-white border-r border-line p-3 lg:h-[calc(100vh-61px)] lg:overflow-y-auto">
+      <!-- 参加用URLを発行（講師が配布）-->
+      <div class="rounded-xl border border-line bg-canvas p-3 mb-3">
+        <div class="text-ink-400 text-xs font-bold mb-1.5">参加用URLを発行</div>
+        <div class="flex gap-2">
+          <input id="join-org" placeholder="組織コード" class="flex-1 h-9 border border-line rounded-lg px-2 text-sm bg-white outline-none focus:border-ink/40">
+          <button id="join-make" class="h-9 px-3 rounded-lg bg-ink text-white text-xs font-bold hover:bg-ink-600 shrink-0">発行</button>
+        </div>
+        <div id="join-out" class="hidden mt-2">
+          <input id="join-url" readonly class="w-full h-9 border border-line rounded-lg px-2 text-[11px] bg-white num">
+          <button id="join-copy" class="mt-1 w-full h-8 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-white">URLをコピー</button>
+          <p class="text-ink-300 text-[10px] mt-1 leading-snug">参加者に配布。開くと組織コードが設定され、会社名を入れて開始できます（ログイン不要）。</p>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-2 mb-2 px-1">
+        <div class="text-ink-400 text-xs font-bold">参加者一覧 <span id="p-count"></span></div>
+        <button id="org-clear" class="text-[11px] text-accent hover:underline">組織を全消去</button>
+      </div>
+      <div id="p-list" class="space-y-2"></div>
+      <p id="p-empty" class="text-ink-300 text-sm p-4 text-center hidden">参加者がいません。<br>発行した参加用URL（組織コード付き）から参加者がプレイ・決算すると表示されます。</p>
+    </aside>
+
+    <!-- ビュー本体 -->
+    <main class="p-3 lg:h-[calc(100vh-61px)] flex flex-col min-w-0">
+      <div class="flex items-center gap-2 mb-2 flex-wrap">
+        <div class="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold shrink-0">
+          <button data-mv="frame" class="mv-tab px-3 py-1 rounded-md transition text-ink-400">参加者ビュー</button>
+          <button data-mv="rank"  class="mv-tab px-3 py-1 rounded-md transition text-ink-400">成績一覧</button>
+        </div>
+        <div id="view-title" class="font-bold text-sm">参加者を選択してください</div>
+        <span id="view-hint" class="ml-auto text-ink-300 text-[11px]">参加者が見ている画面（閲覧専用）。組織比較は画面内の「組織」タブで確認できます。</span>
+      </div>
+      <div id="frame-empty" class="flex-1 grid place-items-center text-ink-300 text-sm bg-white rounded-xl border border-line">
+        左の一覧から参加者を選ぶと、その人が見ている画面（閲覧専用）が表示されます。
+      </div>
+      <iframe id="frame" class="flex-1 w-full rounded-xl border border-line bg-white hidden" style="min-height:600px"></iframe>
+      <!-- 成績一覧＋CSV -->
+      <div id="rank-view" class="hidden flex-1 min-h-0 flex flex-col bg-white rounded-xl border border-line p-4">
+        <div class="flex items-center justify-between gap-2 mb-3 flex-wrap shrink-0">
+          <div class="font-bold text-sm">成績一覧 <span id="rank-org" class="text-ink-400 font-normal"></span></div>
+          <button id="csv-dl" class="h-9 px-3 rounded-lg bg-ink text-white text-xs font-bold hover:bg-ink-600">CSVダウンロード</button>
+        </div>
+        <div id="rank-table" class="overflow-auto min-h-0"></div>
+      </div>
+    </main>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  function liveStore(){ try{ return JSON.parse(localStorage.getItem('mgLive')||'{}'); }catch(e){ return {}; } }
+  function orgStore(){ try{ return JSON.parse(localStorage.getItem('mgOrg')||'{}'); }catch(e){ return {}; } }
+  const fmt = n => (n==null||isNaN(n))?'—':Math.round(n).toLocaleString('ja-JP');
+  const signed = v => { if(v==null||isNaN(v))return '—'; v=Math.round(v); return v<0?'▲'+Math.abs(v).toLocaleString('ja-JP'):v.toLocaleString('ja-JP'); };
+  let curOrg=null, curCo=null, mainView='frame';
+
+  // 組織コードの一覧（ライブ＋成績の和集合）
+  function allOrgs(){
+    const s=new Set([...Object.keys(liveStore()), ...Object.keys(orgStore())]);
+    return [...s].filter(Boolean).sort();
+  }
+  function renderOrgs(){
+    const orgs=allOrgs(), sel=$('org-sel');
+    const keep=curOrg;
+    sel.innerHTML = orgs.length ? orgs.map(o=>`<option value="${o}">${o}</option>`).join('')
+                               : '<option value="">（組織なし）</option>';
+    if(orgs.includes(keep)) sel.value=keep; else curOrg=sel.value||null;
+  }
+  // 参加者一覧（ライブ状態＋成績をマージ。ライブ優先）
+  function members(org){
+    const L=(liveStore()[org]||{}), H=(orgStore()[org]||{});
+    const names=[...new Set([...Object.keys(L), ...Object.keys(H)])];
+    return names.map(nm=>{ const l=L[nm]; const sum=l&&l.sum||{}; const h=(l&&l.history)||(H[nm]&&H[nm].history)||[];
+      return { name:nm, live:!!l, president:sum.president||(H[nm]&&H[nm].president)||'', period:sum.period, cash:sum.cash, settled:sum.settled, started:sum.started, ts:l&&l.ts, periods:h.length }; });
+  }
+  function renderParticipants(){
+    const list=curOrg?members(curOrg):[];
+    $('p-count').textContent = list.length?`（${list.length}名）`:'';
+    $('p-empty').classList.toggle('hidden', list.length>0);
+    $('p-list').innerHTML = list.map(p=>{
+      const on = p.name===curCo;
+      const status = p.live ? (p.settled?'決算済み':'プレイ中') : '記録のみ';
+      const sc = p.live ? (p.settled?'#9a7d10':'#0f766e') : '#9aa3b2';
+      const enc = encodeURIComponent(p.name);
+      return `<div class="rounded-xl border p-3 transition hover:shadow-sm ${on?'border-ink ring-2 ring-ink/15':'border-line'}">
+        <div data-co="${enc}" class="cursor-pointer">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-bold text-sm truncate">${p.name}</div>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background:${sc}1a;color:${sc}">${status}</span>
+          </div>
+          <div class="text-ink-400 text-[11px] mt-0.5 truncate">社長：${p.president||'—'}</div>
+          <div class="num text-[11px] text-ink-500 mt-1">第${p.period||'-'}期　現金 ${fmt(p.cash)}　${p.periods?`決算${p.periods}期`:''}</div>
+        </div>
+        <div class="flex justify-end mt-1.5 pt-1.5 border-t border-line/70">
+          <button data-reset="${enc}" class="text-[10px] text-ink-300 hover:text-accent">データをリセット</button>
+        </div>
+      </div>`;
+    }).join('');
+    $('p-list').querySelectorAll('[data-co]').forEach(b=>b.addEventListener('click',()=>select(curOrg, decodeURIComponent(b.dataset.co))));
+    $('p-list').querySelectorAll('[data-reset]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); resetParticipant(curOrg, decodeURIComponent(b.dataset.reset)); }));
+  }
+  function loadFrameSrc(){
+    const want = (curOrg&&curCo) ? `index.html?vorg=${encodeURIComponent(curOrg)}&vco=${encodeURIComponent(curCo)}` : '';
+    if(want && $('frame').getAttribute('src')!==want) $('frame').src=want;
+  }
+  function paintMV(){ document.querySelectorAll('.mv-tab').forEach(b=>{ const on=b.dataset.mv===mainView;
+    b.classList.toggle('bg-white', on); b.classList.toggle('shadow-sm', on); b.classList.toggle('text-ink', on); b.classList.toggle('text-ink-400', !on); }); }
+  // 本体エリアの表示を切替（参加者ビュー ⇄ 成績一覧）
+  function refreshMain(){
+    paintMV();
+    const rank = mainView==='rank';
+    $('rank-view').classList.toggle('hidden', !rank);
+    $('view-hint').textContent = rank ? '現在の組織の各社・各期の成績。CSVでダウンロードできます。'
+                                      : '参加者が見ている画面（閲覧専用）。組織比較は画面内の「組織」タブで確認できます。';
+    if(rank){ $('frame').classList.add('hidden'); $('frame-empty').classList.add('hidden'); renderRank(); }
+    else { const has=!!(curOrg&&curCo); $('frame').classList.toggle('hidden', !has); $('frame-empty').classList.toggle('hidden', has); if(has) loadFrameSrc(); }
+  }
+  function select(org, co){ curOrg=org; curCo=co; $('view-title').textContent=co; mainView='frame'; renderParticipants(); refreshMain(); }
+
+  // ===== 成績一覧（各社・各期のKPI）＝ histOf でライブ/成績を統合 =====
+  function histOf(org){
+    const L=liveStore()[org]||{}, H=orgStore()[org]||{};
+    const names=[...new Set([...Object.keys(L), ...Object.keys(H)])].sort();
+    const out={};
+    names.forEach(nm=>{ const h=(L[nm]&&L[nm].history)||(H[nm]&&H[nm].history)||[];
+      const pres=(L[nm]&&L[nm].sum&&L[nm].sum.president)||(H[nm]&&H[nm].president)||'';
+      out[nm]={president:pres, history:h||[]}; });
+    return out;
+  }
+  const pctOf=(a,b)=> (b&&!isNaN(a))? Math.round(a/b*100)+'%':'—';
+  const fmOf=r=> r.mPQ>0? Math.round(r.F/r.mPQ*100)+'%' : (r.G<0?'150%':'0%');
+  function renderRank(){
+    $('rank-org').textContent = curOrg?`（${curOrg}）`:'';
+    const H = curOrg?histOf(curOrg):{};
+    const rows=[];
+    Object.keys(H).forEach(nm=>{ (H[nm].history||[]).slice().sort((a,b)=>a.period-b.period).forEach(r=>rows.push({nm, pres:H[nm].president, r})); });
+    if(!curOrg || !rows.length){ $('rank-table').innerHTML='<p class="text-ink-300 text-sm p-6 text-center">成績データがありません。参加者が決算すると各期の成績が表示されます。</p>'; return; }
+    const cols=['会社','社長','期','売上PQ','粗利','固定費','経常G','当期純','純資産','粗利率','FM比率','現金','ﾀｰﾝ','意思決定'];
+    const head=`<tr class="text-ink-400 border-b border-line bg-canvas">${cols.map((c,i)=>`<th class="px-2 py-1.5 ${i>2?'text-right':'text-left'} whitespace-nowrap font-bold">${c}</th>`).join('')}</tr>`;
+    let prev=null;
+    const cell=(v)=>`<td class="px-2 py-1.5 text-right num whitespace-nowrap">${v}</td>`;
+    const body=rows.map(({nm,pres,r})=>{ const first=nm!==prev; prev=nm; const eq=r.capEnd+r.retEnd;
+      return `<tr class="border-b border-line/60 ${first?'border-t-2 border-t-line/80':''}">
+        <td class="px-2 py-1.5 whitespace-nowrap font-bold ${first?'':'text-ink-300'}">${first?nm:'〃'}</td>
+        <td class="px-2 py-1.5 whitespace-nowrap text-ink-400 text-[11px]">${first?(pres||'—'):''}</td>
+        <td class="px-2 py-1.5 whitespace-nowrap num text-ink-500">第${r.period}期</td>
+        ${cell(fmt(r.PQ))}${cell(signed(r.mPQ))}${cell(signed(r.F))}${cell(signed(r.G))}${cell(signed(r.net))}${cell(signed(eq))}
+        ${cell(pctOf(r.mPQ,r.PQ))}${cell(fmOf(r))}${cell(signed(r.cashEnd))}${cell(r.turns)}${cell(r.decisions)}</tr>`; }).join('');
+    $('rank-table').innerHTML=`<table class="w-full text-[12px] min-w-[840px]"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  }
+  // ===== CSVダウンロード（全社・全期） =====
+  const rnd=v=>(v==null||isNaN(v))?'':Math.round(v);
+  const csvCell=v=>{ v=(v==null)?'':String(v); return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  function buildCSV(){
+    const H=curOrg?histOf(curOrg):{};
+    const header=['組織コード','会社名','社長名','期','売上PQ','粗利','固定費','経常利益','当期純利益','純資産','粗利率%','FM比率%','現金','ターン数','意思決定回数'];
+    const lines=[header];
+    Object.keys(H).forEach(nm=>{ (H[nm].history||[]).slice().sort((a,b)=>a.period-b.period).forEach(r=>{
+      lines.push([curOrg, nm, H[nm].president||'', r.period, rnd(r.PQ), rnd(r.mPQ), rnd(r.F), rnd(r.G), rnd(r.net), rnd(r.capEnd+r.retEnd),
+        r.PQ?Math.round(r.mPQ/r.PQ*100):'', r.mPQ>0?Math.round(r.F/r.mPQ*100):(r.G<0?150:''), rnd(r.cashEnd), r.turns, r.decisions]); }); });
+    return lines.map(row=>row.map(csvCell).join(',')).join('\r\n');
+  }
+  function downloadCSV(){
+    if(!curOrg){ alert('組織を選択してください。'); return; }
+    const H=histOf(curOrg); if(!Object.values(H).some(x=>(x.history||[]).length)){ alert('この組織にはまだ成績データがありません。'); return; }
+    const blob=new Blob(['﻿'+buildCSV()],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`MG成績_${curOrg}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  // ===== 参加者データのリセット／組織の全消去 =====
+  function resetParticipant(org, co){
+    if(!org||!co) return;
+    if(!confirm(`「${co}」のデータ（プレイ中の状態・成績履歴）を削除します。元に戻せません。よろしいですか？`)) return;
+    const L=liveStore(); if(L[org]){ delete L[org][co]; if(!Object.keys(L[org]).length) delete L[org]; localStorage.setItem('mgLive', JSON.stringify(L)); }
+    const H=orgStore(); if(H[org]){ delete H[org][co]; if(!Object.keys(H[org]).length) delete H[org]; localStorage.setItem('mgOrg', JSON.stringify(H)); }
+    if(curCo===co) curCo=null;
+    renderOrgs(); if(!allOrgs().includes(curOrg)){ curOrg=$('org-sel').value||null; $('join-org').value=curOrg||''; }
+    renderParticipants(); refreshMain();
+  }
+  function clearOrg(){
+    const org=curOrg; if(!org) return;
+    const n=members(org).length; if(!n){ alert('この組織には参加者がいません。'); return; }
+    if(!confirm(`組織「${org}」の参加者${n}名のデータをすべて削除します。元に戻せません。よろしいですか？`)) return;
+    const L=liveStore(); delete L[org]; localStorage.setItem('mgLive', JSON.stringify(L));
+    const H=orgStore(); delete H[org]; localStorage.setItem('mgOrg', JSON.stringify(H));
+    curCo=null; renderOrgs(); curOrg=$('org-sel').value||null; $('join-org').value=curOrg||'';
+    renderParticipants(); refreshMain();
+  }
+
+  document.querySelectorAll('.mv-tab').forEach(b=>b.addEventListener('click',()=>{ mainView=b.dataset.mv; refreshMain(); }));
+  $('csv-dl').addEventListener('click', downloadCSV);
+  $('org-clear').addEventListener('click', clearOrg);
+  $('org-sel').addEventListener('change',()=>{ curOrg=$('org-sel').value||null; curCo=null; $('join-org').value=curOrg||''; $('view-title').textContent='参加者を選択してください'; renderParticipants(); refreshMain(); });
+  $('refresh').addEventListener('click',()=>{ renderOrgs(); renderParticipants(); refreshMain(); });
+  // 別タブで参加者がプレイすると localStorage が変わる → 一覧を自動更新（表示中の参加者は更新ボタンで反映）
+  window.addEventListener('storage', e=>{ if(e.key==='mgLive'||e.key==='mgOrg'){ renderOrgs(); renderParticipants(); if(mainView==='rank') renderRank(); } });
+
+  // ===== 参加用URLの発行（講師が配布）=====
+  function joinURL(code){ return new URL('index.html?org='+encodeURIComponent(code), location.href).href; }
+  $('join-make').addEventListener('click',()=>{ const code=($('join-org').value||'').trim(); if(!code){ $('join-org').focus(); return; } $('join-url').value=joinURL(code); $('join-out').classList.remove('hidden'); });
+  $('join-copy').addEventListener('click',()=>{ const el=$('join-url'); el.select(); try{ navigator.clipboard.writeText(el.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} } const b=$('join-copy'); b.textContent='コピーしました ✓'; setTimeout(()=>b.textContent='URLをコピー',1500); });
+
+  // ===== 講師ログイン（デモ。本番はサーバ認証）=====
+  const DEMO_PW='mg';
+  function showLogin(s){ $('login').style.display = s?'grid':'none'; }
+  function initAdmin(){ renderOrgs(); curOrg=$('org-sel').value||null; if(curOrg && !$('join-org').value) $('join-org').value=curOrg; renderParticipants(); refreshMain(); }
+  function doLogin(){ if((($('login-pw').value||'').trim())===DEMO_PW){ sessionStorage.setItem('mgAdmin','1'); showLogin(false); initAdmin(); } else { $('login-err').textContent='パスワードが違います。'; } }
+  $('login-go').addEventListener('click', doLogin);
+  $('login-pw').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('logout').addEventListener('click', ()=>{ sessionStorage.removeItem('mgAdmin'); location.reload(); });
+
+  // 起動：ログイン済みなら管理UIを表示、未ログインならログイン画面
+  if(sessionStorage.getItem('mgAdmin')==='1'){ showLogin(false); initAdmin(); } else { showLogin(true); }
+</script>
+</body>
+</html>
