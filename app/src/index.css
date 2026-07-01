@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+/* mock の配色トークンを再現 */
+@theme {
+  --color-ink: #1b2230;
+  --color-ink-600: #46505f;
+  --color-ink-400: #5b6472;
+  --color-ink-300: #9aa3b2;
+  --color-line: #e4e7ec;
+  --color-canvas: #f6f7f9;
+  --color-accent: #c8322b;
+  --color-accent-ink: #a02620;
+  --font-mono: 'Roboto Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  background: #f6f7f9;
+  color: #1b2230;
+  font-family: system-ui, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+}
+
+/* 数値は等幅・桁揃え */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+* {
+  box-sizing: border-box;
+}
