@@ -1,0 +1,2608 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>戦略MG 自動決算（モック）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      fontFamily: {
+        jp:  ['"Zen Kaku Gothic New"', 'system-ui', 'sans-serif'],
+        num: ['"Roboto Mono"', '"Zen Kaku Gothic New"', 'monospace'],
+      },
+      colors: {
+        ink:    { DEFAULT:'#1b2230', 600:'#3a4252', 400:'#6b7384', 300:'#a0a7b4' },
+        line:   '#e4e7ec',
+        canvas: '#f6f7f9',
+        accent: { DEFAULT:'#c8322b', ink:'#a02620', bg:'#fbece9' },
+        cin:  { base:'#0f766e', ink:'#0b5d56', bg:'#e4f1ef' },
+        cout: { base:'#5b6472', ink:'#434a57', bg:'#edeff2' },
+        g: { base:'#caa12a', ink:'#876a10', bg:'#f7efd2' },
+        f: { base:'#2f6fe0', ink:'#234f9e', bg:'#e6eefc' },
+        m: { base:'#cf4d80', ink:'#a3315f', bg:'#fbe3ec' },
+        v: { base:'#6b7689', ink:'#4a5366', bg:'#eaedf3' },
+        p: { base:'#d98324', ink:'#9c5d12', bg:'#fbeed9' },
+      },
+      boxShadow: { card: '0 1px 2px rgba(27,34,48,.04), 0 8px 24px -16px rgba(27,34,48,.20)' }
+    }}
+  }
+</script>
+<style>
+  html,body{ font-family:"Zen Kaku Gothic New",system-ui,sans-serif; background:#f6f7f9; }
+  .num{ font-family:"Roboto Mono","Zen Kaku Gothic New",monospace; font-variant-numeric:tabular-nums; }
+  .eyebrow{ font-family:"Roboto Mono",monospace; text-transform:uppercase; letter-spacing:.16em; }
+  .mk{ font-family:"Roboto Mono",monospace; display:inline-grid; place-items:center; width:20px; height:20px; border-radius:6px; font-size:11px; font-weight:700; line-height:1; flex:none; }
+  input[type=number]{ -moz-appearance:textfield; appearance:textfield; }
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  ::selection{ background:#c8322b22; }
+  .chip{ width:16px; height:16px; border-radius:9999px; box-shadow:inset 0 1px 1px rgba(255,255,255,.5), inset 0 -1px 2px rgba(0,0,0,.2); }
+  .chip-sq{ border-radius:3px; }
+  .scroll-x{ scrollbar-width:thin; }
+  .seg{ transition:height .4s cubic-bezier(.22,.61,.36,1); }
+  @media (prefers-reduced-motion: reduce){ .seg{ transition:none; } }
+  /* ===== 決算書PDF（A3 1枚・印刷→PDFに保存）===== */
+  #pdf-sheet{ display:none; }
+  #pdf-sheet, #pdf-sheet *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; box-sizing:border-box; }
+  @media print{
+    @page{ size:A3 portrait; margin:7mm; }
+    html,body{ background:#fff !important; }
+    body.printing > *:not(#pdf-sheet){ display:none !important; }
+    body.printing #pdf-sheet{ display:flex !important; }
+  }
+  /* ===== 管理者ビュー（閲覧専用）===== */
+  #vm-banner{ display:none; }
+  body.viewmode{ padding-top:34px; }
+  body.viewmode #vm-banner{ display:flex; align-items:center; justify-content:center; gap:8px; position:fixed; top:0; left:0; right:0; height:34px; z-index:60; background:#1b2230; color:#fff; font-size:13px; font-weight:700; }
+  body.viewmode button:not(.tab-btn):not(.sub-btn):not([data-tab]):not([data-sub]):not([data-detail]):not([data-pdf]):not([data-pl]):not([data-ov]):not(#stmt-back){ pointer-events:none !important; opacity:.5; }
+  body.viewmode input, body.viewmode select:not(#c-period), body.viewmode textarea{ pointer-events:none; background:#f3f4f6; color:#5b6472; }
+  /* 閲覧モードでも「期」セレクタは操作可（過去/現在の期の決算書を切替えるだけでデータ変更なし） */
+  body.viewmode select#c-period{ pointer-events:auto; background:#fff; color:#1b2230; cursor:pointer; }
+</style>
+</head>
+<body class="text-ink antialiased text-[15px] sm:text-base">
+
+<!-- ===================== Header ===================== -->
+<header class="bg-white/95 backdrop-blur border-b border-line sticky top-0 z-40">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
+    <span class="mk bg-accent text-white shadow-sm" style="width:36px;height:36px;border-radius:9px;font-size:13px">MG</span>
+    <div class="leading-tight mr-auto min-w-0">
+      <div class="text-[10px] font-bold text-accent">戦略MG 自動決算</div>
+      <div class="font-bold text-[15px] sm:text-base truncate -mt-0.5"><span id="hd-name">サンプル製菓</span> <span class="text-ink-300 font-normal text-sm" id="hd-period">第1期</span></div>
+    </div>
+    <div class="text-right">
+      <div class="text-ink-400 text-[10px]">現金残高</div>
+      <div class="num font-bold text-xl leading-none"><span id="hd-cash">0</span></div>
+    </div>
+  </div>
+  <!-- top tabs -->
+  <div class="max-w-5xl mx-auto px-3 sm:px-6 pb-2.5">
+    <div class="grid grid-cols-4 sm:grid-cols-8 gap-1 bg-canvas border border-line rounded-xl p-1">
+      <button data-tab="company"   class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">会社情報</button>
+      <button data-tab="opening"   class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">期首処理</button>
+      <button data-tab="play"      class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">記帳</button>
+      <button data-tab="closing"   class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">期末処理</button>
+      <button data-tab="statement" class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">決算書</button>
+      <button data-tab="history"   class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">履歴</button>
+      <button data-tab="review"    class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">振り返り</button>
+      <button data-tab="org"       class="tab-btn rounded-lg py-2 text-[12px] sm:text-sm font-bold transition">組織</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7">
+
+<!-- 前回セッションの復元通知（リロード/再訪時） -->
+<div id="resume-banner" class="hidden mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+  <div class="text-sm text-emerald-800">🔄 <b>前回の続きを復元しました</b><span id="resume-info" class="text-emerald-700 font-normal"></span></div>
+  <div class="flex items-center gap-2">
+    <button id="resume-new" class="h-9 px-3 rounded-lg border border-emerald-400 text-emerald-800 text-xs font-bold hover:bg-emerald-100 transition">新しく始める</button>
+    <button id="resume-dismiss" class="h-9 w-9 rounded-lg text-emerald-700 hover:bg-emerald-100 text-lg leading-none transition" title="閉じる">✕</button>
+  </div>
+</div>
+
+<!-- ============================ 会社情報 ============================ -->
+<section data-panel="company" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">会社情報</h1>
+    <p class="text-ink-400 text-sm mt-1">会社の基本情報と開業資本金を登録します。資本金は現金出納帳の最初の1行（ア 資本金）になります。</p>
+  </div>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5 space-y-4">
+      <label class="block">
+        <span class="text-sm font-medium">会社名</span>
+        <input id="c-name" value="サンプル製菓" class="mt-1.5 h-11 w-full border border-line rounded-lg px-3 text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">社長名</span>
+        <input id="c-pres" placeholder="山田 太郎" class="mt-1.5 h-11 w-full border border-line rounded-lg px-3 text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">組織コード</span>
+        <input id="c-org" placeholder="例）MG2026" class="mt-1.5 h-11 w-full border border-line rounded-lg px-3 text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none">
+        <span id="c-org-hint" class="text-ink-400 text-xs">同じ組織コードを入力した会社どうしを「組織」タブで比較できます。</span>
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">期</span>
+        <select id="c-period" class="mt-1.5 h-11 w-full border border-line rounded-lg px-3 text-base bg-white outline-none focus:border-ink/40">
+          <option value="1">第1期</option><option value="2">第2期</option><option value="3">第3期</option><option value="4">第4期</option><option value="5">第5期</option>
+        </select>
+        <span class="text-ink-400 text-xs">給料テーブル：1期25 / 2期28 / 3期31 / 4期34 / 5期37</span>
+      </label>
+    </div>
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5 space-y-5">
+      <div>
+        <h2 class="font-bold mb-1">開業資本金</h2>
+        <p class="text-ink-400 text-xs mb-3">出資した自己資金。第1期の最初の「ア 資本金」として記帳されます。</p>
+        <div class="flex items-end gap-2 bg-p-bg rounded-xl px-4 py-3">
+          <input id="c-capital" type="number" value="300" class="num font-bold text-3xl w-32 bg-transparent outline-none text-p-ink">
+        </div>
+        <button id="c-apply" class="mt-3 w-full h-11 rounded-xl bg-ink text-white font-bold hover:bg-ink-600 transition">この内容で開始（資本金を記帳）</button>
+        <p id="c-applied" class="text-emerald-700 text-xs mt-2 hidden">✓ 開始しました。各タブが使えます。「期首処理」で内容を確認し「記帳」へ進みましょう。</p>
+      </div>
+      <div class="border-t border-line pt-4 flex items-center justify-between">
+        <span class="text-ink-600 text-sm font-medium">現在の資本金合計</span>
+        <span class="num font-bold text-2xl text-p-ink"><span id="c-captotal">300</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 期首処理 ============================ -->
+<section data-panel="opening" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">期首処理</h1>
+    <p class="text-ink-400 text-sm mt-1">この期のスタート状態です。前期の決算から繰り越した残高・盤面の駒・期首納税を自動でセットします。記帳の前に確認しましょう。</p>
+  </div>
+  <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+    <div class="flex items-center gap-2 mb-1">
+      <h2 class="font-bold">期首セット（自動）</h2>
+      <span id="op-period-badge" class="text-[11px] font-bold rounded-full px-2 py-0.5" style="color:#0f766e;background:#0f766e14"></span>
+    </div>
+    <p id="op-note" class="text-ink-400 text-xs mb-3"></p>
+    <div id="opening-figs"></div>
+  </div>
+  <div class="flex flex-wrap gap-3 mt-4">
+    <button id="opening-toplay" class="h-11 px-5 rounded-xl bg-g-base text-white font-bold hover:brightness-95 transition">記帳をはじめる →</button>
+  </div>
+</section>
+
+<!-- ============================ 記帳 ============================ -->
+<section data-panel="play" class="hidden">
+  <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-black tracking-tight">記帳</h1>
+      <p class="text-ink-400 text-sm mt-1">意思決定 → 数値入力 → 実行。現金出納帳に1行ずつ記帳されます。</p>
+    </div>
+  </div>
+
+  <!-- スコアボード（行動の結果が常に見える） -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+    <div class="bg-white rounded-xl border border-line px-3 py-2.5">
+      <div class="text-ink-400 text-[10px]">現金残高</div>
+      <div class="num font-bold text-lg sm:text-xl leading-tight"><span id="sc-cash">0</span></div>
+    </div>
+    <div class="bg-white rounded-xl border border-line px-3 py-2.5">
+      <div class="text-ink-400 text-[10px]">材料・原料</div>
+      <div class="num font-bold text-lg sm:text-xl leading-tight"><span id="sc-mat">0</span></div>
+    </div>
+    <div class="bg-white rounded-xl border border-line px-3 py-2.5">
+      <div class="text-ink-400 text-[10px]">製品・陳列</div>
+      <div class="num font-bold text-lg sm:text-xl leading-tight"><span id="sc-prod">0</span></div>
+    </div>
+    <div class="bg-white rounded-xl border border-line px-3 py-2.5">
+      <div class="text-ink-400 text-[10px]">今期の売上</div>
+      <div class="num font-bold text-lg sm:text-xl leading-tight text-cin-ink"><span id="sc-sales">0</span></div>
+    </div>
+  </div>
+
+  <!-- sub-tabs -->
+  <div class="grid grid-cols-4 gap-1 bg-canvas border border-line rounded-xl p-1 mb-3">
+    <button data-sub="A"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">ルールA</button>
+    <button data-sub="B"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">ルールB</button>
+    <button data-sub="X"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">イベントカード</button>
+    <button data-sub="board" class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">会社版</button>
+  </div>
+
+  <!-- sub-panels -->
+  <div class="bg-white rounded-2xl shadow-card border border-line p-4 mb-4 min-h-[120px]">
+    <div data-sub-panel="A"><div class="text-ink-400 text-[11px] font-medium mb-2">ルールA・意思決定（1回1項目）</div><div id="tools-A" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div></div>
+    <div data-sub-panel="B" class="hidden"><div class="text-ink-400 text-[11px] font-medium mb-2">ルールB・カードを引く前（1回1項目）</div><div id="tools-B" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div></div>
+    <div data-sub-panel="X" class="hidden">
+      <div class="text-ink-400 text-[11px] font-medium mb-2">イベントカード（引いたカードを選んで記帳）</div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <select id="event-select" class="flex-1 h-12 border border-line rounded-xl px-3 text-base bg-white outline-none focus:border-ink/40"></select>
+        <button id="event-go" class="h-12 px-5 rounded-xl bg-accent text-white font-bold hover:opacity-90 active:scale-[.97] transition shrink-0">このカードを記帳</button>
+      </div>
+      <p id="event-desc" class="text-ink-400 text-[11px] mt-2 leading-relaxed">カードを選ぶと内容が表示されます。記帳には選んだイベント名が残ります。</p>
+    </div>
+    <div data-sub-panel="board" class="hidden"><div id="board"></div></div>
+  </div>
+
+  <!-- 現金出納帳 -->
+  <div class="bg-white rounded-2xl shadow-card border border-line p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold">現金出納帳 <span class="text-ink-300 text-xs font-normal">自動記帳</span></h2>
+      <div class="flex items-center gap-3">
+        <div class="num text-sm text-ink-400">現金残高 <b id="ledger-balance" class="text-ink text-base">0</b></div>
+        <button id="ledger-seed" class="text-xs font-bold text-cin-ink hover:opacity-70">テスト（黒字）</button>
+        <button id="ledger-seed-loss" class="text-xs font-bold text-accent-ink hover:opacity-70">テスト（赤字）</button>
+        <button id="ledger-seed-flood" class="text-xs font-bold text-sky-600 hover:opacity-70">テスト（水害）</button>
+        <button id="ledger-clear" class="text-xs font-medium text-ink-400 hover:text-accent">全消去</button>
+      </div>
+    </div>
+    <p class="text-ink-400 text-xs mb-2 sm:hidden">← 横にスクロールできます →</p>
+    <div class="overflow-x-auto scroll-x -mr-1 pr-1">
+      <table class="w-full text-[13px] border-separate min-w-[680px] lg:min-w-0" style="border-spacing:0">
+        <thead>
+          <tr class="text-ink-400">
+            <th rowspan="2" class="sticky left-0 z-20 bg-white text-left font-semibold pr-2 py-2 border-b border-line align-bottom">勘定科目</th>
+            <th colspan="4" class="text-cin-ink bg-cin-bg font-bold px-2 py-1.5 rounded-t-md">入　金　＋</th>
+            <th colspan="7" class="text-cout-ink bg-cout-bg font-bold px-2 py-1.5 rounded-t-md" style="border-left:2px solid #9aa3b2">出　金　−</th>
+            <th rowspan="2" class="text-right font-semibold px-2 py-2 border-b border-line align-bottom">現金残高</th>
+          </tr>
+          <tr class="text-ink-600 text-xs">
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#fbe0ea;color:#b03a6a"><span class="text-[10px] leading-none opacity-70">ア</span><div class="text-[11px] whitespace-nowrap">資本金</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#fdf3c7;color:#9a7d10"><span class="text-[10px] leading-none opacity-70">イ</span><div class="text-[11px] whitespace-nowrap">借入金</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#fde3c4;color:#b5630f"><span class="text-[10px] leading-none opacity-70">ウ</span><div class="text-[11px] whitespace-nowrap">売上</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#fce8ef;color:#b85c7e"><span class="text-[10px] leading-none opacity-70">A</span><div class="text-[11px] whitespace-nowrap">保険金</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#e4dcf3;color:#6b4fa0;border-left:2px solid #9aa3b2"><span class="text-[10px] leading-none opacity-70">エ</span><div class="text-[11px] whitespace-nowrap">什器</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#d8ecd8;color:#3f7a3f"><span class="text-[10px] leading-none opacity-70">オ</span><div class="text-[11px] whitespace-nowrap">材料仕入</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#d6e6f7;color:#2f5f93"><span class="text-[10px] leading-none opacity-70">カ</span><div class="text-[11px] whitespace-nowrap">人件費</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#d3ecf2;color:#1f7a8c"><span class="text-[10px] leading-none opacity-70">キ</span><div class="text-[11px] whitespace-nowrap">販売費</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#dfe2f5;color:#4a55a8"><span class="text-[10px] leading-none opacity-70">ク</span><div class="text-[11px] whitespace-nowrap">管理費</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#fdf3c7;color:#9a7d10"><span class="text-[10px] leading-none opacity-70">ケ</span><div class="text-[11px] whitespace-nowrap">返済</div></th>
+            <th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight" style="background:#e7e9ec;color:#5b6472"><span class="text-[10px] leading-none opacity-70">コ</span><div class="text-[11px] whitespace-nowrap">納税</div></th>
+          </tr>
+        </thead>
+        <tbody id="ledger" class="num text-right"></tbody>
+        <tfoot id="ledger-foot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <p id="play-hint" class="hidden text-center text-xs text-cin-ink bg-cin-bg/60 rounded-lg py-2 px-3">期末の給与・家賃を計上しました。内容を確認し、必要なら金額（行ごと）を修正してから決算してください。</p>
+    <div class="flex gap-2">
+      <button id="play-undo-closing" class="hidden h-12 px-4 rounded-xl border border-line font-bold text-ink-600 hover:bg-canvas transition">記帳に戻る</button>
+      <button id="play-settle" class="flex-1 h-12 rounded-xl bg-g-base text-white font-bold text-lg hover:brightness-95 transition shadow-card">期末処理を行う（給与・家賃を計上）</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 決算 ============================ -->
+<section data-panel="closing" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">期末処理</h1>
+    <p class="text-ink-400 text-sm mt-1">記帳を終えたら決算を実行。期末処理（給料・家賃・棚卸・減価償却・法人税）を自動で行います。確定後「次の期へ進む」で繰越されます。</p>
+  </div>
+  <div id="closing-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center">
+    <p class="text-ink-400 text-sm">まだ決算していません。</p>
+    <button id="closing-run" class="mt-4 h-12 px-6 rounded-xl bg-g-base text-white font-bold hover:brightness-95 transition">決算を実行する</button>
+  </div>
+  <div id="closing-result" class="hidden space-y-4">
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <h2 class="font-bold mb-1">期末処理（自動）</h2>
+      <p class="text-ink-400 text-xs mb-3">記帳のあと ① 棚卸 ② 給料 ③ 家賃 ④ 減価償却 を計算し、法人税を確定します。</p>
+      <div class="grid sm:grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">① 棚卸 平均単価</span><b class="num" id="cl-avg">0</b></div>
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">① 売上原価 vPQ</span><b class="num" id="cl-cogs">0</b></div>
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">② 給料（人数 × 給料表）</span><b class="num" id="cl-salary">0</b></div>
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">③ 家賃</span><b class="num" id="cl-rent">25</b></div>
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">④ 減価償却（什器 × 10）</span><b class="num" id="cl-dep">0</b></div>
+        <div class="flex justify-between border-b border-line pb-2"><span class="text-ink-600">法人税等（30%・最低5）</span><b class="num text-accent-ink" id="cl-tax">0</b></div>
+      </div>
+    </div>
+    <div>
+      <h2 class="font-bold mb-1 px-1">勘定の図解</h2>
+      <p class="text-ink-400 text-xs mb-3 px-1">前期繰越 ＋ 当期増加 ＝ 合計、合計 − 当期減少 ＝ 次期繰越。<span class="text-ink-300">（入門編MG決算書の補助勘定）</span></p>
+      <div id="closing-figs" class="space-y-4"></div>
+    </div>
+    <div class="flex flex-wrap gap-3">
+      <button id="closing-view" class="h-11 px-5 rounded-xl bg-ink text-white font-bold hover:bg-ink-600 transition">決算書をみる →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 決算書 ============================ -->
+<section data-panel="statement" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">決算書</h1>
+    <p class="text-ink-400 text-sm mt-1">現金出納帳から自動集計した STRAC（P/L）・貸借対照表・補助勘定。</p>
+  </div>
+  <div id="statement-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400 text-sm">決算を実行すると、ここに決算書が表示されます。</div>
+  <div id="statement-body" class="hidden space-y-4">
+    <div id="stmt-banner" class="hidden flex items-center justify-between gap-3 rounded-xl bg-ink/5 border border-line px-4 py-2.5">
+      <span class="text-sm font-bold text-ink-600">📄 <span id="stmt-banner-label"></span></span>
+      <button id="stmt-back" class="h-9 px-4 rounded-lg bg-ink text-white font-bold text-sm hover:bg-ink-600 transition">← 履歴に戻る</button>
+    </div>
+    <!-- ⓯ STRAC 図（数値で動く図解） -->
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <div class="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        <h2 class="font-bold">戦略会計 図解 P/L <span class="text-ink-300 text-xs font-normal">変動損益計算書</span></h2>
+        <div class="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold shrink-0">
+          <button data-pl="strac" class="pl-tab px-3 py-1 rounded-md transition">STRAC</button>
+          <button data-pl="wf" class="pl-tab px-3 py-1 rounded-md transition">ウォーターフォール</button>
+        </div>
+      </div>
+      <div id="strac-fig" class="overflow-x-auto scroll-x"></div>
+      <p id="pl-note" class="text-ink-400 text-[11px] mt-3"><b>売上高PQ</b> から <b>変動費vPQ</b>（上）を引くと <b>粗利益mPQ</b>、その粗利益から <b>固定費F</b> を引くと <b>経常利益G</b>。左から段階的に分解し、各ブロックの高さは金額に連動して動きます。</p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4 items-stretch">
+      <!-- STRAC 数値（P/L） -->
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 class="font-bold mb-3">STRAC（P/L）数値</h2>
+        <p class="text-ink-400 text-[11px] mb-2">売上高 −変動費 ＝粗利、粗利 −固定費 ＝経常利益。<span class="text-ink-300">列で引き算の流れを表示</span></p>
+        <div class="grid items-center gap-x-1.5 gap-y-2.5" style="grid-template-columns:minmax(0,1fr) 3.4rem 3.4rem 3.4rem">
+          <!-- 列見出し：左=売上高 / 中=−費用 / 右=＝残り -->
+          <span></span>
+          <span class="text-[10px] font-bold text-ink-300 text-right leading-tight">売上高</span>
+          <span class="text-[10px] font-bold text-ink-300 text-right leading-tight">− 費用</span>
+          <span class="text-[10px] font-bold text-ink-300 text-right leading-tight">＝ 残り</span>
+
+          <!-- ① 売上高 PQ（左） -->
+          <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-sm shrink-0" style="background:#e08a3c"></span><span>① 売上高 PQ <span class="text-ink-400 text-[10px]">（個数 <b class="num" id="st-Q">0</b>）</span></span></span>
+          <span class="num font-bold text-right" style="color:#b5630f" id="st-PQ">0</span>
+          <span></span><span></span>
+
+          <!-- ② 変動費 vPQ（中・引く） -->
+          <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-sm shrink-0" style="background:#37a36b"></span><span>② 変動費 vPQ <span class="text-ink-400 text-[10px]">売上原価</span></span></span>
+          <span></span>
+          <span class="num font-bold text-right" style="color:#2f7d54"><span class="text-ink-300 mr-px">−</span><span id="st-vPQ">0</span></span>
+          <span></span>
+
+          <!-- ③ 粗利益 mPQ（右・＝①−②） -->
+          <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-sm shrink-0" style="background:#cf4d80"></span><span>③ 粗利益 mPQ <span class="text-ink-400 text-[10px]">付加価値</span></span></span>
+          <span></span><span></span>
+          <span class="num font-bold text-right text-m-ink border-t border-line pt-0.5"><span class="text-ink-300 mr-px">＝</span><span id="st-mPQ">0</span></span>
+
+          <!-- ④ 固定費 F（中・引く） -->
+          <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-sm shrink-0" style="background:#3b6fd4"></span><span>④ 固定費 F</span></span>
+          <span></span>
+          <span class="num font-bold text-right" style="color:#2f5fb0"><span class="text-ink-300 mr-px">−</span><span id="st-F">0</span></span>
+          <span></span>
+
+          <!-- 固定費の内訳（縦並び・全幅） -->
+          <div class="pl-5 text-[12px] text-ink-500 flex flex-col gap-y-0.5" style="grid-column:1/-1">
+            <div class="flex justify-between"><span>人件費（カ）</span><b class="num" id="st-labor">0</b></div>
+            <div class="flex justify-between"><span>販売費（キ）</span><b class="num" id="st-sell">0</b></div>
+            <div class="flex justify-between"><span>管理費（ク）</span><b class="num" id="st-admin">0</b></div>
+            <div class="flex justify-between"><span>減価償却</span><b class="num" id="st-dep">0</b></div>
+          </div>
+
+          <!-- ⑤ 経常利益 G（右・＝③−④） -->
+          <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-sm shrink-0" style="background:#caa12a"></span><span class="font-bold">⑤ 経常利益 G</span></span>
+          <span></span><span></span>
+          <span class="num font-black text-right text-lg text-g-ink border-t-2 border-line pt-0.5"><span class="text-ink-300 text-sm mr-px">＝</span><span id="st-G">0</span></span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 pt-3 text-center">
+          <div class="rounded-lg border border-line py-1.5"><div class="text-ink-400 text-[11px]">原価率</div><div class="num font-bold" id="st-cr">0%</div></div>
+          <div class="rounded-lg border border-line py-1.5"><div class="text-ink-400 text-[11px]">粗利率</div><div class="num font-bold" id="st-gp">0%</div></div>
+          <div class="rounded-lg border border-line py-1.5"><div class="text-ink-400 text-[11px]">損益分岐点</div><div class="num font-bold" id="st-bep">0%</div></div>
+        </div>
+      </div>
+
+      <!-- ⓲ 貸借対照表 B/S：図と数値を別セクションに（図の下に数値） -->
+      <div class="space-y-4">
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 class="font-bold mb-3">貸借対照表 B/S（図）</h2>
+          <div id="bs-fig"></div>
+          <div id="bs-check" class="mt-3 flex items-center justify-center gap-2 text-sm font-bold rounded-lg py-2"></div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 class="font-bold mb-3">貸借対照表 B/S（数値）</h2>
+          <div class="grid grid-cols-2 gap-x-5 items-stretch">
+            <div class="text-ink-400 text-xs border-b border-line pb-1 mb-2">資産</div>
+            <div class="text-ink-400 text-xs border-b border-line pb-1 mb-2">負債・純資産</div>
+            <div class="flex flex-col gap-1.5">
+              <div class="flex justify-between"><span class="text-ink-600">現金</span><b class="num" id="bs-cash">0</b></div>
+              <div class="flex justify-between"><span class="text-ink-600">在庫</span><b class="num" id="bs-inv">0</b></div>
+              <div class="flex justify-between"><span class="text-ink-600">什器</span><b class="num" id="bs-equip">0</b></div>
+              <div class="flex justify-between border-t border-line pt-1.5 mt-auto font-bold"><span>資産合計</span><span class="num" id="bs-asset">0</span></div>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <div class="flex justify-between"><span class="text-ink-600">未払法人税等</span><b class="num" id="bs-tax">0</b></div>
+              <div class="flex justify-between"><span class="text-ink-600">借入金</span><b class="num" id="bs-loan">0</b></div>
+              <div class="flex justify-between border-t border-dashed border-line pt-1 font-semibold"><span>負債合計</span><span class="num" id="bs-liab">0</span></div>
+              <div class="flex justify-between pt-1"><span class="text-ink-600">資本金</span><b class="num" id="bs-cap">0</b></div>
+              <div class="flex justify-between"><span class="text-ink-600">利益剰余金</span><b class="num" id="bs-ret">0</b></div>
+              <div class="flex justify-between border-t border-dashed border-line pt-1 font-semibold"><span>純資産合計</span><span class="num" id="bs-equity">0</span></div>
+              <div class="flex justify-between border-t border-line pt-1.5 mt-auto font-bold"><span>負債・純資産合計</span><span class="num" id="bs-le">0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C/F キャッシュフロー（ウォーターフォール図・全幅） -->
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <h2 class="font-bold mb-3"><span class="eyebrow text-[9px] text-accent-ink mr-1.5">C / F</span>キャッシュフロー（現金の増減）</h2>
+      <div id="cf-fig" class="overflow-x-auto scroll-x"></div>
+    </div>
+
+    <!-- CF数値 ｜ 法人税＋補助勘定（高さを揃える：items-stretch） -->
+    <div class="grid lg:grid-cols-2 gap-4 items-stretch">
+      <!-- キャッシュフロー計算書（数値） -->
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5 flex flex-col">
+        <h2 class="font-bold mb-1">キャッシュフロー計算書</h2>
+        <p class="text-ink-400 text-xs mb-3">現金の増減を 営業・投資・財務 に分けて表示します。</p>
+        <div id="cf-body" class="text-sm"></div>
+      </div>
+      <!-- 法人税＋補助勘定（縦に積む。この合計高さに CF数値 を合わせる） -->
+      <div class="flex flex-col gap-4">
+        <!-- ⓱ 法人税・利益剰余金 -->
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 class="font-bold mb-3">法人税・利益剰余金の計算</h2>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-ink-600">① 特別損益</span><b class="num" id="tx-special">0</b></div>
+            <div class="flex justify-between"><span class="text-ink-600">② 税引前当期純利益（G ＋ ①）</span><b class="num" id="tx-pre">0</b></div>
+            <div class="flex justify-between"><span class="text-ink-600">③ 前期繰越利益剰余金</span><b class="num" id="tx-ret0">0</b></div>
+            <div class="flex justify-between border-t border-dashed border-line pt-2"><span class="text-ink-600">④ 合計（② ＋ ③）</span><b class="num" id="tx-total">0</b></div>
+            <div class="flex justify-between"><span class="text-ink-600">⑤ 法人税等 <span class="text-ink-400 text-xs">来期期首納税</span></span><b class="num" style="color:#9a7d10" id="tx-tax">0</b></div>
+            <div class="flex justify-between"><span class="text-ink-600">⑥ 当期純利益（② − ⑤）</span><b class="num" id="tx-net">0</b></div>
+            <div class="flex justify-between border-t-2 border-line pt-2 font-bold"><span>⑦ 次期繰越利益剰余金（⑥ ＋ ③）</span><b class="num" id="tx-ret1">0</b></div>
+          </div>
+          <p class="text-ink-400 text-[11px] mt-3 leading-relaxed">②か④が▲なら5を納税／合計が+なら30%（前期繰越が▲のときは合計×30%）。※最低納税額は5。</p>
+        </div>
+        <!-- 補助勘定 -->
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 class="font-bold mb-3">補助勘定</h2>
+          <div class="grid grid-cols-2 gap-x-5 gap-y-4 text-[13px]">
+            <div>
+              <div class="text-ink-400 text-xs mb-1">現金勘定</div>
+              <div class="flex justify-between"><span class="text-ink-600">前期繰越</span><span class="num" id="sub-cash0">0</span></div>
+              <div class="flex justify-between"><span class="text-ink-600">＋入金 −出金</span><span class="num" id="sub-cashf">0</span></div>
+              <div class="flex justify-between font-bold border-t border-line mt-1 pt-1"><span>次期繰越</span><span class="num" id="sub-cash1">0</span></div>
+            </div>
+            <div>
+              <div class="text-ink-400 text-xs mb-1">什器</div>
+              <div class="flex justify-between"><span class="text-ink-600">前期繰越</span><span class="num" id="sub-eq0">0</span></div>
+              <div class="flex justify-between"><span class="text-ink-600">−減価償却</span><span class="num" id="sub-dep">0</span></div>
+              <div class="flex justify-between font-bold border-t border-line mt-1 pt-1"><span>次期繰越</span><span class="num" id="sub-eq1">0</span></div>
+            </div>
+            <div>
+              <div class="text-ink-400 text-xs mb-1">借入金</div>
+              <div class="flex justify-between"><span class="text-ink-600">前期繰越</span><span class="num" id="sub-loan0">0</span></div>
+              <div class="flex justify-between"><span class="text-ink-600">＋借入 −返済</span><span class="num" id="sub-loanf">0</span></div>
+              <div class="flex justify-between font-bold border-t border-line mt-1 pt-1"><span>次期繰越</span><span class="num" id="sub-loan1">0</span></div>
+            </div>
+            <div>
+              <div class="text-ink-400 text-xs mb-1">在庫・原価</div>
+              <div class="flex justify-between"><span class="text-ink-600">平均単価</span><span class="num" id="sub-avg">0</span></div>
+              <div class="flex justify-between"><span class="text-ink-600">売上原価</span><span class="num" id="sub-cogs">0</span></div>
+              <div class="flex justify-between font-bold border-t border-line mt-1 pt-1"><span>次期繰越</span><span class="num" id="sub-inv1">0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap justify-end gap-3 pt-1">
+      <button id="statement-next" class="h-12 px-6 rounded-xl bg-g-base text-white font-bold hover:brightness-95 transition shadow-card">次の期へ進む →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 履歴 ============================ -->
+<section data-panel="history" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">履歴</h1>
+    <p class="text-ink-400 text-sm mt-1">決算した期ごとの主要数値。「次の期へ進む」で蓄積されます。</p>
+  </div>
+  <div id="history-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400 text-sm">まだ決算履歴がありません。</div>
+  <div id="history-body" class="hidden bg-white rounded-2xl shadow-card border border-line p-4 overflow-x-auto scroll-x">
+    <table class="w-full text-[13px] num text-right min-w-[720px]">
+      <thead><tr class="text-ink-400 border-b border-line">
+        <th class="text-left font-semibold px-2 py-2">期</th>
+        <th class="px-2 py-2">売上PQ</th><th class="px-2 py-2">変動費vPQ</th><th class="px-2 py-2">粗利mPQ</th>
+        <th class="px-2 py-2">固定費F</th><th class="px-2 py-2">経常利益G</th><th class="px-2 py-2">当期利益</th>
+        <th class="px-2 py-2">自己資本</th><th class="px-2 py-2">現金</th><th class="px-2 py-2 text-center">決算書</th>
+      </tr></thead>
+      <tbody id="history-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================ 振り返り ============================ -->
+<section data-panel="review" class="hidden">
+  <div class="mb-5">
+    <h1 class="text-xl sm:text-2xl font-black tracking-tight">振り返り</h1>
+    <p class="text-ink-400 text-sm mt-1">期ごとの主要KPIの推移と、気づき・反省のメモ。</p>
+  </div>
+  <div id="review-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400 text-sm">決算履歴が貯まると、ここに推移が表示されます。</div>
+  <div id="review-body" class="hidden space-y-4">
+    <!-- 最新期ハイライト（前期比つき） -->
+    <div>
+      <div class="text-ink-500 text-xs font-bold mb-2 px-1" id="rv-score-title">最新期のハイライト</div>
+      <div id="rv-score" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+    </div>
+
+    <!-- 利益構造（STRAC）の推移 -->
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <div class="flex items-baseline justify-between mb-1">
+        <h2 class="font-bold">利益構造（STRAC）の推移</h2>
+        <div class="text-[10px] text-ink-300">｜＝売上高PQ</div>
+      </div>
+      <p class="text-ink-400 text-xs mb-3">売上高 ＝ <b style="color:#37a36b">変動費</b> ＋ <b style="color:#3b6fd4">固定費</b> ＋ <b style="color:#d98a06">利益</b>。コスト（緑＋青）が PQ の線を超えると <b style="color:#c8322b">赤字（損失）</b>。</p>
+      <div id="rv-struct" class="space-y-3"></div>
+    </div>
+
+    <!-- KPI推移（組織タブと同じ6指標） -->
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">売上 PQ の推移</h2><div id="rv-PQ"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">経常利益 G の推移</h2><div id="rv-G"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">当期純利益の推移</h2><div id="rv-NET"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">FM比率（損益分岐点比率）の推移</h2><div id="rv-FM"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">純資産の推移</h2><div id="rv-EQ"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">粗利率の推移</h2><div id="rv-MR"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="rv-TURN"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="rv-DEC"></div></div>
+    </div>
+
+    <!-- 自動の気づき -->
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <h2 class="font-bold mb-2">自動の気づき</h2>
+      <ul id="rv-insights" class="space-y-1.5 text-[13px] leading-relaxed"></ul>
+    </div>
+
+    <!-- メモ -->
+    <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+      <h2 class="font-bold mb-2">気づき・反省メモ</h2>
+      <textarea id="rv-note" rows="4" placeholder="この期の意思決定で良かった点／次に活かす点…" class="w-full border border-line rounded-xl px-3 py-2.5 text-sm focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none resize-y"></textarea>
+      <p class="text-ink-300 text-xs mt-1">※モックではメモはこの画面内のみ保持します。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 組織 ============================ -->
+<section data-panel="org" class="hidden">
+  <div class="max-w-5xl mx-auto px-3 sm:px-6 py-5">
+    <div class="flex items-end justify-between gap-3 mb-1 flex-wrap">
+      <h1 class="text-xl sm:text-2xl font-black tracking-tight">組織</h1>
+      <div class="text-sm text-ink-500">組織コード <b id="org-code" class="num text-ink">—</b></div>
+    </div>
+    <p class="text-ink-400 text-sm mb-3">同じ組織コードを入力した会社どうしの成績を折れ線グラフで比較します。<span class="text-ink-300">（モックではこの端末の保存データで再現）</span></p>
+    <div class="flex items-center gap-2 mb-4 flex-wrap">
+      <button id="org-sample" class="h-10 px-4 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 active:scale-[.97] transition">サンプル企業を追加</button>
+      <span class="text-ink-300 text-xs">他社データを入れて折れ線比較を試せます。</span>
+    </div>
+    <div id="org-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400 text-sm">
+      会社情報で<b>組織コード</b>を入力すると、同じコードの会社を比較できます。<br>決算を確定すると自分の会社が組織に登録されます。
+    </div>
+    <div id="org-body" class="hidden space-y-4">
+      <div class="bg-white rounded-2xl shadow-card border border-line p-5">
+        <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h2 class="font-bold">参加している会社 <span id="org-count" class="text-ink-300 text-xs font-normal"></span></h2>
+          <div class="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold shrink-0">
+            <button data-ov="charts" class="ov-tab px-3 py-1 rounded-md transition">チャート</button>
+            <button data-ov="table"  class="ov-tab px-3 py-1 rounded-md transition">数値（順位）</button>
+          </div>
+        </div>
+        <div id="org-members" class="flex flex-wrap gap-2"></div>
+      </div>
+      <div id="org-charts" class="grid sm:grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">売上 PQ の推移</h2><div id="org-PQ"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">経常利益 G の推移</h2><div id="org-G"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">当期純利益の推移</h2><div id="org-NET"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">FM比率（損益分岐点比率）の推移</h2><div id="org-FM"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">純資産の推移</h2><div id="org-EQ"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">粗利率の推移</h2><div id="org-MR"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="org-TURN"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="org-DEC"></div></div>
+      </div>
+      <div id="org-table" class="hidden grid sm:grid-cols-2 gap-4"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ===================== 記帳モーダル ===================== -->
+<div id="modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+  <div id="modal-bg" class="absolute inset-0 bg-ink/40"></div>
+  <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto">
+    <div class="flex items-center gap-2 mb-1">
+      <span id="m-badge" class="text-xs font-semibold px-2 py-0.5 rounded-md bg-v-bg text-v-ink">badge</span>
+      <span id="m-side" class="text-xs text-ink-400">出金</span>
+    </div>
+    <h3 id="m-title" class="font-bold text-lg">title</h3>
+    <p id="m-note" class="text-ink-400 text-xs mb-4">　</p>
+    <div id="m-fields" class="space-y-3"></div>
+    <div id="m-amount-box" class="flex items-center justify-between bg-canvas rounded-xl px-4 py-3 mt-4">
+      <span class="text-sm text-ink-600" id="m-amount-label">記帳額</span>
+      <span class="num font-bold text-2xl"><span id="m-amount">0</span></span>
+    </div>
+    <div id="m-error" class="hidden mt-3 text-[13px] leading-relaxed text-accent bg-accent/5 border border-accent/30 rounded-xl px-3 py-2"></div>
+    <div class="flex gap-2 mt-4">
+      <button id="m-delete" class="hidden h-11 px-4 rounded-xl border border-accent/40 text-accent font-semibold hover:bg-accent/5 transition">削除</button>
+      <button id="m-cancel" class="flex-1 h-11 rounded-xl border border-line font-semibold text-ink-600 hover:bg-canvas transition">キャンセル</button>
+      <button id="m-ok" class="flex-1 h-11 rounded-xl bg-accent text-white font-bold hover:bg-accent-ink transition">決定して記帳</button>
+    </div>
+  </div>
+</div>
+
+<footer class="max-w-5xl mx-auto px-6 py-8 text-center">
+  <p class="text-ink-300 text-xs">戦略MG 自動決算 — モック。記帳から決算・決算書・履歴・振り返りまで自動連動。本実装は React + Vite を予定。</p>
+</footer>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = n => Math.round(n).toLocaleString('ja-JP');   // 千円は整数・四捨五入
+  const SALARY_TABLE = {1:25,2:28,3:31,4:34,5:37};
+
+  // ====================== 状態 ======================
+  const COLS = 11;                 // ア イ ウ A / エ オ カ キ ク ケ コ
+  const IN_COLS = [0,1,2,3];
+  // 現金出納帳 列の配色（決算書PDF準拠）: h=ヘッダ, c=セル, t=文字
+  const LCOL = [
+    {h:'#fbe0ea',c:'#fdf1f6',t:'#b03a6a'}, // ア 資本金 桃
+    {h:'#fdf3c7',c:'#fef9e6',t:'#9a7d10'}, // イ 借入金 黄
+    {h:'#fde3c4',c:'#fef3e6',t:'#b5630f'}, // ウ 売上 橙
+    {h:'#fce8ef',c:'#fdf4f8',t:'#b85c7e'}, // A 受取保険金 桃
+    {h:'#e4dcf3',c:'#f3eefb',t:'#6b4fa0'}, // エ 什器 紫
+    {h:'#d8ecd8',c:'#eef7ee',t:'#3f7a3f'}, // オ 材料仕入 緑
+    {h:'#d6e6f7',c:'#eef5fc',t:'#2f5f93'}, // カ 人件費 青
+    {h:'#d3ecf2',c:'#eef8fb',t:'#1f7a8c'}, // キ 販売費 水
+    {h:'#dfe2f5',c:'#f1f2fb',t:'#4a55a8'}, // ク 管理費 藍
+    {h:'#fdf3c7',c:'#fef9e6',t:'#9a7d10'}, // ケ 借入金返済 黄
+    {h:'#e7e9ec',c:'#f5f6f7',t:'#5b6472'}, // コ 納税 灰
+  ];
+  const LHEAD = [  // 出納帳の列見出し（記号＋名称）。ヘッダーと合計下フッターで共用
+    {s:'ア',n:'資本金'},{s:'イ',n:'借入金'},{s:'ウ',n:'売上'},{s:'A',n:'保険金'},
+    {s:'エ',n:'什器'},{s:'オ',n:'材料仕入'},{s:'カ',n:'人件費'},{s:'キ',n:'販売費'},
+    {s:'ク',n:'管理費'},{s:'ケ',n:'返済'},{s:'コ',n:'納税'},
+  ];
+  const st = newState();
+  function newState(){
+    return {
+      name:'サンプル製菓', president:'', org:'', period:1,
+      openingCash:0, openingCapital:0, retained:0, openingMatQty:0, openingMatVal:0, openingProducts:0, openingEquipVal:0,
+      openingMachines:0, openingStaffMfg:0, openingStaffSales:0, openingLoan:0, openingDev:0, openingAds:0,
+      matQty:0, matVal:0, rawCubes:0, products:0,
+      machines:0, equipVal:0, staffMfg:0, staffSales:0,
+      ads:0, dev:0, insurance:0, edu:0, loan:0,
+      salesQty:0, salesAmt:0, scrapQty:0,
+      loanMult:1,                 // 借入金可能枠の倍率（純資産×倍率）。期ごとにインストラクターが設定
+      repayRate:0,                // 期末の強制返済率（期首残高×%）。期ごとにインストラクターが設定
+      tx:[], seq:1, settled:false, closingPrep:false, started:false, result:null,
+    };
+  }
+  const history = [];   // 確定した期のサマリ
+
+  // ====================== アクション定義 ======================
+  // 複数行記帳（仕入れ・販売）の行配列を取り出す。旧データ {qty,unit} は1行として扱う
+  function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty:f?f.qty:undefined, unit:f?f.unit:undefined}]; }
+  const ACTIONS = {
+    // --- ルールA ---
+    shiire:  {label:'仕入れ', rule:'A', col:5, side:'out', badge:'オ 材料仕入', multi:true,
+      fields:[{k:'qty',l:'個数',d:0,s:'個'},{k:'unit',l:'単価',choice:[10,11,12,13,14,15,16],d:10,num:true,s:'/個'}],
+      amount:f=>rowsOf(f).reduce((s,r)=>s+r.qty*r.unit,0), note:'材料は市場価格（10〜16）で仕入れ。＋で複数単価を1記帳に',
+      apply:f=>{ rowsOf(f).forEach(r=>{ st.rawCubes+=r.qty; st.matQty+=r.qty; st.matVal+=r.qty*r.unit; }); }, rownote:f=>rowsOf(f).map(r=>`${r.qty}×${r.unit}`).join(' ＋ ')},
+    seizo:   {label:'製造', rule:'A', col:null, side:null, badge:'製造（現金移動なし）', noCash:true,
+      fields:[{k:'qty',l:'個数',d:1,s:'個'}],
+      amount:f=>0, note:'材料→製品。機械と製造スタッフが必要（機械1台で2人稼働）。1人2個・教育で3個',
+      apply:f=>{ const n=Math.min(f.qty, st.rawCubes); st.rawCubes-=n; st.products+=n; }, rownote:f=>`製品+${f.qty}`},
+    hanbai:  {label:'販売', rule:'A', col:2, side:'in', badge:'ウ 売上', multi:true,
+      fields:[{k:'qty',l:'個数',d:1,s:'個'},{k:'unit',l:'売価P',d:30,s:'/個'}],
+      amount:f=>rowsOf(f).reduce((s,r)=>s+r.qty*r.unit,0), note:'入札競争で販売。＋で複数売価を1記帳に',
+      apply:f=>{ rowsOf(f).forEach(r=>{ const n=Math.min(r.qty, st.products); st.products-=n; st.salesQty+=r.qty; st.salesAmt+=r.qty*r.unit; }); }, rownote:f=>rowsOf(f).map(r=>`${r.qty}×${r.unit}`).join(' ＋ ')},
+    kikai:   {label:'機械購入', rule:'A', col:4, side:'out', badge:'エ 什器',
+      fields:[{k:'n',l:'台数',d:1,s:'台'}],
+      amount:f=>f.n*100, note:'1台100・製造スタッフ2人稼働・減価償却10/台',
+      apply:f=>{ st.machines+=f.n; st.equipVal+=f.n*100; }},
+    saiyo:   {label:'スタッフ採用', rule:'A', col:6, side:'out', badge:'カ 人件費',
+      fields:[{k:'mfg',l:'製造',d:0,s:'人',min:0},{k:'sales',l:'販売',d:0,s:'人',min:0},{k:'fail',l:'失敗',d:0,s:'人',min:0}],
+      amount:f=>(f.mfg+f.sales+f.fail)*5, note:'採用費5/人（失敗分も発生）。製造・販売を採用し、失敗分はスタッフを受け取れない',
+      apply:f=>{ st.staffMfg+=f.mfg; st.staffSales+=f.sales; }, rownote:f=>`製造${f.mfg}・販売${f.sales}${f.fail?`・失敗${f.fail}`:''}`},
+    koukoku: {label:'広告', rule:'A', col:7, side:'out', badge:'キ 販売費',
+      fields:[{k:'n',l:'枚数',d:1,s:'枚'}], amount:f=>f.n*10, note:'10/枚・販売能力+2',
+      apply:f=>{ st.ads+=f.n; }},
+    kaihatsu:{label:'商品開発', rule:'A', col:7, side:'out', badge:'キ 販売費',
+      fields:[{k:'n',l:'枚数',d:1,s:'枚',fixed:true},{k:'result',l:'結果',choice:['成功','失敗'],d:'成功'}],
+      amount:f=>f.n*20, note:'開発費20は失敗でも発生・1ターン1枚まで',
+      apply:f=>{ if(f.result==='失敗') return; st.dev+=f.n; }, rownote:f=>f.result==='失敗'?'開発 失敗':`開発+${f.n}`},
+    // --- ルールB ---
+    hoken:   {label:'保険加入', rule:'B', col:8, side:'out', badge:'ク 管理費',
+      fields:[{k:'n',l:'枚数',d:1,s:'枚'}], amount:f=>f.n*5, note:'5/枚・期末返却',
+      apply:f=>{ st.insurance+=f.n; }},
+    kyoiku:  {label:'教育', rule:'B', col:8, side:'out', badge:'ク 管理費',
+      fields:[{k:'n',l:'枚数',d:1,s:'枚',fixed:true}], amount:f=>f.n*20, note:'20/枚・製造能力+1',
+      apply:f=>{ st.edu+=f.n; }},
+    haichi:  {label:'配置転換', rule:'B', col:8, side:'out', badge:'ク 管理費',
+      fields:[{k:'n',l:'人数',d:1,s:'人'},{k:'dir',l:'方向',choice:['製造→販売','販売→製造'],d:'製造→販売'}],
+      amount:f=>f.n*5, note:'5/人・製造⇄販売',
+      apply:f=>{ const n=f.n; if(f.dir==='製造→販売'){ const m=Math.min(n,st.staffMfg); st.staffMfg-=m; st.staffSales+=m; } else { const m=Math.min(n,st.staffSales); st.staffSales-=m; st.staffMfg+=m; } }, rownote:f=>f.dir},
+    kariire: {label:'借入', rule:'B', col:1, side:'in', badge:'イ 借入金',
+      fields:[{k:'a',l:'金額',d:100,s:'千',dynMax:'loanRoom'}], amount:f=>f.a, note:'純資産×倍率−残高 の範囲内（第1期は不可）・借入時に5%の金利',
+      apply:f=>{ st.loan+=f.a; }},
+    hensai:  {label:'借入返済', rule:'B', col:9, side:'out', badge:'ケ 返済',
+      fields:[{k:'a',l:'金額',d:0,s:'千'}], amount:f=>f.a, note:'期末に返済（借入残高まで）',
+      apply:f=>{ st.loan=Math.max(0,st.loan-f.a); }},
+    // --- イベントカード（cat＝カテゴリ） ---
+    // 販売機会
+    kaihatsu_win:{label:'商品開発成功！', rule:'X', cat:'販売機会', col:2, side:'in', badge:'ウ 売上',
+      fields:[{k:'qty',l:'個数',d:0,s:'個',min:0}], amount:f=>f.qty*32, note:'商品開発チップ1枚につき2個まで・1個32で販売（販売能力の範囲内）。0個でも記帳可',
+      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=f.qty; st.salesAmt+=f.qty*32; }, rownote:f=>f.qty?`${f.qty}×32`:'効果なし'},
+    dokusen:{label:'独占販売！', rule:'X', cat:'販売機会', col:2, side:'in', badge:'ウ 売上',
+      fields:[{k:'qty',l:'個数',d:0,s:'個',min:0},{k:'unit',l:'売価',d:30,s:'/個',min:0}], amount:f=>f.qty*f.unit, note:'販売スタッフ1人につき2個まで・空いた市場で独占販売（販売能力の範囲内）。0個でも記帳可',
+      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=f.qty; st.salesAmt+=f.qty*f.unit; }, rownote:f=>f.qty?`独占 ${f.qty}×${f.unit}`:'効果なし'},
+    // 仕入機会
+    tokubai:{label:'特別サービス！', rule:'X', cat:'仕入機会', col:5, side:'out', badge:'オ 材料仕入',
+      fields:[{k:'qty',l:'個数',d:0,s:'個',min:0}], amount:f=>f.qty*10, note:'1個10で5個まで仕入（ストッカーから）。0個でも記帳可',
+      apply:f=>{ st.rawCubes+=f.qty; st.matQty+=f.qty; st.matVal+=f.qty*10; }, rownote:f=>f.qty?`${f.qty}×10`:'効果なし'},
+    keiki:{label:'景気上昇', rule:'X', cat:'仕入機会', col:5, side:'out', badge:'オ 材料仕入',
+      fields:[{k:'qty',l:'個数',d:0,s:'個',min:0}], amount:f=>f.qty*12, note:'各社共3個まで・1個12で仕入。0個でも記帳可',
+      apply:f=>{ st.rawCubes+=f.qty; st.matQty+=f.qty; st.matVal+=f.qty*12; }, rownote:f=>f.qty?`${f.qty}×12`:'効果なし'},
+    // 在庫被害
+    ibutsu:  {label:'異物混入', rule:'X', cat:'在庫被害', col:3, side:'in', badge:'A 受取保険金', custom:true,
+      fields:[], amount:f=>f.payout||0, note:'製品を最大2個破棄。保険加入中なら1個10の受取保険金（保険チップを1枚返す）',
+      apply:f=>{ const d=Math.min(f.discard||0, st.products); st.products-=d; st.scrapQty+=d; if(f.insuredUsed) st.insurance=Math.max(0,st.insurance-f.insuredUsed); },
+      rownote:f=>f.payout?`製品破棄${f.discard}・保険金`:`製品破棄${f.discard}`},
+    suigai:  {label:'水害発生', rule:'X', cat:'在庫被害', col:3, side:'in', badge:'A 受取保険金', custom:true,
+      fields:[], amount:f=>f.payout||0, note:'材料をすべて破棄。保険加入中なら1個10の受取保険金（保険チップを1枚返す）',
+      apply:f=>{ const d=Math.min(f.discard||0, st.rawCubes); st.rawCubes-=d; st.scrapQty+=d; if(f.insuredUsed) st.insurance=Math.max(0,st.insurance-f.insuredUsed); },
+      rownote:f=>f.payout?`材料破棄${f.discard}・保険金`:`材料破棄${f.discard}`},
+    // 退職
+    taishoku_mfg:{label:'製造スタッフ退職', rule:'X', cat:'退職', col:6, side:'out', badge:'カ 人件費',
+      fields:[], amount:f=>5, note:'退職金5（人件費）・製造スタッフ−1・期末に給料の半額(切上)を支払う（教育チップがあればサイコロ偶数で引き留め）',
+      apply:f=>{ if(st.staffMfg>0) st.staffMfg--; }, rownote:f=>'製造 退職'},
+    taishoku_sales:{label:'販売スタッフ退職', rule:'X', cat:'退職', col:6, side:'out', badge:'カ 人件費',
+      fields:[], amount:f=>5, note:'退職金5（人件費）・販売スタッフ−1・期末に給料の半額(切上)を支払う（教育チップがあればサイコロ偶数で引き留め）',
+      apply:f=>{ if(st.staffSales>0) st.staffSales--; }, rownote:f=>'販売 退職'},
+    // 費用・トラブル
+    claim:{label:'クレーム発生', rule:'X', cat:'費用・トラブル', col:7, side:'out', badge:'キ 販売費',
+      fields:[], amount:f=>5, note:'クレーム処理費5を販売費として支払う', apply:f=>{}, rownote:f=>'処理費5'},
+    kitchen:{label:'厨房機器故障', rule:'X', cat:'費用・トラブル', col:8, side:'out', badge:'ク 管理費',
+      fields:[], amount:f=>5, note:'修理費5を管理費として支払う（販売は可能）', apply:f=>{}, rownote:f=>'修理費5'},
+    rousai:{label:'労災発生', rule:'X', cat:'費用・トラブル', col:8, side:'out', badge:'ク 管理費',
+      fields:[], amount:f=>5, note:'治療費5を管理費として支払う', apply:f=>{}, rownote:f=>'治療費5'},
+    // 手番のみ（記録のみ・現金移動なし）
+    kansen:{label:'感染症の流行', rule:'X', cat:'手番のみ', col:null, side:null, badge:'記録のみ', noCash:true,
+      fields:[], amount:f=>0, note:'スタッフの多くが罹患。今回は休み（記録のみ）', apply:f=>{}, rownote:f=>'今回休み'},
+    chiiki:{label:'地域行事参加', rule:'X', cat:'手番のみ', col:null, side:null, badge:'記録のみ', noCash:true,
+      fields:[], amount:f=>0, note:'地域行事のお世話係。今回は休み（記録のみ）', apply:f=>{}, rownote:f=>'今回休み'},
+    fuhyo:{label:'風評被害発生', rule:'X', cat:'手番のみ', col:null, side:null, badge:'記録のみ', noCash:true,
+      fields:[], amount:f=>0, note:'風評被害でお客様が激減。今回は休み（記録のみ）', apply:f=>{}, rownote:f=>'今回休み'},
+    gyaku:{label:'逆回り', rule:'X', cat:'手番のみ', col:null, side:null, badge:'記録のみ', noCash:true,
+      fields:[], amount:f=>0, note:'景気変動。カードを引く順を逆回りに（記録のみ）', apply:f=>{}, rownote:f=>'逆回り'},
+    kaihatsu_fail:{label:'商品開発失敗', rule:'X', cat:'手番のみ', col:null, side:null, badge:'記録のみ（現金移動なし）', noCash:true,
+      fields:[], amount:f=>0, note:'商品開発チップを1枚失う（現金移動なし）',
+      apply:f=>{ if(st.dev>0) st.dev--; }, rownote:f=>'開発 −1'},
+  };
+  // イベントカテゴリの表示順
+  const EVENT_CATS=['販売機会','仕入機会','在庫被害','退職','費用・トラブル','手番のみ'];
+
+  // ====================== ツールバー描画 ======================
+  const TAGS={shiire:'−10〜16',kikai:'−100',saiyo:'−5',koukoku:'−10',kaihatsu:'−20',hanbai:'＋ 売上',seizo:'材料→製品',hoken:'−5',kyoiku:'−20',haichi:'−5',kariire:'＋ 借入',hensai:'− 返済',kanrihi:'管理費 −',hanbaihi:'販売費 −',taishoku:'退職金 −5',kaihatsu_fail:'開発 −1枚',ibutsu:'製品破棄→保険',suigai:'材料全破棄→保険'};
+  // 各アクションの色（ゲーム駒の色）とアイコン
+  const STY={
+    shiire:{c:'#8b5e3c',i:'📦'}, seizo:{c:'#d98324',i:'🍰'}, hanbai:{c:'#0f766e',i:'💰'},
+    kikai:{c:'#64748b',i:'⚙️'}, saiyo:{c:'#2f6fe0',i:'🧑'}, koukoku:{c:'#c8322b',i:'📣'}, kaihatsu:{c:'#2563eb',i:'💡'},
+    hoken:{c:'#ca9a06',i:'🛡️'}, kyoiku:{c:'#e8842a',i:'📚'}, haichi:{c:'#5b6472',i:'🔁'},
+    kariire:{c:'#0f766e',i:'🏦'}, hensai:{c:'#5b6472',i:'↩️'},
+    kanrihi:{c:'#4a55a8',i:'🧾'}, hanbaihi:{c:'#1f7a8c',i:'🧾'}, taishoku:{c:'#2f5f93',i:'🚪'},
+    kaihatsu_fail:{c:'#1f7a8c',i:'💥'}, ibutsu:{c:'#b85c7e',i:'⚠️'}, suigai:{c:'#b85c7e',i:'🌊'},
+  };
+  function buildTools(rule){
+    const wrap = $('tools-'+rule); wrap.innerHTML='';
+    Object.keys(ACTIONS).filter(k=>ACTIONS[k].rule===rule).forEach(k=>{
+      const a=ACTIONS[k], s=STY[k];
+      const col=(a.col!=null && LCOL[a.col])?LCOL[a.col].t:s.c;   // ボタン色＝記帳先の勘定科目（出納帳の列）の色に合わせる
+      const b=document.createElement('button');
+      b.className='w-full flex items-center gap-2 h-12 pl-2 pr-3 rounded-xl border-2 hover:shadow-md active:scale-[.97] transition min-w-0';
+      b.style.borderColor=col+'55'; b.style.background=col+'0d';
+      b.innerHTML=`<span class="grid place-items-center w-9 h-9 rounded-lg bg-white text-lg shrink-0 border" style="border-color:${col}40">${s.i}</span>`+
+        `<span class="text-left leading-tight min-w-0"><span class="block font-bold text-sm text-ink truncate">${a.label}</span><span class="block num text-[11px] truncate" style="color:${col}">${TAGS[k]}</span></span>`;
+      b.addEventListener('click',()=> a.custom?eventCard(k):openModal(k));
+      wrap.appendChild(b);
+    });
+  }
+  buildTools('A'); buildTools('B');
+  // イベントカード：カテゴリ別ドロップダウン＋「このカードを記帳」
+  function buildEventSelect(){
+    const sel=$('event-select'); if(!sel) return;
+    let h='<option value="" disabled selected>イベントカードを選択…</option>';
+    EVENT_CATS.forEach(cat=>{
+      const keys=Object.keys(ACTIONS).filter(k=>ACTIONS[k].cat===cat);
+      if(!keys.length) return;
+      h+=`<optgroup label="${cat}">`+keys.map(k=>`<option value="${k}">${ACTIONS[k].label}</option>`).join('')+'</optgroup>';
+    });
+    sel.innerHTML=h;
+  }
+  function applyEvent(key){
+    if(!key){ uiAlert('イベントカードを選択してください。'); return; }
+    const a=ACTIONS[key];
+    if(a.custom){ eventCard(key); return; }                 // 異物混入・水害（保険計算つき）
+    if(a.fields && a.fields.length){ openModal(key); return; } // 個数・売価を入力するカード
+    if(st.settled){ uiAlert('この期は決算済みです。「決算書」タブから次の期へ進んでください。'); return; }
+    if(st.closingPrep){ uiAlert('期末処理を計上済みです。記帳を追加するには「記帳に戻る」を押してください。'); return; }
+    if(key==='taishoku_mfg' && st.staffMfg<=0){ uiAlert('退職できる製造スタッフがいません。'); return; }
+    if(key==='taishoku_sales' && st.staffSales<=0){ uiAlert('退職できる販売スタッフがいません。'); return; }
+    uiConfirm(`「${a.label}」を記帳しますか？（${a.note}）`, ()=>{
+      st.tx.push({ id:st.seq++, key, fvals:{}, label:a.label, col:a.col, amount:a.amount({})||0, noCash:!!a.noCash, note:a.rownote?a.rownote({}):'' });
+      recompute(); renderAll(true);
+    }, {okText:'記帳する'});
+  }
+  buildEventSelect();
+  $('event-go').addEventListener('click',()=>applyEvent($('event-select').value));
+  $('event-select').addEventListener('change',e=>{ const a=ACTIONS[e.target.value]; if(a) $('event-desc').textContent=a.note; });
+
+  // ====================== モーダル ======================
+  const modal=$('modal'); let curKey=null, curEditId=null, editAmtRow=null, curMaxA=Infinity, pendingOk=null, mRows=[];
+  let viewMode=false;   // 管理者ビュー（閲覧専用）
+  function openModal(key, editTx){
+    if(viewMode){ return; }
+    if(st.settled){ uiAlert('この期は決算済みです。「決算書」タブから次の期へ進んでください。'); return; }
+    if(!editTx && st.closingPrep){ uiAlert('期末処理を計上済みです。記帳を追加するには「記帳に戻る」を押してください。'); return; }
+    if(key==='kariire'){                              // 借入：第1期は不可、可能枠でクランプ
+      if(st.period<=1){ uiAlert('第1期は借入できません。'); return; }
+      curMaxA=loanRoom(editTx?(editTx.fvals&&editTx.fvals.a||0):0);
+      if(curMaxA<=0){ uiAlert('借入可能額がありません（純資産×倍率の枠に達しています）。'); return; }
+    } else curMaxA=Infinity;
+    pendingOk=null; $('m-amount-box').classList.remove('hidden'); $('m-cancel').classList.remove('hidden');
+    curKey=key; curEditId = editTx?editTx.id:null; editAmtRow=null; const a=ACTIONS[key];
+    $('m-delete').classList.toggle('hidden', !editTx);
+    $('m-ok').textContent = editTx?'保存':'決定して記帳';
+    const fv = editTx?(editTx.fvals||{}):null;
+    $('m-badge').textContent=a.badge;
+    $('m-badge').className='text-xs font-semibold px-2 py-0.5 rounded-md '+(a.noCash?'bg-canvas text-ink-400':(a.side==='in'?'bg-cin-bg text-cin-ink':'bg-cout-bg text-cout-ink'));
+    $('m-title').textContent=(editTx?'編集：':'')+a.label;
+    $('m-side').textContent=a.noCash?'記録のみ':(a.side==='in'?'入金':'出金');
+    $('m-note').className='text-ink-400 text-xs mb-4';
+    $('m-note').textContent= key==='kariire'
+      ? `借入可能額 ${fmt(curMaxA)}（純資産 ${fmt(equityNow())} ×${st.loanMult}倍 − 残高 ${fmt(st.loan)}）／借入時に5%の金利（管理費）`
+      : (a.note||'　');
+    $('m-amount-label').textContent=a.noCash?'記帳（現金移動なし）':'記帳額';
+    const body=$('m-fields'); body.innerHTML='';
+    if(a.multi){
+      mRows = (fv && fv.items && fv.items.length) ? fv.items.map(r=>({...r}))
+            : (fv && fv.qty!=null) ? [{qty:fv.qty, unit:fv.unit}]
+            : [defaultRow(a)];
+      renderMultiRows();
+    } else {
+    a.fields.forEach(f=>{
+      const lab=document.createElement('label'); lab.className='flex items-center justify-between gap-3';
+      if(f.choice){
+        const sel = fv && fv[f.k]!=null ? fv[f.k] : f.d;
+        const opts=f.choice.map(o=>`<option value="${o}"${String(o)===String(sel)?' selected':''}>${o}</option>`).join('');
+        lab.innerHTML=`<span class="text-sm font-medium">${f.l}</span>
+          <select id="mf-${f.k}" class="h-11 w-32 border border-line rounded-lg px-3 text-base bg-white outline-none focus:border-ink/40">${opts}</select>`;
+      } else if(f.fixed){
+        lab.innerHTML=`<span class="text-sm font-medium">${f.l}</span>
+          <span class="flex items-center gap-1.5">
+            <input id="mf-${f.k}" type="number" value="${f.d}" disabled tabindex="-1" class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base bg-gray-100 text-ink/60 cursor-not-allowed outline-none">
+            <span class="text-xs text-ink/40">固定</span></span>`;
+      } else {
+        let def = fv && fv[f.k]!=null ? fv[f.k] : (f.dyn==='loan'?st.loan:f.d);
+        let maxA = f.max;
+        if(f.dynMax==='loanRoom'){ maxA=curMaxA; def=Math.min(def,curMaxA); }
+        const lim = (f.min!=null?` min="${f.min}"`:'')+(maxA!=null&&isFinite(maxA)?` max="${maxA}"`:'');
+        lab.innerHTML=`<span class="text-sm font-medium">${f.l}</span>
+          <span class="flex items-center gap-1.5">
+            <input id="mf-${f.k}" type="number" value="${def}"${lim} class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none"></span>`;
+      }
+      body.appendChild(lab);
+    });
+    body.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',preview));
+    }
+    preview();
+    modal.classList.remove('hidden');
+    setTimeout(()=>{ const fi=body.querySelector('input'); if(fi){ fi.focus(); fi.select(); } },30);
+  }
+  // ===== 複数行記帳（仕入れ・販売）：＋で行追加。1モーダル＝1記帳（fvals.items に行配列） =====
+  function defaultRow(a){ const d={}; a.fields.forEach(f=>d[f.k]=f.d); return d; }
+  function rowFieldHtml(f, ri, val){
+    if(f.choice){
+      const sel = val!=null ? val : f.d;
+      const opts=f.choice.map(o=>`<option value="${o}"${String(o)===String(sel)?' selected':''}>${o}</option>`).join('');
+      return `<select id="mf-${f.k}-${ri}" class="h-10 w-20 border border-line rounded-lg px-2 text-base bg-white outline-none focus:border-ink/40">${opts}</select>`;
+    }
+    const def = val!=null ? val : f.d;
+    const lim = (f.min!=null?` min="${f.min}"`:'');
+    return `<input id="mf-${f.k}-${ri}" type="number" value="${def}"${lim} class="h-10 w-16 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10">`;
+  }
+  function syncMRows(){ const a=ACTIONS[curKey]; mRows = mRows.map((_,ri)=>{ const o={}; a.fields.forEach(f=>{ const el=$('mf-'+f.k+'-'+ri); if(!el){ o[f.k]=undefined; return; } o[f.k]= f.choice ? (f.num?parseFloat(el.value):el.value) : (el.value===''?NaN:parseFloat(el.value)); }); return o; }); }
+  function renderMultiRows(){
+    const a=ACTIONS[curKey], body=$('m-fields'); body.innerHTML='';
+    const wrap=document.createElement('div'); wrap.className='space-y-2';
+    mRows.forEach((row,ri)=>{
+      const r=document.createElement('div'); r.className='flex items-center gap-2 flex-wrap'; r.dataset.row=ri;
+      let inner=`<span class="text-xs text-ink-400 w-4 text-right shrink-0">${ri+1}</span>`;
+      a.fields.forEach(f=>{ inner+=`<span class="flex items-center gap-1"><span class="text-xs text-ink-500">${f.l}</span>${rowFieldHtml(f,ri,row[f.k])}${f.s?`<span class="text-xs text-ink-400">${f.s}</span>`:''}</span>`; });
+      inner+=`<button type="button" data-del="${ri}" class="ml-auto h-8 w-8 rounded-lg border border-line text-ink-400 hover:text-accent hover:border-accent/40 ${mRows.length<=1?'invisible':''}">×</button>`;
+      r.innerHTML=inner; wrap.appendChild(r);
+    });
+    body.appendChild(wrap);
+    const add=document.createElement('button');
+    add.type='button'; add.className='mt-2 h-9 px-3 rounded-lg border border-dashed border-line text-ink-500 text-sm font-bold hover:bg-canvas w-full';
+    add.textContent='＋ 行を追加';
+    body.appendChild(add);
+    body.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',()=>{ syncMRows(); preview(); }));
+    body.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{ syncMRows(); mRows.splice(+b.dataset.del,1); renderMultiRows(); preview(); }));
+    add.addEventListener('click',()=>{ syncMRows(); mRows.push(defaultRow(a)); renderMultiRows(); preview(); });
+  }
+  function readFields(){ const a=ACTIONS[curKey];
+    if(a.multi){ syncMRows(); return {items: mRows.map(r=>({...r}))}; }
+    const o={}; a.fields.forEach(f=>{ if(f.fixed){ o[f.k]=f.d; return; } const el=$('mf-'+f.k); let v; if(f.choice){ v=f.num?parseFloat(el.value):el.value; } else { v=el.value===''?NaN:parseFloat(el.value); } o[f.k]=v; }); return o; }   // §7：クランプせず生値（fixedは固定値・バリデーションで判定）
+  // ---- 入力バリデーション（§7 画面制御） ----
+  function setOk(disabled){
+    const b=$('m-ok'); b.disabled=disabled;
+    b.classList.toggle('opacity-40', disabled);
+    b.classList.toggle('cursor-not-allowed', disabled);
+    b.classList.toggle('hover:bg-accent-ink', !disabled);
+  }
+  // 編集中の行を除いた盤面カウント（新規はそのまま現状）
+  function baseCounts(editId){
+    const snap=()=>({rawCubes:st.rawCubes,products:st.products,ads:st.ads,edu:st.edu,staffMfg:st.staffMfg,staffSales:st.staffSales,loan:st.loan});
+    if(editId==null) return snap();
+    const saved=st.tx; st.tx=st.tx.filter(x=>x.id!==editId); recompute();
+    const s=snap(); st.tx=saved; recompute(); return s;
+  }
+  function actionErrors(key,f,editId){
+    const a=ACTIONS[key], errs=[];
+    // ★ 複数行記帳（仕入れ・販売）：各行フォーマット＋合計で上限判定
+    if(a.multi){
+      const items=f.items||[];
+      if(!items.length){ errs.push('1行以上入力してください'); return errs; }
+      items.forEach((r,i)=>{
+        for(const fl of a.fields){
+          if(fl.choice) continue;                                   // 仕入れ単価はプルダウン（常に有効）
+          const v=r[fl.k];
+          const isAmt = (key==='hanbai'&&fl.k==='unit');             // 売価P＝0以上 / 個数＝1以上
+          const mn = fl.min!=null?fl.min:(isAmt?0:1);
+          if(v==null||isNaN(v)){ errs.push(`${i+1}行目「${fl.l}」を入力してください`); continue; }
+          if(!Number.isInteger(v)){ errs.push(`${i+1}行目「${fl.l}」は整数で入力してください`); continue; }
+          if(v<mn) errs.push(`${i+1}行目「${fl.l}」は${mn}以上で入力してください`);
+        }
+      });
+      if(errs.length) return errs;
+      const b=baseCounts(editId), c=caps();
+      const totQty=items.reduce((s,r)=>s+(r.qty||0),0);
+      if(key==='shiire'){ if(b.rawCubes+totQty>15) errs.push(`材料在庫の上限15を超えます（現在 ${b.rawCubes}・合計 +${totQty}）`); }
+      else if(key==='hanbai'){
+        if(totQty>c.salesCap) errs.push(`販売能力 ${c.salesCap} を超えています（合計 ${totQty}）`);
+        if(totQty>b.products) errs.push(`製品が足りません（在庫 ${b.products}・合計 ${totQty}）`);
+      }
+      return errs;
+    }
+    // ① フォーマット（数値フィールド）
+    for(const fl of a.fields){
+      if(fl.choice) continue;
+      const v=f[fl.k];
+      const isAmt = fl.k==='a' || (key==='hanbai'&&fl.k==='unit');   // 金額系＝0以上 / 数量系＝1以上
+      const mn = fl.min!=null ? fl.min : (isAmt?0:1);
+      if(v==null||isNaN(v)){ errs.push(`「${fl.l}」を入力してください`); continue; }
+      if(!Number.isInteger(v)){ errs.push(`「${fl.l}」は整数で入力してください`); continue; }
+      if(v<mn) errs.push(`「${fl.l}」は${mn}以上で入力してください`);
+      if(fl.max!=null && v>fl.max) errs.push(`「${fl.l}」は${fl.max}以下で入力してください`);
+    }
+    if(errs.length) return errs;
+    // ★ ルールBは1ターンに1度まで：直近のルールA・イベント（手番の主行動）以降に既にルールBがあれば不可
+    if(a.rule==='B'){
+      let tailB=0;
+      for(let i=st.tx.length-1;i>=0;i--){ const x=st.tx[i]; if(x.id===editId) continue;
+        const AA=x.key&&ACTIONS[x.key]; if(!AA) continue;            // 自動行（金利/納税/給料等）は無視
+        if(AA.rule==='A'||AA.rule==='X') break;                       // 直近の手番に到達→走査終了
+        if(AA.rule==='B') tailB++;                                    // 今の手番のルールB
+      }
+      if(tailB>=1) errs.push('ルールBは1ターンに1度までです（ルールA・イベントを記帳してから次のルールBへ）');
+    }
+    // ② 在庫・陳列・能力（ブロック）
+    const b=baseCounts(editId), c=caps();
+    if(key==='shiire'){ if(b.rawCubes+f.qty>15) errs.push(`材料在庫の上限15を超えます（現在 ${b.rawCubes}）`); }
+    else if(key==='seizo'){
+      if(st.machines<=0) errs.push('製造には機械（什器）が必要です');
+      else if(st.staffMfg<=0) errs.push('製造には製造スタッフが必要です');
+      else if(f.qty>c.mfgCap) errs.push(`製造能力 ${c.mfgCap} を超えています（稼働 ${c.workers}人）`);
+      if(f.qty>b.rawCubes) errs.push(`材料が足りません（在庫 ${b.rawCubes}）`);
+      if(b.products+f.qty>15) errs.push(`店舗陳列の上限15を超えます（現在 ${b.products}）`);
+    }
+    else if(key==='hanbai'){
+      if(f.qty>c.salesCap) errs.push(`販売能力 ${c.salesCap} を超えています`);
+      if(f.qty>b.products) errs.push(`製品が足りません（在庫 ${b.products}）`);
+    }
+    else if(key==='haichi'){
+      const fromMfg=f.dir==='製造→販売', avail=fromMfg?b.staffMfg:b.staffSales;
+      if(f.n>avail) errs.push(`${fromMfg?'製造':'販売'}スタッフが足りません（${avail}人）`);
+    }
+    else if(key==='kariire'){
+      if(f.a>curMaxA) errs.push(`借入可能額 ${fmt(curMaxA)} を超えています`);
+    }
+    else if(key==='hensai'){
+      if(f.a>b.loan) errs.push(`借入残高 ${fmt(b.loan)} を超えて返済できません`);
+    }
+    else if(key==='saiyo'){
+      if(f.mfg+f.sales+f.fail<1) errs.push('採用人数（製造＋販売＋失敗）を1人以上にしてください');
+    }
+    else if(key==='kyoiku'){
+      if(b.edu+f.n>1) errs.push(`教育チップは最大1つまで（現在 ${b.edu}）`);
+    }
+    else if(key==='kaihatsu_win'){
+      if(f.qty>0){                                       // 0個（効果なし）は記帳可、能力判定はスキップ
+        const lim=2*st.dev;
+        if(lim<=0) errs.push('商品開発チップがありません');
+        else if(f.qty>lim) errs.push(`商品開発チップ×2＝${lim}個まで（現在チップ ${st.dev}）`);
+        if(f.qty>c.salesCap) errs.push(`販売能力 ${c.salesCap} を超えています`);
+        if(f.qty>b.products) errs.push(`製品が足りません（在庫 ${b.products}）`);
+      }
+    }
+    else if(key==='dokusen'){
+      if(f.qty>0){
+        const lim=2*b.staffSales;
+        if(lim<=0) errs.push('販売スタッフがいません');
+        else if(f.qty>lim) errs.push(`販売スタッフ×2＝${lim}個まで`);
+        if(f.qty>b.products) errs.push(`製品が足りません（在庫 ${b.products}）`);
+      }
+    }
+    else if(key==='tokubai'){
+      if(f.qty>5) errs.push('特別サービスは5個まで');
+      if(f.qty>0 && b.rawCubes+f.qty>15) errs.push(`材料在庫の上限15を超えます（現在 ${b.rawCubes}）`);
+    }
+    else if(key==='keiki'){
+      if(f.qty>3) errs.push('景気上昇は3個まで');
+      if(f.qty>0 && b.rawCubes+f.qty>15) errs.push(`材料在庫の上限15を超えます（現在 ${b.rawCubes}）`);
+    }
+    return errs;
+  }
+  function preview(){
+    const f=readFields(), amt=ACTIONS[curKey].amount(f);
+    $('m-amount').textContent=isFinite(amt)?fmt(amt):'—';
+    const errs=actionErrors(curKey,f,curEditId), box=$('m-error');
+    if(errs.length){ box.innerHTML=errs.map(e=>'・'+e).join('<br>'); box.classList.remove('hidden'); }
+    else box.classList.add('hidden');
+    setOk(errs.length>0);
+  }
+  // キーレス行（給料/家賃/資本金）の金額編集モーダル
+  function openAmount(t){
+    if(st.settled) return;
+    curKey=null; curEditId=t.id; editAmtRow=t; pendingOk=null;
+    $('m-amount-box').classList.remove('hidden'); $('m-cancel').classList.remove('hidden');
+    const isIn=IN_COLS.includes(t.col);
+    $('m-badge').textContent=t.label;
+    $('m-badge').className='text-xs font-semibold px-2 py-0.5 rounded-md '+(isIn?'bg-cin-bg text-cin-ink':'bg-cout-bg text-cout-ink');
+    $('m-title').textContent='編集：'+t.label;
+    $('m-side').textContent=isIn?'入金':'出金';
+    const noDelete = t.isClosing || t.isOpeningTax || t.isOpeningInterest;   // 期末・期首自動項目は削除不可（金額のみ編集可）
+    $('m-note').className='text-ink-400 text-xs mb-4';
+    $('m-note').textContent= t.isClosing ? '金額を修正できます（期末項目は削除できません。取り消すには「記帳に戻る」）。'
+      : (t.isOpeningTax||t.isOpeningInterest) ? '金額を修正できます（期首の自動計上項目は削除できません）。'
+      : '金額を修正できます。';
+    $('m-amount-label').textContent='記帳額';
+    $('m-delete').classList.toggle('hidden', noDelete);
+    $('m-ok').textContent='保存';
+    const body=$('m-fields');
+    body.innerHTML=`<label class="flex items-center justify-between gap-3"><span class="text-sm font-medium">金額</span>
+      <span class="flex items-center gap-1.5"><input id="mf-amt" type="number" min="0" value="${t.amount}" class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none"></span></label>`;
+    const upd=()=>{
+      const raw=$('mf-amt').value, v=raw===''?NaN:parseFloat(raw);
+      const err = isNaN(v)?'金額を入力してください' : !Number.isInteger(v)?'金額は整数で入力してください' : v<0?'金額は0以上で入力してください' : '';
+      $('m-amount').textContent= isNaN(v)?'—':fmt(v);
+      const box=$('m-error'); if(err){ box.textContent='・'+err; box.classList.remove('hidden'); } else box.classList.add('hidden');
+      setOk(!!err);
+    };
+    body.querySelector('input').addEventListener('input',upd); upd();
+    modal.classList.remove('hidden');
+    setTimeout(()=>{ const fi=$('mf-amt'); if(fi){ fi.focus(); fi.select(); } },30);
+  }
+  function closeModal(){ modal.classList.add('hidden'); curKey=null; curEditId=null; editAmtRow=null; pendingOk=null; }
+  // 共通：確認/警告ダイアログ（記帳モーダルと同じ見た目に統一）
+  function showDialog({badge,badgeClass,title,message,okText,cancel,onOk}){
+    curKey=null; curEditId=null; editAmtRow=null; pendingOk=onOk||(()=>{});
+    $('m-badge').textContent=badge; $('m-badge').className='text-xs font-semibold px-2 py-0.5 rounded-md '+badgeClass;
+    $('m-side').textContent=''; $('m-title').textContent=title; $('m-note').className='text-ink-600 text-sm mb-4'; $('m-note').textContent=message;
+    $('m-fields').innerHTML=''; $('m-error').classList.add('hidden'); $('m-amount-box').classList.add('hidden');
+    $('m-delete').classList.add('hidden'); $('m-cancel').classList.toggle('hidden', !cancel);
+    $('m-ok').textContent=okText; setOk(false); modal.classList.remove('hidden');
+  }
+  function uiAlert(message,title='お知らせ'){ showDialog({badge:'お知らせ',badgeClass:'bg-canvas text-ink-400',title,message,okText:'OK',cancel:false}); }
+  function uiConfirm(message,onOk,opts={}){ showDialog({badge:'確認',badgeClass:'bg-accent/10 text-accent',title:(opts.title||'確認'),message,okText:(opts.okText||'はい'),cancel:true,onOk}); }
+  $('m-cancel').addEventListener('click',closeModal);
+  $('modal-bg').addEventListener('click',closeModal);
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&!modal.classList.contains('hidden')) closeModal(); });
+  $('m-delete').addEventListener('click',()=>{ if(curEditId!=null){ const tx=st.tx.find(x=>x.id===curEditId); if(tx) delRow(tx); } closeModal(); });
+  $('m-ok').addEventListener('click',()=>{
+    if(pendingOk){ const cb=pendingOk; closeModal(); cb(); return; }   // 確認/警告/イベントの確定
+    if(curKey==null){                                  // キーレス行の金額編集
+      if(editAmtRow){ editAmtRow.amount=Math.max(0,parseFloat($('mf-amt').value)||0); recompute(); }
+      closeModal(); renderAll(); return;
+    }
+    const a=ACTIONS[curKey], f=readFields(), amt=a.amount(f)||0;
+    if(curEditId!=null){
+      const tx=st.tx.find(x=>x.id===curEditId);
+      if(tx){ tx.fvals=f; tx.amount=amt; tx.note=a.rownote?a.rownote(f):''; }
+      recompute(); closeModal(); renderAll();
+    } else {
+      st.tx.push({ id:st.seq++, key:curKey, fvals:f, label:a.label, col:a.col, amount:amt, noCash:!!a.noCash, note:a.rownote?a.rownote(f):'' });
+      recompute(); closeModal(); renderAll(true);
+    }
+  });
+
+  // ====================== イベントカード（在庫破棄＋保険金） ======================
+  function eventCard(key){
+    if(st.settled){ uiAlert('この期は決算済みです。「決算書」タブから次の期へ進んでください。'); return; }
+    if(st.closingPrep){ uiAlert('期末処理を計上済みです。記帳を追加するには「記帳に戻る」を押してください。'); return; }
+    recompute();
+    const a=ACTIONS[key];
+    let discard, target;
+    if(key==='ibutsu'){ discard=Math.min(2, st.products); target='製品'; }
+    else { discard=st.rawCubes; target='材料'; }   // suigai：材料を全破棄
+    const insured = st.insurance>0;
+    const payout = insured ? discard*10 : 0;
+    const insuredUsed = insured ? 1 : 0;
+    // 記帳モーダルを確認ダイアログとして利用（デザイン統一）
+    curKey=null; curEditId=null; editAmtRow=null;
+    const f={discard, payout, insuredUsed}, col=payout>0?3:null, noCash=payout<=0;
+    pendingOk = ()=>{ st.tx.push({ id:st.seq++, key, fvals:f, label:a.label, col, amount:payout, noCash, note:a.rownote?a.rownote(f):'' }); recompute(); renderAll(true); };
+    const inc = payout>0;
+    $('m-badge').textContent = inc?'A 受取保険金':'イベント';
+    $('m-badge').className = 'text-xs font-semibold px-2 py-0.5 rounded-md '+(inc?'bg-cin-bg text-cin-ink':'bg-canvas text-ink-400');
+    $('m-side').textContent = inc?'入金':'記録のみ';
+    $('m-title').textContent = a.label;
+    let note = `${target}を ${discard} 個 破棄します。`;
+    note += insured ? ` 保険加入中：受取保険金 ${fmt(payout)}（${discard}×10）を記帳し、保険チップを1枚返します。`
+                    : ` 保険未加入のため、受取保険金はありません。`;
+    if(discard===0) note += ' 破棄対象がないため、盤面への影響はありません。';
+    $('m-note').className='text-ink-600 text-sm mb-4'; $('m-note').textContent = note;
+    $('m-fields').innerHTML = '';
+    $('m-error').classList.add('hidden');
+    $('m-amount-box').classList.remove('hidden');
+    $('m-amount-label').textContent = '受取保険金';
+    $('m-amount').textContent = fmt(payout);
+    $('m-delete').classList.add('hidden');
+    $('m-cancel').classList.remove('hidden');
+    $('m-ok').textContent = '決定して記帳';
+    setOk(false);
+    modal.classList.remove('hidden');
+  }
+
+  // ====================== 出納帳 ======================
+  function colTotals(){ const t=Array(COLS).fill(0); st.tx.forEach(x=>{ if(x.col!=null) t[x.col]+=x.amount; }); return t; }
+  function flows(){ let inS=0,outS=0; st.tx.forEach(x=>{ if(x.col==null) return; (IN_COLS.includes(x.col)?inS+=x.amount:outS+=x.amount); }); return {inS,outS}; }
+  function cashNow(){ const {inS,outS}=flows(); return st.openingCash+inS-outS; }
+  // 借入金可能枠：純資産（資本金合計＋期首利益剰余金）× 倍率。第1期は借入不可。
+  const LOAN_RATE=0.05;          // 金利5%
+  function equityNow(){ return st.openingCapital + colTotals()[0] + st.retained; }
+  function loanCap(){ return st.period<=1 ? 0 : Math.max(0, Math.round(equityNow()*st.loanMult)); }
+  function loanRoom(excludeAmt=0){ return Math.max(0, loanCap() - (st.loan - excludeAmt)); }   // 今期借入可能額 ⓐ−ⓑ
+  // 能力（ルール表準拠）：会社盤の表示とバリデーションで共用
+  function caps(){
+    const workers  = Math.min(st.staffMfg, st.machines*2);   // 製造には機械必須・機械1台で製造スタッフ2人が稼働（機械orスタッフ0なら稼働0）
+    const mfgCap   = workers * (st.edu>0 ? 3 : 2);                                    // 1人2個・教育で3個
+    const salesCap = st.staffSales*2 + Math.min(st.ads, st.staffSales*2)*2;           // 1人2個＋広告2枚まで×2
+    const priceComp= st.dev*2;                                                        // 商品開発1枚=2
+    return {workers,mfgCap,salesCap,priceComp};
+  }
+
+  function renderLedger(flash){
+    const tot=colTotals();
+    const body=$('ledger'); body.innerHTML='';
+    let bal=st.openingCash;
+    body.appendChild(rowEl('前期繰越',null,bal,0,false));
+    st.tx.forEach((t,i)=>{
+      if(t.col!=null) bal += IN_COLS.includes(t.col)? t.amount : -t.amount;
+      body.appendChild(rowEl(t.label,t,bal,i, flash&&i===st.tx.length-1));
+    });
+    let cells='';
+    for(let c=0;c<COLS;c++){ const div=c===4?'border-left:2px solid #9aa3b2;':''; cells+=`<td class="px-2 py-2.5 num text-right" style="${div}color:${LCOL[c].t}">${tot[c]?fmt(tot[c]):'·'}</td>`; }
+    // 合計の下にも勘定科目の見出し行（ア資本金〜コ納税）を繰り返し表示
+    let headCells='';
+    for(let c=0;c<COLS;c++){ const div=c===4?'border-left:2px solid #9aa3b2;':''; headCells+=`<th class="px-1.5 lg:px-1 py-1 font-bold align-bottom leading-tight text-center" style="${div}background:${LCOL[c].h};color:${LCOL[c].t}"><span class="text-[10px] leading-none opacity-70">${LHEAD[c].s}</span><div class="text-[11px] whitespace-nowrap">${LHEAD[c].n}</div></th>`; }
+    const headRow=`<tr class="text-ink-600 text-xs"><th class="sticky left-0 z-10 bg-white text-left font-semibold pr-2 py-2 border-t border-line align-bottom">勘定科目</th>${headCells}<th class="text-right font-semibold px-2 py-2 border-t border-line align-bottom">現金残高</th></tr>`;
+    $('ledger-foot').innerHTML=`<tr class="font-bold bg-canvas"><td class="sticky left-0 z-10 bg-canvas border-l-4 border-ink text-left px-2 py-2.5 rounded-l-md">合計</td>${cells}<td class="px-2 py-2.5 num text-right rounded-r-md text-base"${bal<0?' style="color:#c8322b"':''}>${fmt(bal)}</td></tr>${headRow}`;
+    const lb=$('ledger-balance'); lb.textContent=fmt(bal); lb.style.color=bal<0?'#c8322b':'';
+  }
+  function rowEl(name,t,bal,idx,last){
+    const tr=document.createElement('tr');
+    const dir = !t ? 'open' : (t.col==null?'none':(IN_COLS.includes(t.col)?'in':'out'));
+    const bar = dir==='open'?'border-ink':dir==='in'?'border-cin-base':dir==='out'?'border-cout-base':'border-line';
+    const zebra= last?'bg-g-bg':((t&&idx%2)?'bg-[#fafbfd]':'');
+    const sticky= zebra||'bg-white';
+    const noteHtml = t&&t.note?`<span class="text-ink-300 text-[11px] ml-1">${t.note}</span>`:'';
+    const lock = st.settled;                               // 決算後は編集ロック
+    const canEdit = t && !lock && !t.isBorrowInterest && !t.isAutoRepay;   // 全行 ✎ 編集可（借入金利・期末強制返済は派生行＝ロック）
+    const tools = canEdit ? `<button data-edit="${t.id}" class="text-ink-300 hover:text-ink leading-none text-sm" title="編集">✎</button>` : '';
+    let h=`<td class="sticky left-0 z-10 ${sticky} border-l-4 ${bar} text-left px-2 py-2 font-medium whitespace-nowrap"><span class="flex items-center gap-1.5">${tools}<span>${name}${noteHtml}</span></span></td>`;
+    for(let c=0;c<COLS;c++){
+      const active=(t&&t.col===c);
+      const div = c===4 ? 'border-left:2px solid #9aa3b2;' : '';   // 入金↔出金の境界線
+      if(active && t.amount){ h+=`<td class="px-2 py-2 num font-bold" style="${div}background:${LCOL[c].c};color:${LCOL[c].t}">${fmt(t.amount)}</td>`; }
+      else { h+=`<td class="px-2 py-2 ${zebra} text-ink-300"${div?` style="${div}"`:''}>·</td>`; }
+    }
+    const showBal=!(t&&t.col==null);
+    h+=`<td class="px-2 py-2 font-bold ${last?'bg-g-bg':'bg-canvas'}"${showBal&&bal<0?' style="color:#c8322b"':''}>${showBal?fmt(bal):'<span class="text-ink-300 font-normal">〃</span>'}</td>`;
+    tr.innerHTML=h;
+    const eb=tr.querySelector('[data-edit]');
+    if(eb) eb.addEventListener('click',()=>editRow(t));
+    return tr;
+  }
+  // 行の編集：アクション行→数量モーダル、キーレス行（給料/家賃/資本金）→金額モーダル
+  function editRow(t){
+    if(t.key && ACTIONS[t.key] && ACTIONS[t.key].custom){ uiConfirm(`「${t.label}」の記帳を削除しますか？`, ()=>delRow(t), {okText:'削除する'}); return; }
+    if(t.key) openModal(t.key,t); else openAmount(t);
+  }
+  function delRow(t){
+    if(t.isClosing||t.isOpeningTax||t.isOpeningInterest||t.isBorrowInterest||t.isAutoRepay) return;   // 自動項目は個別削除不可
+    st.tx=st.tx.filter(x=>x.id!=t.id);
+    recompute(); renderAll();
+  }
+  // tx を再生してボード状態を導出（記帳・削除・全消去・期繰越で共通）
+  function recompute(){
+    // 借入時金利（借入額×5%）を各借入行の直後に自動生成（管理費＝固定費・派生ロック行・借入額に連動）
+    const rebuilt=[];
+    for(const t of st.tx){
+      if(t.isBorrowInterest) continue;                       // 旧・派生行は捨てて作り直す
+      rebuilt.push(t);
+      if(t.key==='kariire'){ const bi=Math.round((t.amount||0)*LOAN_RATE); if(bi>0) rebuilt.push({id:'bi'+t.id,col:8,amount:bi,label:'借入金利',note:`借入${fmt(t.amount)}×5%`,isBorrowInterest:true,linkedTo:t.id}); }
+    }
+    st.tx=rebuilt;
+    // 期首繰越在庫：材料は材料(rawCubes)、製品は製品(products)に分けて引き継ぐ（openingProducts＝うち製品個数）
+    const op=Math.min(st.openingProducts||0, st.openingMatQty);
+    st.matQty=st.openingMatQty; st.matVal=st.openingMatVal; st.products=op; st.rawCubes=st.openingMatQty-op;
+    st.machines=st.openingMachines; st.equipVal=st.openingEquipVal;
+    st.staffMfg=st.openingStaffMfg; st.staffSales=st.openingStaffSales; st.loan=st.openingLoan;
+    // 商品開発・広告チップは2枚以上あれば1枚だけ次期へ（期首処理で引き継ぎ済みの値を反映）
+    st.ads=st.openingAds||0; st.dev=st.openingDev||0; st.insurance=0; st.edu=0; st.salesQty=0; st.salesAmt=0; st.scrapQty=0;
+    st.tx.forEach(t=>{ if(t.key && ACTIONS[t.key]) ACTIONS[t.key].apply(t.fvals||{}); });
+  }
+
+  $('ledger-clear').addEventListener('click',()=>{ uiConfirm('この期の記帳をすべて消去しますか？', ()=>{ st.tx=st.tx.filter(x=>x.isCapital||x.isOpeningTax||x.isOpeningInterest); st.closingPrep=false; recompute(); renderAll(); }, {okText:'すべて消去'}); });
+
+  // 記帳のテストデータ（第1期サンプル）を投入
+  function seedLedger(actions){
+    if(st.settled){ uiAlert('この期は決算済みです。「決算」タブから次の期へ進んでから入れてください。'); return; }
+    const run=()=>{
+      st.closingPrep=false;
+      const sticky=st.tx.filter(x=>x.isOpeningTax||x.isOpeningInterest);   // 期首納税・期首金利は維持
+      const capRow=st.tx.find(x=>x.isCapital);
+      if(capRow){ if(!capRow.amount) capRow.amount=300; st.tx=[capRow,...sticky]; }
+      else st.tx=[{id:st.seq++,label:'資本金',col:0,amount:300,isCapital:true},...sticky];
+      const add=(key,fvals)=>{ const a=ACTIONS[key]; st.tx.push({id:st.seq++,key,fvals,label:a.label,col:a.col,amount:a.amount(fvals)||0,noCash:!!a.noCash,note:a.rownote?a.rownote(fvals):''}); };
+      actions.forEach(([k,f])=>add(k,f));
+      recompute(); renderAll(true);
+    };
+    if(st.tx.some(x=>!x.isCapital&&!x.isOpeningTax&&!x.isOpeningInterest)) uiConfirm('現在の記帳をテストデータで置き換えますか？', run, {okText:'置き換える'});
+    else run();
+  }
+  // 黒字：販売しっかり・コスト適正（G＞0）
+  const SEED_PROFIT=[
+    ['kariire',{a:200}], ['kikai',{n:1}],
+    ['saiyo',{mfg:2,sales:1,fail:0}],
+    ['shiire',{qty:10,unit:13}], ['koukoku',{n:1}], ['kaihatsu',{n:1,result:'成功'}],
+    ['hoken',{n:1}], ['kyoiku',{n:1}], ['seizo',{qty:8}], ['hanbai',{qty:8,unit:50}],
+  ];
+  // 赤字：固定費が重く・安値で少量販売（粗利 < 固定費 → G＜0）
+  const SEED_LOSS=[
+    ['kariire',{a:200}], ['kikai',{n:1}],
+    ['saiyo',{mfg:2,sales:2,fail:0}],
+    ['koukoku',{n:3}], ['kyoiku',{n:1}], ['hoken',{n:1}],
+    ['shiire',{qty:6,unit:13}], ['seizo',{qty:5}], ['hanbai',{qty:5,unit:28}],
+  ];
+  // 水害：第1期フル展開＋期末に水害で材料全破棄（保険金30受取・残った材料は廃棄損）→赤字
+  const SEED_FLOOD=[
+    ['kikai',{n:1}],
+    ['saiyo',{mfg:1,sales:1,fail:0}],
+    ['shiire',{items:[{qty:4,unit:11},{qty:6,unit:12}]}],
+    ['seizo',{qty:2}], ['seizo',{qty:2}],
+    ['kyoiku',{n:1}],
+    ['seizo',{qty:3}],
+    ['hanbai',{qty:2,unit:36}],
+    ['koukoku',{n:1}], ['kaihatsu',{n:1,result:'成功'}], ['hoken',{n:1}],
+    ['hanbai',{qty:2,unit:36}], ['hanbai',{qty:2,unit:32}],
+    ['suigai',{discard:3,payout:30,insuredUsed:1}],
+  ];
+  $('ledger-seed').addEventListener('click',()=>seedLedger(SEED_PROFIT));
+  $('ledger-seed-loss').addEventListener('click',()=>seedLedger(SEED_LOSS));
+  $('ledger-seed-flood').addEventListener('click',()=>seedLedger(SEED_FLOOD));
+
+  // ====================== 会社版（ボード） ======================
+  function chips(n,cls,max){ max=max||12; let h=''; const k=Math.min(n,max); for(let i=0;i<k;i++) h+=`<span class="${cls}"></span>`; if(n>max) h+=`<span class="text-ink-400 text-xs ml-1">+${n-max}</span>`; return h||'<span class="text-ink-300 text-xs">なし</span>'; }
+  function renderBoard(){
+    // 能力（ルール表準拠・caps()で共用）
+    const {workers,mfgCap,salesCap,priceComp}=caps();
+    const GREEN='#69a86a';
+    const pile=(n,style,max)=>{ max=max||15; let h=''; const k=Math.min(n,max); for(let i=0;i<k;i++) h+=`<span style="display:inline-block;${style}"></span>`; if(n>max) h+=`<span class="text-ink-500 text-xs ml-1 self-center">+${n-max}</span>`; return h; };
+    const cube='width:20px;height:20px;border-radius:4px;background:#8b5e3c;box-shadow:inset 0 2px 2px rgba(255,255,255,.45),inset 0 -3px 3px rgba(0,0,0,.34),0 1px 1px rgba(0,0,0,.18)';
+    const pawns=(n)=>{ let h=''; const k=Math.min(n,8); for(let i=0;i<k;i++) h+=`<span style="color:#b9c0cb;font-size:30px;line-height:1;text-shadow:0 1px 1px rgba(0,0,0,.3)">♟</span>`; if(n>8) h+=`<span class="text-ink-500 text-xs self-center">+${n-8}</span>`; return h||'<span class="text-ink-300 text-xs">—</span>'; };
+    const box=(title,pieces)=>`<div style="border:2.5px solid ${GREEN};border-radius:14px;background:#fcfefb;width:248px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.07)"><div class="text-sm font-bold text-ink-600 mb-3 text-center">${title}</div><div class="flex flex-wrap gap-2 justify-center items-center content-center" style="min-height:150px">${pieces||'<span class=\'text-ink-300 text-sm\'>空</span>'}</div></div>`;
+    const staffBox=(label,n)=>`<div style="border:2px solid ${GREEN};border-radius:12px;background:#fcfefb;width:248px;padding:8px 12px;box-shadow:0 1px 2px rgba(0,0,0,.06)" class="text-center"><div class="flex gap-1 justify-center items-end flex-wrap" style="min-height:34px">${pawns(n)}</div><div class="text-[11px] font-medium text-ink-600 mt-1">${label}</div></div>`;
+    const barrow=(label)=>`<div class="flex flex-col items-center self-start" style="padding-top:34px"><span class="text-[11px] text-ink-600 mb-1 whitespace-nowrap">${label}</span><span style="display:block;width:48px;height:26px;background:linear-gradient(180deg,#eaf4e8,#cfe6cd);clip-path:polygon(0 30%,60% 30%,60% 4%,100% 50%,60% 96%,60% 70%,0 70%);box-shadow:0 1px 1px rgba(0,0,0,.1)"></span></div>`;
+    const tile=(label,n,style)=>`<div style="border:2px solid ${GREEN};border-radius:12px;background:#fcfefb;padding:8px 14px" class="text-center"><div class="flex gap-1.5 justify-center items-center flex-wrap" style="min-height:20px">${pile(n,style,8)||'<span class=\'text-ink-300 text-xs\'>—</span>'}</div><div class="text-[11px] text-ink-600 mt-1 whitespace-nowrap">${label}</div></div>`;
+    const cap=(label,val,color)=>`<div class="rounded-xl border-2 px-3 py-2.5 text-center" style="border-color:${color}40;background:${color}0d"><div class="text-[11px] text-ink-500">${label}</div><div class="num font-bold text-2xl leading-tight" style="color:${color}">${val}</div></div>`;
+    const hexTok='width:20px;height:20px;background:#8a929e;clip-path:polygon(25% 2%,75% 2%,100% 50%,75% 98%,25% 98%,0 50%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3)';
+    const dot=(c)=>`width:18px;height:18px;border-radius:50%;background:${c};box-shadow:inset 0 2px 2px rgba(255,255,255,.4),inset 0 -2px 3px rgba(0,0,0,.28)`;
+    $('board').innerHTML=`
+      <div style="border:2px solid ${GREEN};border-radius:18px;background:radial-gradient(130% 90% at 50% -10%,#ffffff 0%,#eef6ec 65%,#e4f0e1 100%);padding:16px">
+        <div class="flex items-center justify-center relative mb-3">
+          <div style="letter-spacing:.4em;color:#a3bda3;font-weight:700;font-size:13px">会 社 盤</div>
+          <div class="absolute right-0 text-[11px] text-ink-400">第${st.period}期</div>
+        </div>
+        <div class="overflow-x-auto scroll-x pb-1">
+          <div class="flex items-start gap-2 justify-center" style="min-width:720px">
+            ${barrow('材料仕入')}
+            <div class="flex flex-col items-center gap-2">
+              ${box('材料',pile(st.rawCubes,cube,28))}
+              ${staffBox('製造スタッフ',st.staffMfg)}
+            </div>
+            ${barrow('製造')}
+            <div class="flex flex-col items-center gap-2">
+              ${box('店舗',pile(st.products,cube,28))}
+              ${staffBox('販売スタッフ',st.staffSales)}
+            </div>
+            ${barrow('販売')}
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-center mt-3">
+          ${tile('什器',st.machines,hexTok)}
+          ${tile('保険',st.insurance,dot('#f3c218'))}
+          ${tile('教育',st.edu,dot('#e8842a'))}
+          ${tile('商品開発',st.dev,dot('#2f6fe0'))}
+          ${tile('広告',st.ads,dot('#d64541'))}
+        </div>
+        <div class="grid grid-cols-3 gap-2 mt-3">
+          ${cap('製造能力',mfgCap,'#2f6fe0')}
+          ${cap('販売能力',salesCap,'#e07b2a')}
+          ${cap('価格競争力',priceComp,'#2563eb')}
+        </div>
+      </div>`;
+  }
+  function chipsColor(n,color,extra){ extra=extra||''; let h=''; const max=12,k=Math.min(n,max); for(let i=0;i<k;i++) h+=`<span class="chip ${extra}" style="background:${color}"></span>`; if(n>max) h+=`<span class="text-ink-400 text-xs ml-1">+${n-max}</span>`; return h||'<span class="text-ink-300 text-xs">なし</span>'; }
+
+  // ====================== 決算 ======================
+  // 期末処理：給与・家賃を記帳に計上（決算前の確認フェーズ）。盤面影響なしのキーレス行→行ごとに金額編集可。
+  function doClosingPrep(){
+    if(st.settled||st.closingPrep) return;
+    recompute();
+    const SAL=SALARY_TABLE[st.period]||28;
+    const head=st.staffMfg+st.staffSales;
+    // イベントで退職したスタッフは期末に給料の半分（切り上げ）を支払う
+    const retired=st.tx.filter(x=>x.key==='taishoku_mfg'||x.key==='taishoku_sales').length;
+    const halfPer=Math.ceil(SAL/2);
+    const retSalary=retired*halfPer;
+    const salary=head*SAL+retSalary;
+    const salNote=retired>0 ? `在籍${head}×${SAL}＋退職${retired}×${halfPer}(半額)` : `${head}×${SAL}`;
+    if(salary>0) st.tx.push({id:st.seq++,label:'給料(期末)',col:6,amount:salary,note:salNote,isClosing:true});
+    st.tx.push({id:st.seq++,label:'家賃(期末)',col:8,amount:25,isClosing:true});
+    // 期末の強制返済：期首借入残高 × 返済率（インストラクター設定）。借入残高を上限にクランプ＝keyed hensaiで借入金減＆現金減（B/S均衡）
+    const repay=Math.min(Math.round(st.openingLoan*st.repayRate/100), st.loan);
+    if(repay>0) st.tx.push({id:st.seq++,key:'hensai',fvals:{a:repay},label:'借入金返済(期末)',col:9,amount:repay,note:`期首残高${fmt(st.openingLoan)}×${st.repayRate}%`,isClosing:true,isAutoRepay:true});
+    st.closingPrep=true;
+    recompute(); renderAll();
+  }
+  function undoClosingPrep(){
+    if(st.settled) return;
+    st.tx=st.tx.filter(x=>!x.isClosing);
+    st.closingPrep=false;
+    recompute(); renderAll();
+  }
+  function settle(){
+    if(st.settled) return;
+    if(!st.closingPrep) doClosingPrep();      // 念のため給与・家賃を計上してから
+    recompute();
+    const salRow=st.tx.find(x=>x.isClosing&&x.col===6);
+    const rentRow=st.tx.find(x=>x.isClosing&&x.col===8);
+    const salary=salRow?salRow.amount:0;
+    const rent=rentRow?rentRow.amount:25;
+    const tot=colTotals(), {inS,outS}=flows();
+    const PQ=tot[2];
+    const avg=st.matQty? Math.round(st.matVal/st.matQty) : 0;   // ④ 平均単価（四捨五入）
+    const scrapQ=st.scrapQty||0;          // 破棄個数（異物混入＝製品 / 水害＝材料）
+    const scrapVal=avg*scrapQ;            // ⑥ 廃棄損＝平均単価 × 破棄個数（整数）
+    const endInvQty=st.matQty-st.salesQty-scrapQ;
+    const endInvVal=avg*endInvQty;        // ⑤ 次期繰越＝平均単価 × 在庫個数（整数）
+    const vPQ=st.matVal-scrapVal-endInvVal; // ⑦ 売上原価＝③(材料合計)−⑤−⑥（残余で整数・在庫合計一致）
+    const mPQ=PQ-vPQ;
+    const dep=st.machines*10;
+    const F=tot[6]+tot[7]+tot[8]+dep;
+    const G=mPQ-F;
+    const special=tot[3]-scrapVal;        // ① 特別損益＝受取保険金(A) − 廃棄損
+    const pretax=G+special;               // ② 税引前当期純利益
+    const ret0b=st.retained;              // ③ 前期繰越利益剰余金
+    const total4=pretax+ret0b;            // ④ 合計（②＋③）
+    let tax;                              // ⑤ 法人税等（来期期首納税）
+    if(pretax<0 || total4<0) tax=5;       // ②か④が▲なら5
+    else if(ret0b<0) tax=Math.round(total4*0.3); // 前繰▲・合計+なら 合計×30%
+    else tax=Math.round(pretax*0.3);      // それ以外は 税引前×30%
+    tax=Math.max(tax,5);                  // ※最低納税額5
+    const net=pretax-tax;                 // ⑥ 当期純利益
+    // ターン数（ルールA＋イベント）と意思決定回数（ルールA）
+    const decisions=st.tx.filter(x=>x.key&&ACTIONS[x.key]&&ACTIONS[x.key].rule==='A').length;
+    const events=st.tx.filter(x=>x.key&&ACTIONS[x.key]&&ACTIONS[x.key].rule==='X').length;
+    const cashEnd=st.openingCash+inS-outS;
+    const equipEnd=st.equipVal-dep;
+    const loanEnd=st.loan;
+    const capEnd=st.openingCapital+tot[0];
+    const retEnd=st.retained+net;
+    const assets=cashEnd+endInvVal+equipEnd;
+    const liabEq=tax+loanEnd+capEnd+retEnd;
+    st.result={period:st.period,PQ,vPQ,mPQ,F,G,tax,net,dep,salary,avg,rent,
+      special,pretax,total4,Q:st.salesQty,laborF:tot[6],sellF:tot[7],adminF:tot[8],depF:dep,
+      cashEnd,endInvQty,endInvVal,equipEnd,loanEnd,capEnd,retEnd,assets,liabEq,diff:assets-liabEq,
+      ret0:st.retained, cashFlow:inS-outS, openCash:st.openingCash,
+      eq0:st.openingEquipVal, loan0:st.openingLoan, salesQty:st.salesQty,
+      machines:st.machines, staffMfg:st.staffMfg, staffSales:st.staffSales,
+      inSum:inS, outSum:outS,
+      openMatQty:st.openingMatQty, openMatVal:st.openingMatVal,
+      matBoughtQty:st.matQty-st.openingMatQty, matBoughtVal:st.matVal-st.openingMatVal,
+      totMatQty:st.matQty, totMatVal:st.matVal, scrap:scrapQ,
+      boardInvQty:st.rawCubes+st.products, diffQty:(st.matQty-st.salesQty-scrapQ)-(st.rawCubes+st.products),
+      rawEnd:st.rawCubes, prodEnd:st.products, dev:st.dev, ads:st.ads,   // 次期繰越用（材料/製品/チップ）
+      turns:decisions+events, decisions:decisions,                       // ターン数（A＋イベント）・意思決定回数（A）
+      equipTotal:st.equipVal, equipBought:st.equipVal-st.openingEquipVal,
+      loanBorrow:tot[1], loanRepay:tot[9],
+      // --- PDF（決算書）用スナップショット ---
+      name:st.name, president:st.president,
+      colTot:tot.slice(),                                   // 入金/出金合計の列別内訳
+      rows:st.tx.map(t=>({label:t.label, note:t.note||'', col:t.col, amount:t.amount})), // 現金出納帳の明細
+      capStart:st.openingCapital, loanMult:st.loanMult, repayRate:st.repayRate,
+      openInterest:Math.round(st.openingLoan*LOAN_RATE)};   // 期首支払金利（残高×5%）
+    st.settled=true;
+    history.push(st.result);       // 決算を完了したら履歴・振り返りに即反映
+    saveOrg();                     // 組織（localStorage）へ自分の会社の成績を登録
+    stmtView=null;                 // 決算したら現在の期の決算書を表示
+    renderAll();
+    renderClosing(); renderStatement(); renderHistory(); renderReview();
+  }
+  function renderClosing(){
+    const r=st.result;
+    if(!r){ $('closing-empty').classList.remove('hidden'); $('closing-result').classList.add('hidden'); return; }
+    $('closing-empty').classList.add('hidden'); $('closing-result').classList.remove('hidden');
+    $('cl-salary').textContent=fmt(r.salary); $('cl-rent').textContent=fmt(r.rent);
+    $('cl-dep').textContent=fmt(r.dep); $('cl-avg').textContent=fmt(r.avg);
+    $('cl-cogs').textContent=fmt(r.vPQ); $('cl-tax').textContent='▲'+fmt(r.tax);
+    renderFigs(r);
+  }
+  // 期首処理タブ：この期のスタート状態（前期繰越・盤面セット・期首納税）を期中ずっと表示
+  function renderOpening(){
+    const C='#0f766e';
+    $('op-period-badge').textContent=`第${st.period}期 期首`;
+    const first=st.period<=1;
+    $('op-note').textContent = first
+      ? '第1期は前期繰越がありません。会社情報で設定した開業資本金（記帳の最初の行）からスタートします。'
+      : '前期の決算から繰り越した残高・盤面の駒を自動でセットし、前期確定の法人税を期首に納付（記帳のコ納税）しています。';
+    const openTax=st.tx.find(x=>x.isOpeningTax);
+    // 期首繰越在庫の内訳：製品はそのまま、残りが材料
+    const prodOpen=Math.min(st.openingProducts||0, st.openingMatQty), rawOpen=st.openingMatQty-prodOpen;
+    const row=(label,val,sub)=>`<div class="flex items-baseline justify-between border-b border-line py-1.5"><span class="text-ink-600 text-sm">${label}</span><span class="text-right"><b class="num">${val}</b>${sub?`<span class="text-ink-300 text-[11px] ml-1">${sub}</span>`:''}</span></div>`;
+    const carry=`<div class="rounded-xl border bg-white p-4" style="border-color:${C}33">
+      <div class="text-xs font-bold mb-2" style="color:${C}">前期繰越（期首残高）</div>
+      ${row('現金', fmt(st.openingCash))}
+      ${row('在庫（材料・製品）', fmt(st.openingMatVal), `材料${rawOpen} / 製品${prodOpen} 個`)}
+      ${row('什器', fmt(st.openingEquipVal))}
+      ${row('借入金', fmt(st.openingLoan))}
+      ${row('資本金', fmt(st.openingCapital))}
+      ${row('利益剰余金', fmtA(st.retained))}
+      ${openTax?`<div class="flex items-baseline justify-between py-1.5 mt-1 rounded-lg px-2" style="background:#fdeacf66"><span class="text-accent-ink text-sm font-bold">期首納税（前期法人税）</span><b class="num text-accent-ink">▲${fmt(openTax.amount)}</b></div>`:''}
+    </div>`;
+    const tok=(label,n)=>`<div class="rounded-xl border border-line bg-white px-3 py-2 text-center"><div class="num font-bold text-lg" style="color:${C}">${fmt(n)}</div><div class="text-[11px] text-ink-500 leading-tight mt-0.5">${label}</div></div>`;
+    const erow=(id,label,val)=>`<label class="flex items-center justify-between gap-2 py-1 border-b border-line/60"><span class="text-sm text-ink-600">${label}</span><input id="${id}" type="number" min="0" step="1" value="${val}" class="w-20 h-9 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10"></label>`;
+    const board=`<div class="rounded-xl border bg-white p-4" style="border-color:${C}33">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs font-bold" style="color:${C}">盤面セットアップ（期首の駒）</div>
+        <button id="op-board-edit" class="h-7 px-3 rounded-lg border border-line text-ink-600 text-[11px] font-bold hover:bg-canvas transition">変更</button>
+      </div>
+      <div id="op-board-view" class="grid grid-cols-2 gap-2">
+        ${tok('製造スタッフ', st.openingStaffMfg||0)}
+        ${tok('販売スタッフ', st.openingStaffSales||0)}
+        ${tok('材料', rawOpen||0)}
+        ${tok('製品', prodOpen||0)}
+        ${tok('開発', st.openingDev||0)}
+        ${tok('広告', st.openingAds||0)}
+        ${tok('機械', st.openingMachines||0)}
+      </div>
+      <div id="op-board-form" class="hidden">
+        ${erow('obe-mfg','製造スタッフ',st.openingStaffMfg||0)}
+        ${erow('obe-sales','販売スタッフ',st.openingStaffSales||0)}
+        ${erow('obe-mat','材料',rawOpen||0)}
+        ${erow('obe-prod','製品',prodOpen||0)}
+        ${erow('obe-dev','開発',st.openingDev||0)}
+        ${erow('obe-ads','広告',st.openingAds||0)}
+        ${erow('obe-mach','機械',st.openingMachines||0)}
+        <div class="flex gap-2 pt-2">
+          <button id="op-board-save" class="flex-1 h-9 rounded-lg bg-ink text-white text-sm font-bold hover:bg-ink-600 transition">更新</button>
+          <button id="op-board-cancel" class="h-9 px-3 rounded-lg border border-line text-ink-500 text-sm hover:bg-canvas transition">キャンセル</button>
+        </div>
+        <p class="text-ink-300 text-[11px] mt-2">在庫（材料・製品）と機械の金額変更分は利益剰余金で調整し、B/Sは一致を保ちます。</p>
+      </div>
+    </div>`;
+    // ⑨ 借入金可能枠・金利（純資産×倍率＝枠ⓐ、残高ⓑ、可能額ⓐ−ⓑ、期首支払金利）
+    const eq=equityNow(), cap=loanCap(), bal=st.loan, room=Math.max(0,cap-bal);
+    const openInt=st.tx.find(x=>x.isOpeningInterest);
+    const interest=openInt?openInt.amount:Math.round(st.openingLoan*LOAN_RATE);
+    const repayPlan=Math.round(st.openingLoan*st.repayRate/100);   // 期末返済予定（期首残高×返済率）
+    const BL='#4a55a8', PKc='#b03a6a';
+    const loanBox = first
+      ? `<div class="rounded-xl border bg-white p-4" style="border-color:${C}33">
+      <div class="text-xs font-bold mb-2" style="color:${C}">⑨ 借入金可能枠・金利・返済（倍率と返済率はインストラクター設定）</div>
+      <div class="rounded-lg bg-canvas text-ink-400 text-sm p-3 text-center">第1期は借入・金利・期末返済はありません。第2期以降に表示されます。</div>
+    </div>`
+      : `<div class="rounded-xl border bg-white p-4" style="border-color:${C}33">
+      <div class="text-xs font-bold mb-2" style="color:${C}">⑨ 借入金可能枠・金利・返済（倍率と返済率はインストラクター設定）</div>
+      <div class="border-b border-line py-1.5">
+             <span class="text-ink-600 text-sm">借入金可能枠 <span class="text-ink-300 text-[11px]">ⓐ</span></span>
+             <div class="flex items-center gap-1 flex-wrap text-sm mt-1">純資産 <b class="num">${fmt(eq)}</b> × <input id="op-loanmult" type="number" min="0" step="1" value="${st.loanMult}" class="w-12 h-7 border border-line rounded px-1 text-right num text-sm"> 倍 ＝ <b class="num" style="color:${C}">${fmt(cap)}</b></div>
+           </div>
+           ${row('現在借入残高 ⓑ', fmt(bal))}
+           <div class="flex items-baseline justify-between border-b border-line py-1.5"><span class="text-ink-700 text-sm font-bold">今期借入可能額 (ⓐ−ⓑ)</span><b class="num text-base" style="color:${C}">${fmt(room)}</b></div>
+      <div class="flex items-baseline justify-between py-1.5 mt-1 rounded-lg px-2" style="background:#dfe2f566"><span class="text-sm font-bold" style="color:${BL}">金利 5%・期首支払金利 (期首残高×5%)</span><b class="num" style="color:${BL}">▲${fmt(interest)}</b></div>
+      <div class="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 gap-2 flex-wrap" style="background:#fbe0ea66"><span class="text-sm font-bold" style="color:${PKc}">期末返済（期首残高 × <input id="op-repayrate" type="number" min="0" max="100" step="1" value="${st.repayRate}" class="w-11 h-7 border border-line rounded px-1 text-right num text-sm">%）</span><b class="num" style="color:${PKc}">▲${fmt(repayPlan)}</b></div>
+      <p class="text-ink-300 text-[11px] mt-2">※ 借入時にも借入額×5%の金利（管理費）。期末返済は「期末処理」で自動計上されます。</p>
+    </div>`;
+    // 増資（第2期以降のみ・任意）。資本金（ア）として記帳され、現金と純資産が増える
+    const zoshiBox = first ? '' : `<div class="rounded-xl border bg-white p-4 mt-4" style="border-color:${C}33">
+      <div class="text-xs font-bold mb-1" style="color:${C}">増資（任意）</div>
+      <p class="text-ink-400 text-[11px] mb-2">この期に追加出資する場合に入力。「ア 資本金」として記帳され、現金と純資産が増えます。</p>
+      <div class="flex items-stretch gap-2">
+        <div class="flex items-center bg-p-bg rounded-xl px-3 flex-1"><input id="op-addcap" type="number" min="0" value="100" class="num font-bold text-xl w-full bg-transparent outline-none text-p-ink h-11"></div>
+        <button id="op-addcap-btn" class="px-4 rounded-xl bg-p-base text-white font-bold hover:brightness-95 transition whitespace-nowrap">＋ 増資する</button>
+      </div>
+    </div>`;
+    $('opening-figs').innerHTML=`<div class="grid sm:grid-cols-2 gap-4">${carry}${board}</div><div class="mt-4">${loanBox}</div>${zoshiBox}`;
+    const lm=$('op-loanmult');
+    if(lm) lm.addEventListener('change',()=>{ st.loanMult=Math.max(0,Math.round(parseFloat(lm.value)||0)); renderAll(); });
+    const rr=$('op-repayrate');
+    if(rr) rr.addEventListener('change',()=>{ st.repayRate=Math.min(100,Math.max(0,Math.round(parseFloat(rr.value)||0))); renderAll(); });
+    // 盤面セットアップの変更（製造/販売/材料/製品/開発/広告/機械）
+    const beb=$('op-board-edit');
+    if(beb) beb.addEventListener('click',()=>{ $('op-board-view').classList.add('hidden'); $('op-board-form').classList.remove('hidden'); beb.classList.add('hidden'); });
+    const bcancel=$('op-board-cancel');
+    if(bcancel) bcancel.addEventListener('click',()=>renderOpening());
+    const bsave=$('op-board-save');
+    if(bsave) bsave.addEventListener('click',()=>{
+      if(st.settled){ uiAlert('この期は決算済みです。次の期へ進んでから変更してください。'); return; }
+      const gv=id=>{ const el=$(id); return Math.max(0, Math.round(parseFloat(el&&el.value)||0)); };
+      const mfg=gv('obe-mfg'), sales=gv('obe-sales'), mat=gv('obe-mat'), prod=gv('obe-prod'), dev=gv('obe-dev'), ads=gv('obe-ads'), mach=gv('obe-mach');
+      const unit = st.openingMatQty>0 ? st.openingMatVal/st.openingMatQty : 12;       // 在庫1個あたり原価
+      const perMach = st.openingMachines>0 ? st.openingEquipVal/st.openingMachines : 100; // 機械1台あたり簿価
+      const newMatQty=mat+prod, newMatVal=Math.round(unit*newMatQty), newEquipVal=Math.round(perMach*mach);
+      st.retained += (newMatVal-st.openingMatVal) + (newEquipVal-st.openingEquipVal);   // 資産価値の増減を利益剰余金で吸収（B/S均衡）
+      st.openingStaffMfg=mfg; st.openingStaffSales=sales; st.openingDev=dev; st.openingAds=ads;
+      st.openingMachines=mach; st.openingEquipVal=newEquipVal;
+      st.openingProducts=prod; st.openingMatQty=newMatQty; st.openingMatVal=newMatVal;
+      recompute(); renderAll(); renderOpening();
+    });
+    // 増資（第2期以降・任意）
+    const ac=$('op-addcap-btn');
+    if(ac) ac.addEventListener('click',()=>{
+      if(st.settled){ uiAlert('この期は決算済みです。次の期へ進んでから増資してください。'); return; }
+      const amt=Math.round(parseFloat(($('op-addcap')||{}).value)||0);
+      if(amt<=0){ uiAlert('増資額を入力してください。'); return; }
+      st.tx.push({ id:st.seq++, label:'増資', col:0, amount:amt });
+      recompute(); renderAll(); renderOpening();
+    });
+  }
+  // 補助勘定の図解（入門編MG決算書の3列ボックスをそのまま再現）
+  function renderFigs(r){
+    // 配色（PDFの淡色）
+    const GN={bg:'#e2f0e1',bd:'#a9cfa7'}, TN={bg:'#fdeacf',bd:'#e9bd8a'}, PK={bg:'#fbe0ea',bd:'#ecaac3'},
+          SM={bg:'#f7d0c8',bd:'#e2a094'}, PP={bg:'#e8e0f2',bd:'#bcabe0'}, YL={bg:'#fdf3c7',bd:'#e3cf72'},
+          BL={bg:'#d6e6f7',bd:'#9dbfe4'}, AQ={bg:'#d3ecf2',bd:'#9ed3df'},
+          WT={bg:'#ffffff',bd:'#e1e5ea'};
+    // セル：丸数字＋ラベル（＋科目）／値（＋単位）／式
+    const cell=(c,head,val,unit,cap,sub)=>`<div class="flex-1 flex flex-col rounded-md px-2 py-1.5" style="background:${c.bg};border:1px solid ${c.bd};min-height:52px">
+      <div class="text-[10.5px] text-ink-600 leading-tight">${head}</div>
+      <div class="num font-bold text-[15px] leading-none mt-auto pt-1">${fmt(val)}${unit?`<span class="text-[9px] text-ink-400 font-normal ml-0.5">${unit}</span>`:''}</div>
+      ${sub?`<div class="text-[9px] text-ink-400 leading-none mt-0.5">${sub}</div>`:''}
+      ${cap?`<div class="text-[9px] text-ink-400 leading-none mt-0.5">${cap}</div>`:''}</div>`;
+    // 在庫用：金額を大きく＋個数を併記
+    const cell2=(c,head,qty,amount,cap)=>`<div class="flex-1 flex flex-col rounded-md px-2 py-2" style="background:${c.bg};border:1px solid ${c.bd};min-height:66px">
+      <div class="text-[10.5px] text-ink-600 leading-tight">${head}</div>
+      <div class="num font-black text-[20px] leading-none mt-auto pt-1">${fmt(amount)}</div>
+      ${qty!=null?`<div class="num text-[12px] font-bold text-ink-500 leading-tight mt-1">${fmt(qty)}<span class="text-[9px] text-ink-400 font-normal ml-0.5">個</span></div>`:''}
+      ${cap?`<div class="text-[9px] text-ink-400 leading-tight mt-1">${cap}</div>`:''}</div>`;
+    const col=(...cells)=>`<div class="flex flex-col gap-1.5 flex-1">${cells.join('')}</div>`;
+    const head=(t,c)=>`<div class="px-4 py-2 text-sm font-bold text-white" style="background:${c}">${t}</div>`;
+    const box=(title,bar,c1,c2,c3)=>`<div class="bg-white rounded-2xl shadow-card border border-line overflow-hidden">
+      ${head(title,bar)}<div class="p-3"><div class="flex gap-1.5 items-stretch">${col(...c1)}${col(...c2)}${col(...c3)}</div></div></div>`;
+
+    // ❺ 棚卸（個数計算）
+    const fig1=box('棚卸（個数計算）','#3f7a3f',
+      [cell(WT,'① 前期繰越',r.openMatQty,'個'), cell(GN,'② 材料仕入の個数 <span class="text-ink-400">(オ)</span>',r.matBoughtQty,'個')],
+      [cell(WT,'③ 合計',r.totMatQty,'個','(① ＋ ②)')],
+      [cell(TN,'④ 売上の個数 <span class="text-ink-400">(ウ)</span>',r.salesQty,'個'), cell(SM,'⑤ 廃棄等 <span class="text-ink-400">(水害・異物)</span>',r.scrap,'個'), cell(TN,'⑥ 会社盤の在庫数',r.boardInvQty,'個'), cell(PK,'⑦ 差異数',r.diffQty,'個','(③−④−⑤−⑥)')]);
+
+    // ⓬ 在庫（棚卸資産）・原価計算（個数＋金額を併記。金額を大きく表示）
+    const fig2=box('在庫（棚卸資産）・原価計算','#3f7a3f',
+      [cell2(WT,'① 前期繰越',r.openMatQty,r.openMatVal), cell2(GN,'② 材料仕入 <span class="text-ink-400">(オ)</span>',r.matBoughtQty,r.matBoughtVal)],
+      [cell2(WT,'③ 合計',r.totMatQty,r.totMatVal,'(① ＋ ②)'), cell2(WT,'④ 平均単価',null,r.avg,'金額 ÷ 個数')],
+      [cell2(GN,'⑦ 売上原価',r.salesQty,r.vPQ,'(③ − ⑤ − ⑥)'), cell2(PK,'⑥ 廃棄等',r.scrap,r.scrap*r.avg,'(④ × 個数)'), cell2(WT,'⑤ 次期繰越',r.endInvQty,r.endInvVal,'(④ × 個数)')]);
+
+    // ❿ 現金勘定
+    const fig3=box('現金勘定','#c2685c',
+      [cell(WT,'① 前期繰越',r.openCash,''), cell(SM,'② 入金合計 <span class="text-ink-400">⑧</span>',r.inSum,'')],
+      [cell(WT,'③ 合計',r.openCash+r.inSum,'','(① ＋ ②)')],
+      [cell(BL,'④ 出金合計',r.outSum,''), cell(WT,'⑨ 次期繰越',r.cashEnd,'','(③ − ④)')]);
+
+    // ⓭ 什器
+    const fig4=box('什器','#6b4fa0',
+      [cell(WT,'① 前期繰越',r.eq0,''), cell(PP,'② 什器 <span class="text-ink-400">(エ)</span>',r.equipBought,'')],
+      [cell(WT,'③ 合計',r.eq0+r.equipBought,'','(① ＋ ②)')],
+      [cell(AQ,'④ 減価償却',r.dep,'','(台数 × 10)'), cell(WT,'⑨ 次期繰越',r.equipEnd,'','(③ − ④)')]);
+
+    // ⓮ 借入金
+    const fig5=box('借入金','#9a7d10',
+      [cell(WT,'① 前期繰越',r.loan0,''), cell(YL,'② 借入金 <span class="text-ink-400">(イ)</span>',r.loanBorrow,'')],
+      [cell(WT,'③ 合計',r.loan0+r.loanBorrow,'','(① ＋ ②)')],
+      [cell(WT,'④ 借入金返済 <span class="text-ink-400">(ケ)</span>',r.loanRepay,''), cell(WT,'⑨ 次期繰越',r.loanEnd,'','(③ − ④)')]);
+
+    // 入金合計・出金合計（科目別の内訳つき、現金勘定の左に配置）
+    const tot=colTotals();
+    const CN=['ア 資本金','イ 借入金','ウ 売上','A 受取保険金','エ 什器','オ 材料仕入','カ 人件費','キ 販売費','ク 管理費','ケ 借入金返済','コ 納税'];
+    // 詳細科目はミニ枠で横並び、合計は下に
+    const chips=(cols,c)=>{ const a=cols.filter(i=>tot[i]); if(!a.length) return '<div class="text-ink-300 text-xs">なし</div>';
+      return `<div class="flex flex-wrap gap-2">${a.map(i=>`<div class="rounded-xl border bg-white px-2.5 py-1.5 text-center" style="border-color:${c}40"><div class="text-[11px] text-ink-500 whitespace-nowrap leading-tight">${CN[i]}</div><div class="num font-bold text-sm leading-tight" style="color:${c}">${fmt(tot[i])}</div></div>`).join('')}</div>`; };
+    const sumCard=(label,total,c,sign,cols)=>`<div class="rounded-2xl border bg-white p-4" style="border-color:${c}55"><div class="text-sm font-bold mb-2" style="color:${c}">${label}</div>${chips(cols,c)}<div class="mt-3 pt-2 border-t border-line flex items-baseline justify-between"><div class="text-xs text-ink-500">合計</div><div class="num font-black text-2xl" style="color:${c}">${sign}${fmt(total)}</div></div></div>`;
+    $('closing-figs').innerHTML=
+      `<div class="grid sm:grid-cols-2 gap-4">
+         <div class="flex flex-col gap-4">
+           ${sumCard('入金合計',r.inSum,'#0f766e','＋',[0,1,2,3])}
+           ${sumCard('出金合計',r.outSum,'#5b6472','−',[4,5,6,7,8,9,10])}
+         </div>
+         ${fig3}
+       </div>`
+      +`<div class="grid sm:grid-cols-2 gap-4">${fig1}${fig2}</div>`
+      +`<div class="grid sm:grid-cols-2 gap-4">${fig5}${fig4}</div>`;
+  }
+  const fmtA = v => v<0 ? '▲'+fmt(-v) : fmt(v);   // ▲表記（マイナス）
+  let stmtView=null;   // 履歴から開いた過去期の決算書（null＝現在の期）
+  function renderStatement(){
+    const r = stmtView || st.result;
+    if(!r){ $('statement-empty').classList.remove('hidden'); $('statement-body').classList.add('hidden'); return; }
+    $('statement-empty').classList.add('hidden'); $('statement-body').classList.remove('hidden');
+    const viewing=!!stmtView;
+    $('stmt-banner').classList.toggle('hidden', !viewing);
+    if(viewing) $('stmt-banner-label').textContent=`第${r.period}期の決算書を表示中`;
+    $('statement-next').classList.toggle('hidden', viewing);   // 履歴閲覧中は「次の期へ」を隠す
+    // STRAC 数値（P/L）
+    $('st-PQ').textContent=fmt(r.PQ); $('st-Q').textContent=fmt(r.Q);
+    $('st-vPQ').textContent=fmt(r.vPQ); $('st-mPQ').textContent=fmt(r.mPQ); $('st-F').textContent=fmt(r.F); $('st-G').textContent=fmtA(r.G);
+    $('st-labor').textContent=fmt(r.laborF); $('st-sell').textContent=fmt(r.sellF); $('st-admin').textContent=fmt(r.adminF); $('st-dep').textContent=fmt(r.depF);
+    $('st-cr').textContent=r.PQ?Math.round(r.vPQ/r.PQ*100)+'%':'–';
+    $('st-gp').textContent=r.PQ?Math.round(r.mPQ/r.PQ*100)+'%':'–';
+    $('st-bep').textContent=r.mPQ?Math.round(r.F/r.mPQ*100)+'%':'–';
+    // ⓲ B/S
+    $('bs-cash').textContent=fmt(r.cashEnd); $('bs-inv').textContent=fmt(r.endInvVal); $('bs-equip').textContent=fmt(r.equipEnd); $('bs-asset').textContent=fmt(r.assets);
+    $('bs-tax').textContent=fmt(r.tax); $('bs-loan').textContent=fmt(r.loanEnd); $('bs-liab').textContent=fmt(r.tax+r.loanEnd);
+    $('bs-cap').textContent=fmt(r.capEnd); $('bs-ret').textContent=fmtA(r.retEnd); $('bs-equity').textContent=fmtA(r.capEnd+r.retEnd); $('bs-le').textContent=fmt(r.liabEq);
+    const ok=Math.abs(r.diff)<0.5;
+    $('bs-check').className='mt-3 flex items-center justify-center gap-2 text-sm font-bold rounded-lg py-2 '+(ok?'text-emerald-700 bg-emerald-50':'text-accent-ink bg-accent-bg');
+    $('bs-check').innerHTML=ok?'<span class="grid place-items-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs">✓</span> 差 0 ＝ 貸借一致':`差額 ${fmtA(Math.round(r.diff))}`;
+    // ⓱ 法人税・利益剰余金
+    $('tx-special').textContent=fmtA(r.special); $('tx-pre').textContent=fmtA(r.pretax); $('tx-ret0').textContent=fmtA(r.ret0); $('tx-total').textContent=fmtA(r.total4);
+    $('tx-tax').textContent=fmt(r.tax); $('tx-net').textContent=fmtA(r.net); $('tx-ret1').textContent=fmtA(r.retEnd);
+    // 補助勘定
+    $('sub-cash0').textContent=fmt(r.openCash); $('sub-cashf').textContent=(r.cashFlow>=0?'+':'')+fmt(r.cashFlow); $('sub-cash1').textContent=fmt(r.cashEnd);
+    $('sub-eq0').textContent=fmt(r.eq0); $('sub-dep').textContent='−'+fmt(r.dep); $('sub-eq1').textContent=fmt(r.equipEnd);
+    $('sub-loan0').textContent=fmt(r.loan0); $('sub-loanf').textContent=fmt(r.loanEnd-r.loan0); $('sub-loan1').textContent=fmt(r.loanEnd);
+    $('sub-avg').textContent=fmt(r.avg); $('sub-cogs').textContent=fmt(r.vPQ); $('sub-inv1').textContent=fmt(r.endInvQty)+' / '+fmt(r.endInvVal);
+    renderPL(r);
+    bsFigure(r);
+    $('cf-fig').innerHTML=cfWaterfall(r);
+    renderCF(r);
+  }
+  // ⓲ 貸借対照表 B/S の図解：資産｜負債・純資産 を同じ高さの積み上げ棒で対比（＝貸借一致が一目で分かる）
+  function bsFigHTML(r, h){
+    const tot=Math.max(1, r.assets, r.liabEq), ht=h||180;
+    // 淡色の背景＋濃色の文字で見やすく（[背景,文字]）
+    const PAL={cash:['#cdebe6','#0c6a60'],inv:['#d8ecd8','#357036'],eq:['#e4dcf3','#5e44a0'],
+               tax:['#e7e9ec','#535b67'],loan:['#fdf3c7','#8a6f0e'],cap:['#fbe0ea','#a83567'],ret:['#fdeacf','#a85a10']};
+    const seg=(v,p,label)=> v>0?`<div style="height:${(v/tot*100).toFixed(2)}%;background:${p[0]};color:${p[1]};border-bottom:1px solid rgba(255,255,255,.85);display:grid;place-items:center;overflow:hidden"><span style="font-size:10px;font-weight:700;line-height:1.15;padding:0 4px;text-align:center">${label}<br><span class="num">${fmt(v)}</span></span></div>`:'';
+    const assetCol = seg(r.cashEnd,PAL.cash,'現金')+seg(r.endInvVal,PAL.inv,'在庫')+seg(r.equipEnd,PAL.eq,'什器');
+    let liabCol = seg(r.tax,PAL.tax,'未払税')+seg(r.loanEnd,PAL.loan,'借入金');
+    if(r.retEnd>=0) liabCol += seg(r.capEnd,PAL.cap,'資本金')+seg(r.retEnd,PAL.ret,'剰余金');
+    else liabCol += seg(r.capEnd+r.retEnd,PAL.cap,'純資産');
+    const colSty='display:flex;flex-direction:column;border-radius:8px;overflow:hidden;border:1px solid #e4e7ec;background:#f6f7f9';
+    return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;height:${ht}px">
+        <div style="${colSty}">${assetCol||'<div style="margin:auto;color:#9aa3b2;font-size:11px">—</div>'}</div>
+        <div style="${colSty}">${liabCol||'<div style="margin:auto;color:#9aa3b2;font-size:11px">—</div>'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;font-size:11px;font-weight:700;color:#5b6472;margin-top:4px"><span>資産 ${fmt(r.assets)}</span><span>負債・純資産 ${fmt(r.liabEq)}</span></div>`;
+  }
+  function bsFigure(r){ $('bs-fig').innerHTML=bsFigHTML(r); }
+  // キャッシュフロー計算書：col別合計（colTot）から 営業／投資／財務 に分けて現金増減を表示
+  // キャッシュフローのウォーターフォール図：期首現金→営業→投資→財務→期末現金（累積を浮かせて表示）
+  // ウォーターフォール共通描画（bars:[{l,lo,hi,v,c,tc,top}]、opts.plus=正の値に＋を付ける）
+  function wfSVG(bars, opts){
+    const o=opts||{}, sv=v=> v<0?'▲'+fmt(-v):((o.plus?'+':'')+fmt(v));
+    const allV=bars.flatMap(b=>[b.lo,b.hi]).concat([0]);
+    let maxV=Math.max(...allV), minV=Math.min(...allV); if(maxV===minV)maxV=minV+1;
+    const padHi=(maxV-minV)*0.12; maxV+=padHi; minV-=padHi*0.5;
+    const n=bars.length, W=760, H=232, padT=12, padB=38, padX=18, span=maxV-minV;
+    const Y=v=> padT+(maxV-v)/span*(H-padT-padB);
+    const slot=(W-padX*2)/n, barW=Math.min(110, slot*0.56), cx=i=> padX+slot*i+slot/2, zeroY=Y(0);
+    let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;min-width:420px">`;
+    s+=`<line x1="${padX}" y1="${zeroY.toFixed(1)}" x2="${W-padX}" y2="${zeroY.toFixed(1)}" stroke="#c0c7d0" stroke-width="1"/>`;
+    for(let i=0;i<n-1;i++){ const y=Y(bars[i].top).toFixed(1); s+=`<line x1="${(cx(i)+barW/2).toFixed(1)}" y1="${y}" x2="${(cx(i+1)-barW/2).toFixed(1)}" y2="${y}" stroke="#b9c2cf" stroke-width="1" stroke-dasharray="3 3"/>`; }
+    bars.forEach((b,i)=>{
+      const x=(cx(i)-barW/2), yTop=Y(b.hi), h=Y(b.lo)-Y(b.hi), zero=Math.abs(b.v)<0.5;
+      if(zero){ s+=`<line x1="${x.toFixed(1)}" y1="${zeroY.toFixed(1)}" x2="${(cx(i)+barW/2).toFixed(1)}" y2="${zeroY.toFixed(1)}" stroke="${b.c}" stroke-width="3.5"/>`; }
+      else { s+=`<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(2,h).toFixed(1)}" rx="2.5" fill="${b.c}"/>`; }
+      const inside=h>24, ly = zero ? zeroY-8 : inside ? (yTop+Y(b.lo))/2+5 : (b.v>=0 ? yTop-6 : Y(b.lo)+15);
+      const lc = zero ? '#46505f' : (inside ? (b.tc||'#fff') : '#46505f');
+      s+=`<text x="${cx(i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="${lc}">${sv(b.v)}</text>`;
+      s+=`<text x="${cx(i).toFixed(1)}" y="${(H-20)}" text-anchor="middle" font-size="12" font-weight="600" fill="#5b6472">${b.l}</text>`;
+    });
+    return s+'</svg>';
+  }
+  function cfWaterfall(r){
+    const c=r.colTot||Array(11).fill(0);
+    const opCF=c[2]+c[3]-c[5]-c[6]-c[7]-c[8]-c[10], invCF=-c[4], finCF=c[0]+c[1]-c[9];
+    const open=r.openCash||0, end=open+opCF+invCF+finCF;
+    let run=0; const bars=[];
+    bars.push({l:'期首現金', lo:Math.min(0,open), hi:Math.max(0,open), v:open, c:'#334155', tc:'#fff', top:open}); run=open;
+    const add=(l,d,col)=>{ const s=run; run+=d; bars.push({l, lo:Math.min(s,run), hi:Math.max(s,run), v:d, c:col, tc:'#fff', top:run}); };
+    add('営業CF',opCF,'#c0392b'); add('投資CF',invCF,'#d98324'); add('財務CF',finCF,'#7e6bb0');
+    bars.push({l:'期末現金', lo:Math.min(0,end), hi:Math.max(0,end), v:end, c:'#5b8fc9', tc:'#fff', top:end});
+    return wfSVG(bars, {plus:true});
+  }
+  // P/L ウォーターフォール：売上高 → −変動費 → 粗利 → −人件費 −減価償却 −販売費 −管理費 → 経常利益
+  function plWaterfall(r){
+    const PQ=r.PQ, vPQ=r.vPQ, mPQ=r.mPQ, G=r.G;
+    let run=0; const bars=[];
+    bars.push({l:'売上高', lo:Math.min(0,PQ), hi:Math.max(0,PQ), v:PQ, c:'#7b93d0', tc:'#fff', top:PQ}); run=PQ;
+    const add=(l,d,col,tc)=>{ const s=run; run+=d; bars.push({l, lo:Math.min(s,run), hi:Math.max(s,run), v:d, c:col, tc:tc||'#fff', top:run}); };
+    add('変動費', -vPQ, '#f2e3b0', '#8a6d12');
+    bars.push({l:'粗利', lo:Math.min(0,mPQ), hi:Math.max(0,mPQ), v:mPQ, c:'#c2dab8', tc:'#357036', top:mPQ}); run=mPQ;
+    add('人件費', -r.laborF, '#7e8794');
+    add('減価償却', -r.depF, '#8fc4e2', '#1f5e85');
+    add('販売費', -r.sellF, '#b23b34');
+    add('管理費', -r.adminF, '#bf9b1e');
+    bars.push({l:'経常利益', lo:Math.min(0,G), hi:Math.max(0,G), v:G, c: G<0?'#d98a86':'#caa12a', tc:'#fff', top:G});
+    return wfSVG(bars, {plus:false});
+  }
+  function renderCF(r){
+    const c=r.colTot||Array(11).fill(0);
+    const sv=v=>v<0?'▲'+fmt(-v):fmt(v);
+    // 明細行（インデント・通常太さ）
+    const item=(l,v)=>`<div class="flex justify-between items-center py-1 px-3 text-[13px]"><span class="text-ink-500">${l}</span><b class="num font-medium ${v<0?'text-accent-ink':'text-ink'}">${sv(v)}</b></div>`;
+    // 活動グループ：色ヘッダー＋明細(細罫線で区切り)＋小計(太罫線＋淡色)
+    const group=(title,col,items,subLabel,subVal)=>`<div class="rounded-xl border border-line overflow-hidden mb-2.5">
+        <div class="px-3 py-1.5 text-[12px] font-bold" style="background:${col}16;color:${col}">${title}</div>
+        <div class="divide-y divide-line/70">${items}</div>
+        <div class="flex justify-between items-center px-3 py-2 border-t-2 font-bold text-[15px]" style="border-color:${col}66;background:${col}0d"><span style="color:${col}">${subLabel}</span><b class="num ${subVal<0?'text-accent-ink':''}" style="${subVal<0?'':`color:${col}`}">${sv(subVal)}</b></div>
+      </div>`;
+    const opCF=c[2]+c[3]-c[5]-c[6]-c[7]-c[8]-c[10], invCF=-c[4], finCF=c[0]+c[1]-c[9], netCF=opCF+invCF+finCF;
+    let h='';
+    h+=group('営業活動によるCF','#0f766e',
+      item('売上収入 (ウ)',c[2])+item('受取保険金 (A)',c[3])+item('材料仕入 (オ)',-c[5])+item('人件費 (カ)',-c[6])+item('販売費 (キ)',-c[7])+item('管理費 (ク)',-c[8])+item('法人税の支払 (コ)',-c[10]),
+      '営業CF',opCF);
+    h+=group('投資活動によるCF','#6b4fa0', item('什器の購入 (エ)',-c[4]), '投資CF',invCF);
+    h+=group('財務活動によるCF','#9a7d10', item('資本金 (ア)',c[0])+item('借入 (イ)',c[1])+item('借入金返済 (ケ)',-c[9]), '財務CF',finCF);
+    h+=`<div class="rounded-xl border-2 border-ink/15 bg-canvas px-3 py-2.5">
+        <div class="flex justify-between items-center py-0.5 text-[13px]"><span class="text-ink-600">現金の増減（営業＋投資＋財務）</span><b class="num ${netCF<0?'text-accent-ink':''}">${sv(netCF)}</b></div>
+        <div class="flex justify-between items-center py-0.5 text-[13px]"><span class="text-ink-600">期首現金</span><b class="num">${fmt(r.openCash)}</b></div>
+        <div class="flex justify-between items-center border-t-2 border-ink/20 mt-1.5 pt-2"><span class="font-black">期末現金</span><b class="num font-black text-lg">${fmt(r.openCash+netCF)}</b></div>
+      </div>`;
+    $('cf-body').innerHTML=h;
+  }
+  // P/L 図解の表示切替（STRAC図 ／ ウォーターフォール）
+  let plView='strac', plCurR=null;
+  function renderPL(r){
+    plCurR=r;
+    if(plView==='wf'){
+      $('strac-fig').innerHTML=plWaterfall(r);
+      $('pl-note').innerHTML='<b>売上高</b> から <b>変動費</b> を引くと <b>粗利</b>、粗利から <b>人件費・減価償却・販売費・管理費</b> を順に引くと <b>経常利益</b>。各バーは増減を累積で表します。';
+    } else {
+      renderStrac(r);
+      $('pl-note').innerHTML='<b>売上高PQ</b> から <b>変動費vPQ</b>（上）を引くと <b>粗利益mPQ</b>、その粗利益から <b>固定費F</b> を引くと <b>経常利益G</b>。左から段階的に分解し、各ブロックの高さは金額に連動して動きます。';
+    }
+    paintTabs('.pl-tab','data-pl',plView);
+  }
+  document.querySelectorAll('.pl-tab').forEach(b=>b.addEventListener('click',()=>{ plView=b.dataset.pl; if(plCurR) renderPL(plCurR); }));
+  // STRAC 図表：売上高PQ（左）→ 変動費vPQ（上）を引くと粗利mPQ → 固定費Fを引くと経常利益G。段階的に分解、数値で動く
+  function renderStrac(r){
+    const PQ=Math.max(r.PQ,1);
+    const MAXH=240;                                       // スマホで見やすい高さ上限
+    const maxVal=Math.max(PQ, r.vPQ+r.F, 1);              // 最も高い積み上げ（赤字＝変動費＋固定費）
+    const sc=MAXH/maxVal;                                  // 最大高さからの割合（px/金額）
+    const hpx=v=>Math.max(2,Math.round(Math.abs(v)*sc));
+    const loss=r.G<0;
+    const pqH=Math.max(36,Math.round(PQ*sc));              // 売上高PQ柱・売上単価Pバー
+    const vH=hpx(r.vPQ);                                    // 変動費・変動単価
+    const mH=Math.max(2,pqH-vH);                            // 粗利・粗利単価
+    // 黒字: 粗利mH を 固定費fH＋利益gH に分割／赤字: 粗利mH＋経常損失lossH＝固定費fHloss（高さを揃える）
+    let fH=0,gH=0,lossH=0,fHloss=0;
+    if(!loss){ fH=Math.min(mH,hpx(r.F)); gH=Math.max(2,mH-fH); }
+    else { lossH=hpx(-r.G); fHloss=mH+lossH; }
+    const cr=r.PQ?Math.round(r.vPQ/r.PQ*100):0, gp=r.PQ?Math.round(r.mPQ/r.PQ*100):0, bep=r.mPQ?Math.round(r.F/r.mPQ*100):0;
+    const P=r.Q?Math.round(r.PQ/r.Q):0, V=r.Q?Math.round(r.vPQ/r.Q):0, M=r.Q?Math.round(r.mPQ/r.Q):0;   // 単価 P＝V＋M
+    const blk=(h,bg,col,label,val,note)=>`<div class="grid place-items-center text-center overflow-hidden px-1" style="height:${h}px;background:${bg};color:${col}"><div><div class="text-[11px] leading-tight">${label}</div><div class="num font-bold text-[15px] leading-tight">${val}</div>${note?`<div class="text-[9px] leading-tight opacity-80">${note}</div>`:''}</div></div>`;
+    $('strac-fig').innerHTML=`
+      <div class="mx-auto overflow-x-auto scroll-x" style="max-width:560px">
+        <div class="flex items-start justify-start gap-1.5" style="min-width:max-content">
+          <!-- ① 売上単価 P（一番左） -->
+          <div class="shrink-0 rounded-lg overflow-hidden border grid place-items-center text-center px-0.5" style="width:46px;height:${pqH}px;background:#fbe7d3;border-color:#e08a3c"><div><div class="text-[8px] leading-none" style="color:#b5630f">売上単価</div><div class="text-[9px] font-bold leading-none" style="color:#b5630f">P</div><div class="num font-black text-[15px] leading-tight mt-0.5" style="color:#b5630f">${P}</div></div></div>
+          <!-- ② 変動単価 V（上）＋ 粗利単価 M（下）。P＝V＋M で高さ一致 -->
+          <div class="shrink-0 rounded-lg overflow-hidden border border-line flex flex-col" style="width:46px;height:${pqH}px">
+            <div class="grid place-items-center text-center text-white overflow-hidden px-0.5" style="height:${vH}px;background:#37a36b"><div><div class="text-[8px] leading-none">変動単価</div><div class="num font-bold text-[13px] leading-tight">${V}</div></div></div>
+            <div class="grid place-items-center text-center overflow-hidden px-0.5" style="height:${mH}px;background:#fbe4ee;color:#9d3464"><div><div class="text-[8px] leading-none">粗利単価</div><div class="num font-bold text-[13px] leading-tight">${M}</div></div></div>
+          </div>
+          <!-- ③ 個数 Q（×の右に個数、枠＋背景色） -->
+          <div class="shrink-0 flex items-center justify-center" style="width:62px;height:${pqH}px">
+            <div class="rounded-lg border px-2 py-2 text-center" style="background:#eaeef3;border-color:#b9c2cf"><div class="text-[9px] text-ink-500 leading-none">個数 Q</div><div class="flex items-center justify-center gap-1 mt-1"><span class="text-ink-400 text-sm leading-none">×</span><span class="num font-bold text-ink text-[15px] leading-none">${fmt(r.Q)}</span></div></div>
+          </div>
+          <!-- ④ 売上高 PQ（柱）＝ P × Q -->
+          <div class="shrink-0 rounded-lg grid place-items-center text-center" style="width:76px;height:${pqH}px;background:#fbe7d3;border:1.5px solid #e08a3c">
+            <div>
+              <div class="text-[10px] font-bold" style="color:#b5630f">売上高 PQ</div>
+              <div class="num font-black text-lg leading-none mt-1" style="color:#b5630f">${fmt(r.PQ)}</div>
+              <div class="text-[8px] text-ink-400 mt-1">P × Q</div>
+            </div>
+          </div>
+          <!-- 右：変動費（粗利＋固定費を合わせた全幅）→ 下段に 粗利 ｜ 固定費＋経常利益 -->
+          <div class="shrink-0 flex flex-col" style="width:300px;max-width:60vw">
+            <!-- 変動費 vPQ：全幅 -->
+            <div class="rounded-t-lg border border-line border-b-0 grid place-items-center text-center text-white overflow-hidden" style="height:${vH}px;background:#37a36b"><div><div class="text-[11px] leading-tight">変動費 vPQ</div><div class="num font-bold text-[15px] leading-tight">${fmt(r.vPQ)}</div><div class="text-[9px] leading-tight opacity-80">売上原価</div></div></div>
+            <!-- 下段：黒字＝粗利 ｜ 固定費F＋利益G／赤字＝(粗利＋経常損失) ｜ 固定費F（左右の高さを揃える） -->
+            <div class="flex items-start">
+              ${loss
+                ? `<div class="flex-1 rounded-bl-lg border border-line border-r-0 overflow-hidden flex flex-col" style="height:${fHloss}px">
+                     ${blk(mH,'#fbe4ee','#9d3464','粗利益 mPQ',fmt(r.mPQ),'売上高 − 変動費')}
+                     ${blk(lossH,'#f7d0c8','#b23a36','経常損失 G',fmtA(r.G),'固定費に届かない不足')}
+                   </div>
+                   <div class="flex-1 rounded-br-lg border border-line overflow-hidden grid place-items-center text-center text-white" style="height:${fHloss}px;background:#3b6fd4"><div><div class="text-[11px] leading-tight">固定費 F</div><div class="num font-bold text-[15px] leading-tight">${fmt(r.F)}</div><div class="text-[9px] leading-tight opacity-80">粗利では賄えず</div></div></div>`
+                : `<div class="flex-1 rounded-bl-lg border border-line border-r-0 grid place-items-center text-center overflow-hidden" style="height:${mH}px;background:#fbe4ee;color:#9d3464"><div><div class="text-[11px] leading-tight">粗利益 mPQ</div><div class="num font-bold text-[15px] leading-tight">${fmt(r.mPQ)}</div><div class="text-[9px] leading-tight opacity-80">売上高 − 変動費</div></div></div>
+                   <div class="flex-1 rounded-br-lg border border-line overflow-hidden flex flex-col" style="height:${mH}px">
+                     ${blk(fH,'#3b6fd4','#ffffff','固定費 F',fmt(r.F),'')}
+                     ${blk(gH,'#f6cf4b','#6b5300','経常利益 G',fmt(r.G),'粗利 − 固定費')}
+                   </div>`}
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 rounded-lg bg-canvas px-3 py-2 text-[11px] flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <span class="font-bold text-ink-600">固定費 F ${fmt(r.F)} ＝</span>
+          <span>人件費 <b class="num">${fmt(r.laborF)}</b></span>
+          <span>販売費 <b class="num">${fmt(r.sellF)}</b></span>
+          <span>管理費 <b class="num">${fmt(r.adminF)}</b></span>
+          <span>減価償却 <b class="num">${fmt(r.depF)}</b></span>
+        </div>
+        <div class="flex flex-wrap justify-center gap-2 mt-2 text-[11px]">
+          <span class="rounded-md border border-line px-2.5 py-1">原価率 <b class="num">${cr}%</b></span>
+          <span class="rounded-md border border-line px-2.5 py-1">粗利率 <b class="num">${gp}%</b></span>
+          <span class="rounded-md border border-line px-2.5 py-1">損益分岐点 <b class="num">${bep}%</b></span>
+        </div>
+      </div>`;
+  }
+
+  function nextPeriod(){
+    if(!st.settled){ uiAlert('先に決算を実行してください。'); return; }
+    const r=st.result;            // 履歴へは決算完了時に追加済み（ここでは繰越のみ）
+    // 繰越（次期の期首残高）
+    st.openingCash=r.cashEnd; st.openingCapital=r.capEnd; st.retained=r.retEnd;
+    st.openingMatQty=r.endInvQty; st.openingMatVal=r.endInvVal;
+    st.openingProducts=Math.min(r.prodEnd||0, r.endInvQty);   // 製品は製品として引き継ぐ（材料はこの差分）
+    st.openingEquipVal=r.equipEnd; st.openingMachines=r.machines;
+    st.openingStaffMfg=r.staffMfg; st.openingStaffSales=r.staffSales; st.openingLoan=r.loanEnd;
+    st.openingDev=(r.dev>=2)?1:0; st.openingAds=(r.ads>=2)?1:0;   // 商品開発・広告チップは2枚以上なら1枚繰越
+    st.period=Math.min(5,st.period+1);
+    st.tx=[]; st.settled=false; st.closingPrep=false; st.result=null;
+    // 期首処理：前期確定の法人税を期首に納付（自動記帳・コ納税）
+    if(r.period<5 && r.tax>0){ st.tx.push({id:st.seq++,label:'法人税納付(期首)',col:10,amount:r.tax,note:'前期確定',isOpeningTax:true}); }
+    // 期首処理：期首借入残高 × 5% の支払金利を計上（自動記帳・ク管理費＝固定費）
+    if(r.period<5 && r.loanEnd>0){ const intr=Math.round(r.loanEnd*LOAN_RATE); if(intr>0) st.tx.push({id:st.seq++,label:'支払金利(期首)',col:8,amount:intr,note:`残高${fmt(r.loanEnd)}×5%`,isOpeningInterest:true}); }
+    recompute();
+    stmtView=null;
+    renderAll(); renderClosing(); renderStatement(); renderHistory(); renderReview();
+    switchTab('opening');
+  }
+
+  // ====================== 履歴・振り返り ======================
+  function renderHistory(){
+    if(history.length===0){ $('history-empty').classList.remove('hidden'); $('history-body').classList.add('hidden'); return; }
+    $('history-empty').classList.add('hidden'); $('history-body').classList.remove('hidden');
+    $('history-rows').innerHTML=history.map((r,i)=>`<tr class="border-b border-line/70">
+      <td class="text-left px-2 py-2 font-medium">第${r.period}期</td>
+      <td class="px-2 py-2 text-p-ink">${fmt(r.PQ)}</td><td class="px-2 py-2 text-v-ink">${fmt(r.vPQ)}</td><td class="px-2 py-2 text-m-ink">${fmt(r.mPQ)}</td>
+      <td class="px-2 py-2 text-f-ink">${fmt(r.F)}</td><td class="px-2 py-2 font-bold text-g-ink">${fmtA(r.G)}</td><td class="px-2 py-2">${fmtA(r.net)}</td>
+      <td class="px-2 py-2">${fmt(r.capEnd+r.retEnd)}</td><td class="px-2 py-2">${fmt(r.cashEnd)}</td>
+      <td class="px-2 py-2 text-center whitespace-nowrap"><button data-detail="${i}" class="h-7 px-3 rounded-lg border border-line text-ink-600 text-[12px] font-bold hover:bg-canvas transition">詳細</button> <button data-pdf="${i}" class="h-7 px-3 rounded-lg border border-accent/40 text-accent-ink text-[12px] font-bold hover:bg-accent/5 transition">PDF保存</button></td></tr>`).join('');
+  }
+  // 履歴の「詳細」→ その期の決算書（イベント委譲）／「PDF保存」→ A3決算書を印刷
+  $('history-rows').addEventListener('click',e=>{
+    const d=e.target.closest('[data-detail]'); if(d){ const r=history[+d.dataset.detail]; if(r){ stmtView=r; switchTab('statement'); } return; }
+    const p=e.target.closest('[data-pdf]'); if(p){ const r=history[+p.dataset.pdf]; if(r) savePdf(r); }
+  });
+
+  // ====================== 決算書PDF（入門編MG決算書レイアウト・A3 1枚） ======================
+  function savePdf(r){
+    let el=$('pdf-sheet');
+    if(!el){ el=document.createElement('div'); el.id='pdf-sheet'; document.body.appendChild(el); }
+    el.innerHTML=buildSheet(r);
+    document.body.classList.add('printing');
+    const done=()=>{ document.body.classList.remove('printing'); window.removeEventListener('afterprint',done); };
+    window.addEventListener('afterprint',done);
+    setTimeout(()=>{ window.print(); }, 80);
+  }
+  function buildSheet(r){
+    const f=fmt, fA=fmtA;
+    const Q=r.Q||0;
+    const P=Q?Math.round(r.PQ/Q):0, vP=Q?Math.round(r.vPQ/Q):0, mP=P-vP;
+    const costRate=r.PQ?Math.round(r.vPQ/r.PQ*100):0;
+    const grossRate=r.PQ?Math.round(r.mPQ/r.PQ*100):0;
+    const bep=r.mPQ?Math.round(r.F/r.mPQ*100):0;
+    const ct=r.colTot||Array(11).fill(0);
+    const equityStart=(r.capStart||0)+(r.ret0||0);
+    const loanA=r.period<=1?0:Math.round(equityStart*(r.loanMult||0));
+    const loanB=r.loan0||0, loanRoom=Math.max(0,loanA-loanB);
+    // ---- 現金出納帳（番号付き・空行で様式の縦長さを再現）----
+    const drows=r.rows||[];
+    const target=Math.max(16, drows.length);
+    let bal=r.openCash||0;
+    let body=`<tr><td class="rn"></td><td class="kk">期首繰越</td>${'<td></td>'.repeat(11)}<td class="bal">${f(bal)}</td></tr>`;
+    for(let idx=0; idx<target; idx++){
+      const t=drows[idx];
+      if(t){
+        if(t.col!=null) bal += IN_COLS.includes(t.col)? t.amount : -t.amount;
+        let cells='';
+        for(let c=0;c<11;c++){ const dv=c===4?'border-left:1.3px solid #9aa3b2;':''; const on=t.col===c&&t.amount;
+          cells+=`<td style="${dv}${on?`background:${LCOL[c].c};color:${LCOL[c].t};font-weight:700;`:''}">${on?f(t.amount):''}</td>`; }
+        body+=`<tr><td class="rn">${idx+1}</td><td class="kk">${t.label}${t.note?` <span class="nt">${t.note}</span>`:''}</td>${cells}<td class="bal">${f(bal)}</td></tr>`;
+      } else {
+        let cells='';
+        for(let c=0;c<11;c++){ const dv=c===4?'border-left:1.3px solid #9aa3b2;':''; cells+=`<td style="${dv}"></td>`; }
+        body+=`<tr><td class="rn">${idx+1}</td><td class="kk"></td>${cells}<td class="bal"></td></tr>`;
+      }
+    }
+    let tcells='';
+    for(let c=0;c<11;c++){ const dv=c===4?'border-left:1.3px solid #9aa3b2;':''; tcells+=`<td style="${dv}background:${LCOL[c].h};color:${LCOL[c].t};font-weight:700">${ct[c]?f(ct[c]):''}</td>`; }
+    const hcol=LHEAD.map((h,c)=>`<th style="${c===4?'border-left:1.3px solid #9aa3b2;':''}background:${LCOL[c].h};color:${LCOL[c].t}"><div class="hs">${h.s}</div><div>${h.n}</div></th>`).join('');
+    const ledger=`<table class="led">
+      <thead>
+        <tr><th rowspan="2" class="rn"></th><th rowspan="2" class="kk">勘定科目</th><th colspan="4" class="grp" style="background:#dceaf6;color:#2f5f93">入　金　＋</th><th colspan="7" class="grp" style="background:#e7e9ef;color:#4a55a8;border-left:1.3px solid #9aa3b2">出　金　−</th><th rowspan="2">現金残高</th></tr>
+        <tr>${hcol}</tr>
+      </thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr class="tot"><td class="rn"></td><td class="kk">合計</td>${tcells}<td class="bal">${f(r.cashEnd)}</td></tr></tfoot>
+    </table>`;
+    // ---- box helpers ----
+    const kv=(l,v,c)=>`<div class="kv"><span>${l}</span><b class="num"${c?` style="color:${c}"`:''}>${v}</b></div>`;
+    const box=(mk,title,inner,bd)=>`<div class="box" style="border-color:${bd||'#5b6472'}"><div class="bt" style="background:${bd||'#5b6472'}">${mk?`<span class="mkn">${mk}</span>`:''}${title}</div><div class="bb">${inner}</div></div>`;
+    // ---- 勘定の図解（3カラムのフロー：前期繰越/当期増加 → 合計 → 減少/次期繰越）----
+    const GN={bg:'#e2f0e1',bd:'#a9cfa7'},TN={bg:'#fdeacf',bd:'#e9bd8a'},PK={bg:'#fbe0ea',bd:'#ecaac3'},SM={bg:'#f7d0c8',bd:'#e2a094'},PP={bg:'#e8e0f2',bd:'#bcabe0'},YL={bg:'#fdf3c7',bd:'#e3cf72'},BL={bg:'#d6e6f7',bd:'#9dbfe4'},AQ={bg:'#d3ecf2',bd:'#9ed3df'},WT={bg:'#ffffff',bd:'#e1e5ea'};
+    const fcell=(c,head,val,qty,cap)=>`<div style="flex:1;display:flex;flex-direction:column;background:${c.bg};border:1px solid ${c.bd};border-radius:4px;padding:2px 4px;min-height:34px"><div style="font-size:8px;color:#46505f;line-height:1.15">${head}</div><div class="num" style="font-weight:800;font-size:12.5px;line-height:1.05;margin-top:auto">${f(val)}${qty!=null?`<span style="font-size:8px;color:#8a929c;font-weight:600;margin-left:3px">${f(qty)}個</span>`:''}</div>${cap?`<div style="font-size:7px;color:#8a929c;line-height:1.05">${cap}</div>`:''}</div>`;
+    const fcol=(...cs)=>`<div style="display:flex;flex-direction:column;gap:3px;flex:1">${cs.join('')}</div>`;
+    const figbox=(mk,title,bar,c1,c2,c3)=>`<div class="box" style="border-color:${bar}"><div class="bt" style="background:${bar}">${mk?`<span class="mkn">${mk}</span>`:''}${title}</div><div class="bb" style="display:flex;gap:3px;align-items:stretch">${fcol(...c1)}${fcol(...c2)}${fcol(...c3)}</div></div>`;
+    // ---- STRAC 面積図（インラインCSS・自己完結）----
+    function stracFig(){
+      const PQv=Math.max(r.PQ,1), MAXH=140, maxVal=Math.max(PQv, r.vPQ+r.F, 1), sc=MAXH/maxVal;
+      const hpx=v=>Math.max(2,Math.round(Math.abs(v)*sc));
+      const loss=r.G<0, pqH=Math.max(34,Math.round(PQv*sc)), vH=hpx(r.vPQ), mH=Math.max(2,pqH-vH);
+      let fH=0,gH=0,lossH=0,fHloss=0;
+      if(!loss){ fH=Math.min(mH,hpx(r.F)); gH=Math.max(2,mH-fH); } else { lossH=hpx(-r.G); fHloss=mH+lossH; }
+      const blk=(h,bg,col,label,val,note)=>`<div style="height:${h}px;background:${bg};color:${col};display:grid;place-items:center;text-align:center;overflow:hidden;padding:0 2px"><div><div style="font-size:8px;line-height:1.05">${label}</div><div class="num" style="font-weight:800;font-size:11px;line-height:1.05">${val}</div>${note?`<div style="font-size:6.5px;opacity:.8;line-height:1.05">${note}</div>`:''}</div></div>`;
+      const pillar=(w,bg,bd,inner)=>`<div style="width:${w}px;height:${pqH}px;background:${bg};border:1px solid ${bd};border-radius:4px;display:grid;place-items:center;text-align:center;overflow:hidden;flex:none">${inner}</div>`;
+      return `<div style="display:flex;align-items:flex-start;gap:4px">
+        ${pillar(34,'#fbe7d3','#e08a3c',`<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div class="num" style="font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)}
+        <div style="width:34px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
+          <div style="height:${vH}px;background:#37a36b;color:#fff;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">変動単価</div><div class="num" style="font-weight:700;font-size:10px">${f(vP)}</div></div></div>
+          <div style="height:${mH}px;background:#fbe4ee;color:#9d3464;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">粗利単価</div><div class="num" style="font-weight:700;font-size:10px">${f(mP)}</div></div></div>
+        </div>
+        <div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px 5px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div class="num" style="font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>
+        ${pillar(56,'#fbe7d3','#e08a3c',`<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div class="num" style="font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)}
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+          <div style="height:${vH}px;background:#37a36b;color:#fff;border:1px solid #2f8d5c;border-bottom:0;border-radius:4px 4px 0 0;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">変動費 vPQ</div><div class="num" style="font-weight:800;font-size:11px">${f(r.vPQ)}</div><div style="font-size:6.5px;opacity:.85">売上原価</div></div></div>
+          <div style="display:flex;align-items:flex-start">
+            ${loss
+              ? `<div style="flex:1;height:${fHloss}px;border:1px solid #e1e5ea;border-right:0;border-radius:0 0 0 4px;overflow:hidden;display:flex;flex-direction:column">${blk(mH,'#fbe4ee','#9d3464','粗利益 mPQ',f(r.mPQ),'売上−変動費')}${blk(lossH,'#f7d0c8','#b23a36','経常損失 G',fA(r.G),'固定費に不足')}</div>
+                 <div style="flex:1;height:${fHloss}px;background:#3b6fd4;color:#fff;border:1px solid #335fb8;border-radius:0 0 4px 0;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">固定費 F</div><div class="num" style="font-weight:800;font-size:11px">${f(r.F)}</div></div></div>`
+              : `<div style="flex:1;height:${mH}px;background:#fbe4ee;color:#9d3464;border:1px solid #e1e5ea;border-right:0;border-radius:0 0 0 4px;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">粗利益 mPQ</div><div class="num" style="font-weight:800;font-size:11px">${f(r.mPQ)}</div><div style="font-size:6.5px;opacity:.8">売上−変動費</div></div></div>
+                 <div style="flex:1;height:${mH}px;border:1px solid #e1e5ea;border-radius:0 0 4px 0;overflow:hidden;display:flex;flex-direction:column">${blk(fH,'#3b6fd4','#fff','固定費 F',f(r.F),'')}${blk(gH,'#f6cf4b','#6b5300','経常利益 G',f(r.G),'粗利−固定費')}</div>`}
+          </div>
+        </div>
+      </div>`;
+    }
+    // ❷ 借入枠
+    const loanBox=box('❷','借入金可能枠・金利',
+      kv(`純資産 ${f(equityStart)} × ${r.period<=1?'—':(r.loanMult||0)}倍 ＝ ⓐ`, r.period<=1?'—':f(loanA))
+      +kv('現在借入残高 ⓑ', f(loanB))
+      +kv('今期借入可能額 (ⓐ−ⓑ)', r.period<=1?'—':f(loanRoom))
+      +kv('金利 5% ・ 期首支払金利 (ⓑ×5%)', f(r.openInterest||0)),'#9a7d10');
+    // ⓰ 商品単価
+    const unitBox=box('⓰','商品1個あたり平均単価',
+      kv('売上単価 P (PQ÷Q)', f(P))+kv('変動単価 vP (vPQ÷Q)', f(vP))+kv('粗利単価 mP (P−vP)', f(mP)),'#b5630f');
+    // ⓯ STRAC（面積図＋固定費内訳＋率）
+    const chip=(l,v)=>`<span style="border:1px solid #d6dae0;border-radius:5px;padding:1px 6px;font-size:9px">${l} <b class="num">${v}</b></span>`;
+    const stracBox=box('⓯','戦略会計 STRAC（変動損益計算書・P/L）',
+      stracFig()
+      +`<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;background:#f4f6f8;border-radius:5px;padding:3px 5px;margin-top:5px;font-size:9px"><b style="color:#46505f">固定費 F ${f(r.F)} ＝</b><span>人件費 <b class="num">${f(r.laborF)}</b></span><span>販売費 <b class="num">${f(r.sellF)}</b></span><span>管理費 <b class="num">${f(r.adminF)}</b></span><span>減価償却 <b class="num">${f(r.depF)}</b></span></div>`
+      +`<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:4px">${chip('売上個数 Q',f(Q))}${chip('原価率',costRate+'%')}${chip('粗利率',grossRate+'%')}${chip('損益分岐点',bep+'%')}${chip('経常利益 G',fA(r.G))}</div>`,'#2f5f93');
+    // ⓱ 法人税・利益剰余金
+    const taxBox=box('⓱','法人税・利益剰余金の計算',
+      kv('① 特別損益 〈(A)−⑫⑥〉', fA(r.special),'#b85c7e')
+      +kv('② 税引前当期純利益 ⑮(⑤+①)', fA(r.pretax))
+      +kv('③ 前期繰越利益剰余金', fA(r.ret0))
+      +kv('④ 合計 (②+③)', fA(r.total4))
+      +kv('⑤ 法人税等（来期期首納税）', f(r.tax),'#9a7d10')
+      +kv('⑥ 当期純利益 (②−⑤)', fA(r.net))
+      +kv('⑦ 次期繰越利益剰余金 (⑥+③)', fA(r.retEnd)),'#b85c7e');
+    // ⓲ B/S
+    const liab=r.tax+r.loanEnd, equity=r.capEnd+r.retEnd;
+    const bsBox=box('⓲','貸借対照表・B/S',
+      `<div class="bs"><div class="bsc">`
+      +kv('現金', f(r.cashEnd))+kv('在庫', f(r.endInvVal))+kv('什器', f(r.equipEnd))
+      +`<div class="kv tt"><span>資産合計</span><b class="num">${f(r.assets)}</b></div></div><div class="bsc">`
+      +kv('未払法人税等', f(r.tax))+kv('借入金', f(r.loanEnd))
+      +`<div class="kv st"><span>負債合計</span><b class="num">${f(liab)}</b></div>`
+      +kv('資本金', f(r.capEnd))+kv('利益剰余金', fA(r.retEnd))
+      +`<div class="kv st"><span>純資産合計</span><b class="num">${f(equity)}</b></div>`
+      +`<div class="kv tt"><span>負債・純資産合計</span><b class="num">${f(r.liabEq)}</b></div></div></div>`
+      +`<div class="diff">差 ＝ ${fA(r.diff)} ${Math.abs(r.diff)<0.5?'（0でOK）':'（要確認）'}</div>`,'#2f5f93');
+    // ❿⓭⓮ 補助勘定（勘定の図解）
+    const cashAcc=figbox('❿','現金勘定','#c2685c',
+      [fcell(WT,'① 前期繰越',r.openCash), fcell(SM,'② 入金合計 ⑧',r.inSum)],
+      [fcell(WT,'③ 合計 (①+②)',(r.openCash||0)+r.inSum)],
+      [fcell(BL,'④ 出金合計',r.outSum), fcell(WT,'⑨ 次期繰越 (③−④)',r.cashEnd)]);
+    const equipAcc=figbox('⓭','什器','#6b4fa0',
+      [fcell(WT,'① 前期繰越',r.eq0), fcell(PP,'② 什器 (エ)',r.equipBought)],
+      [fcell(WT,'③ 合計 (①+②)',r.equipTotal)],
+      [fcell(AQ,'④ 減価償却 (×10)',r.depF), fcell(WT,'⑨ 次期繰越 (③−④)',r.equipEnd)]);
+    const loanAcc=figbox('⓮','借入金','#9a7d10',
+      [fcell(WT,'① 前期繰越',r.loan0), fcell(YL,'② 借入金 (イ)',r.loanBorrow)],
+      [fcell(WT,'③ 合計 (①+②)',(r.loan0||0)+r.loanBorrow)],
+      [fcell(WT,'④ 返済 (ケ)',r.loanRepay), fcell(WT,'⑨ 次期繰越 (③−④)',r.loanEnd)]);
+    // ⓬ 在庫・原価計算（金額＋個数）
+    const invBox=figbox('⓬','在庫（棚卸資産）・原価計算','#3f7a3f',
+      [fcell(WT,'① 前期繰越',r.openMatVal,r.openMatQty), fcell(GN,'② 材料仕入 (オ)',r.matBoughtVal,r.matBoughtQty)],
+      [fcell(WT,'③ 合計 (①+②)',r.totMatVal,r.totMatQty), fcell(WT,'④ 平均単価 (÷個数)',r.avg)],
+      [fcell(GN,'⑦ 売上原価 (③−⑤−⑥)',r.vPQ,r.salesQty), fcell(PK,'⑥ 廃棄等 (④×個)',(r.scrap||0)*r.avg,r.scrap), fcell(WT,'⑤ 次期繰越 (④×個)',r.endInvVal,r.endInvQty)]);
+    // ❺ 棚卸（個数計算）
+    const countBox=figbox('❺','棚卸（個数計算）','#3f7a3f',
+      [fcell(WT,'① 前期繰越',r.openMatQty), fcell(GN,'② 材料仕入 (オ)',r.matBoughtQty)],
+      [fcell(WT,'③ 合計 (①+②)',r.totMatQty)],
+      [fcell(TN,'④ 売上 (ウ)',r.salesQty), fcell(SM,'⑤ 廃棄等（水害等）',r.scrap), fcell(TN,'⑥ 会社盤在庫',r.boardInvQty), fcell(PK,'⑦ 差異数 (③−④−⑤−⑥)',r.diffQty)]);
+    // ❺ 給料表（スタッフ1人あたり人件費）
+    const SAL={1:25,2:28,3:31,4:34,5:37};
+    const salTbl=box('',`期末処理メモ（第${r.period}期）`,
+      kv('給料（1人あたり人件費）', `${SAL[r.period]||28} × ${(r.staffMfg||0)+(r.staffSales||0)}人 ＝ ${f(r.salary)}`)
+      +kv('家賃', f(r.rent))+kv('減価償却（什器×10）', f(r.depF))
+      +kv('給料表 1期/2期/3期/4期/5期', '25 / 28 / 31 / 34 / 37'),'#5b6472');
+    // ===== 新フォーマット用：図群＋数値表群 =====
+    // STRAC 図（面積図＋率チップ）
+    const plFig=box('⓯','STRAC 図（変動損益）', stracFig()
+      +`<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:4px">${chip('売上個数 Q',f(Q))}${chip('原価率',costRate+'%')}${chip('粗利率',grossRate+'%')}${chip('損益分岐点',bep+'%')}${chip('経常利益 G',fA(r.G))}</div>`,'#2f5f93');
+    // P/L ウォーターフォール 図
+    const wfPL=box('','P/L ウォーターフォール図', `<div style="overflow-x:auto">${plWaterfall(r)}</div>`,'#7b93d0');
+    // 貸借対照 図
+    const bsFig=box('⓲','貸借対照表 図', bsFigHTML(r,120),'#2f5f93');
+    // キャッシュフロー 図
+    const cfFig=box('','キャッシュフロー図（現金の増減）', `<div style="overflow-x:auto">${cfWaterfall(r)}</div>`,'#5b8fc9');
+    // 損益の数値表（P/L）
+    const plTable=box('','損益の数値表（P/L）',
+      kv('売上高 PQ (ウ)', f(r.PQ),'#b5630f')
+      +kv('変動費 vPQ（売上原価）', f(r.vPQ),'#2f7d54')
+      +kv('粗利益 mPQ (PQ−vPQ)', f(r.mPQ),'#cf4d80')
+      +`<div class="sub">固定費 F ＝ ${f(r.F)}</div>`
+      +kv('　人件費 (カ)', f(r.laborF))+kv('　販売費 (キ)', f(r.sellF))+kv('　管理費 (ク)', f(r.adminF))+kv('　減価償却', f(r.depF))
+      +kv('経常利益 G (mPQ−F)', fA(r.G),'#9a7d10')
+      +kv('原価率／粗利率／損益分岐点', `${costRate}% ／ ${grossRate}% ／ ${bep}%`),'#2f5f93');
+    // キャッシュフローの数値表
+    const ct2=r.colTot||Array(11).fill(0);
+    const opCF=ct2[2]+ct2[3]-ct2[5]-ct2[6]-ct2[7]-ct2[8]-ct2[10], invCF=-ct2[4], finCF=ct2[0]+ct2[1]-ct2[9], netCF=opCF+invCF+finCF;
+    const cfTable=box('','キャッシュフローの数値表',
+      `<div class="sub">営業活動によるCF</div>`+kv('　売上収入 (ウ)',f(ct2[2]))+kv('　受取保険金 (A)',f(ct2[3]))+kv('　材料仕入 (オ)',fA(-ct2[5]))+kv('　人件費 (カ)',fA(-ct2[6]))+kv('　販売費 (キ)',fA(-ct2[7]))+kv('　管理費 (ク)',fA(-ct2[8]))+kv('　法人税 (コ)',fA(-ct2[10]))+kv('営業CF',fA(opCF),'#0f766e')
+      +`<div class="sub">投資活動によるCF</div>`+kv('　什器の購入 (エ)',fA(-ct2[4]))+kv('投資CF',fA(invCF),'#6b4fa0')
+      +`<div class="sub">財務活動によるCF</div>`+kv('　資本金 (ア)',f(ct2[0]))+kv('　借入 (イ)',f(ct2[1]))+kv('　借入金返済 (ケ)',fA(-ct2[9]))+kv('財務CF',fA(finCF),'#9a7d10')
+      +kv('現金の増減（営業＋投資＋財務）', fA(netCF))+kv('期首現金', f(r.openCash))+kv('期末現金', f((r.openCash||0)+netCF)),'#5b8fc9');
+    // ---- style + 組版 ----
+    const css=`<style>
+      #pdf-sheet{ width:283mm; min-height:402mm; background:#fff; color:#1b2230; font-family:"Zen Kaku Gothic New",sans-serif; font-size:11px; line-height:1.3; flex-direction:column; }
+      #pdf-sheet .num{ font-family:"Roboto Mono","Zen Kaku Gothic New",monospace; font-variant-numeric:tabular-nums; }
+      #pdf-sheet .hd{ display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2.5px solid #1b2230; padding-bottom:3px; margin-bottom:6px; }
+      #pdf-sheet .hd .t1{ font-weight:900; font-size:17px; }
+      #pdf-sheet .hd .t2{ font-size:10px; color:#5b6472; }
+      #pdf-sheet .hd .co b{ font-size:15px; }
+      #pdf-sheet .wrap{ flex:1; display:grid; grid-template-columns:43% 57%; gap:7px; align-items:stretch; }
+      #pdf-sheet .ledcol{ display:flex; flex-direction:column; gap:6px; }
+      #pdf-sheet .ledcol .ledbox{ flex:1; display:flex; flex-direction:column; }
+      #pdf-sheet .ledcol .ledbox .bb{ flex:1; display:flex; padding:2px; }
+      #pdf-sheet table.led{ width:100%; height:100%; border-collapse:collapse; font-size:8.5px; }
+      #pdf-sheet table.led th,#pdf-sheet table.led td{ border:0.5px solid #c2c7ce; padding:0 2px; text-align:right; }
+      #pdf-sheet table.led th{ font-weight:700; vertical-align:bottom; padding:1px 2px; }
+      #pdf-sheet table.led .grp{ text-align:center; font-size:9.5px; padding:2px; }
+      #pdf-sheet table.led .hs{ font-size:7px; opacity:.7; }
+      #pdf-sheet table.led td.rn,#pdf-sheet table.led th.rn{ width:5mm; text-align:center; color:#9aa3b2; font-size:7px; }
+      #pdf-sheet table.led td.kk,#pdf-sheet table.led th.kk{ text-align:left; white-space:nowrap; width:29mm; max-width:29mm; overflow:hidden; }
+      #pdf-sheet table.led .nt{ color:#9aa3b2; font-size:7px; }
+      #pdf-sheet table.led td.bal{ font-family:"Roboto Mono",monospace; font-weight:700; width:13mm; }
+      #pdf-sheet table.led tfoot td{ background:#eef0f2; font-weight:700; border-top:1.3px solid #5b6472; }
+      #pdf-sheet .right{ display:flex; flex-direction:column; gap:6px; }
+      #pdf-sheet .col2{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+      #pdf-sheet .col3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+      #pdf-sheet .uw{ display:grid; grid-template-columns:32% 68%; gap:6px; align-items:stretch; }
+      #pdf-sheet .box{ border:1.2px solid #5b6472; border-radius:5px; overflow:hidden; }
+      #pdf-sheet .box .bt{ color:#fff; font-weight:700; padding:2.5px 7px; font-size:11px; }
+      #pdf-sheet .box .mkn{ display:inline-block; margin-right:5px; }
+      #pdf-sheet .box .bb{ padding:3px 3px; }
+      #pdf-sheet .kv{ display:flex; justify-content:space-between; gap:8px; padding:1px 6px; border-bottom:0.5px dotted #dfe2e6; font-size:10px; }
+      #pdf-sheet .kv:last-child{ border-bottom:0; }
+      #pdf-sheet .kv span{ color:#46505f; }
+      #pdf-sheet .kv b{ font-size:11px; }
+      #pdf-sheet .sub{ font-weight:700; padding:2px 6px 0; color:#2f5f93; font-size:10.5px; }
+      #pdf-sheet .bs{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+      #pdf-sheet .kv.st{ border-top:0.5px dashed #9aa3b2; border-bottom:0; font-weight:700; }
+      #pdf-sheet .kv.tt{ border-top:1.2px solid #5b6472; border-bottom:0; font-weight:800; }
+      #pdf-sheet .diff{ text-align:right; font-weight:700; padding:3px 6px 0; font-size:11px; }
+    </style>`;
+    return css+`<div class="hd">
+        <div><div class="t1">戦略MG 製造業版入門編（ケーキ屋経営）　決算書</div><div class="t2">ゲーム前：前期繰越と❶〜❹　／　ゲーム後：❺〜⓲</div></div>
+        <div class="co" style="text-align:right"><div><b>第${r.period}期</b></div><div class="t2">社名：${r.name||'—'}　社長名：${r.president||'—'}</div></div>
+      </div>
+      <div class="wrap">
+        <div class="ledcol">
+          <div class="box ledbox" style="border-color:#5b6472"><div class="bt" style="background:#5b6472"><span class="mkn">📒</span>現金出納帳</div><div class="bb">${ledger}</div></div>
+          <div class="col2">${cashAcc}${equipAcc}</div>
+          <div class="col2">${loanAcc}${invBox}</div>
+          <div class="col2">${countBox}${taxBox}</div>
+        </div>
+        <div class="right">
+          ${plFig}
+          ${wfPL}
+          ${bsFig}
+          ${cfFig}
+          <div class="col2">${plTable}${bsBox}</div>
+          ${cfTable}
+        </div>
+      </div>`;
+  }
+  // ゼロ基準の発散バー：黒字は中央から右、赤字は中央から左（赤）。全期同スケールで比較可能。
+  // 折れ線グラフ（期推移）。getVal:結果→数値、opts:{signed,pct}
+  function lineChart(el, getVal, c, opts){
+    const o=opts||{}, vals=history.map(getVal), labels=history.map(r=>'第'+r.period+'期'), n=vals.length;
+    const W=340,H=128,padL=12,padR=12,padT=16,padB=22;
+    let mx=Math.max(...vals), mn=Math.min(...vals);
+    if(o.signed){ mx=Math.max(mx,0); mn=Math.min(mn,0); } else { mn=Math.min(mn,0); if(mx<=0)mx=1; }
+    if(mx===mn) mx=mn+1;
+    const span=mx-mn;
+    const X=i=> n<=1 ? (padL+(W-padL-padR)/2) : padL+i*(W-padL-padR)/(n-1);
+    const Y=v=> padT+(mx-v)/span*(H-padT-padB);
+    const fmtV=o.pct?(v=>Math.round(v)+'%'):(o.signed?(v=>fmtA(v)):(v=>fmt(v)));
+    let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" preserveAspectRatio="xMidYMid meet" style="height:auto">`;
+    if(mn<0){ const zy=Y(0).toFixed(1); s+=`<line x1="${padL}" y1="${zy}" x2="${W-padR}" y2="${zy}" stroke="#cbd2da" stroke-width="1" stroke-dasharray="3 3"/>`; }
+    if(n>1){ const pts=vals.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+      s+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`; }
+    vals.forEach((v,i)=>{ const x=X(i),y=Y(v);
+      s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="#fff" stroke="${c}" stroke-width="2"/>`;
+      s+=`<text x="${x.toFixed(1)}" y="${(y-7).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${(o.signed&&v<0)?'#c8322b':c}">${fmtV(v)}</text>`;
+      s+=`<text x="${x.toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9" fill="#9aa3b2">${labels[i]}</text>`;
+    });
+    s+='</svg>';
+    $(el).innerHTML=s;
+  }
+  function barsSigned(el,key,posC,negC){
+    const maxAbs=Math.max(1,...history.map(r=>Math.abs(r[key])));
+    $(el).innerHTML=history.map(r=>{
+      const v=r[key], pct=Math.min(50,Math.abs(v)/maxAbs*50), pos=v>=0, c=pos?posC:negC;
+      const bar=pos?`left:50%;width:${pct}%`:`left:${(50-pct).toFixed(2)}%;width:${pct}%`;
+      return `<div class="flex items-center gap-2 text-xs"><span class="w-10 text-ink-400 shrink-0">第${r.period}期</span>
+        <div class="relative flex-1 h-6 bg-canvas rounded">
+          <div class="absolute inset-y-0 left-1/2 w-px bg-ink/25"></div>
+          <div class="absolute inset-y-0 ${pos?'rounded-r':'rounded-l'}" style="${bar};background:${c}"></div>
+        </div>
+        <span class="num w-14 text-right font-bold" style="color:${c}">${fmtA(v)}</span></div>`;
+    }).join('');
+  }
+  // 0基準・左寄せ（非負KPI用）。全期同スケール。
+  function barsPos(el,key,c){
+    const max=Math.max(1,...history.map(r=>r[key]));
+    $(el).innerHTML=history.map(r=>{
+      const w=Math.max(2,r[key]/max*100);
+      return `<div class="flex items-center gap-2 text-xs"><span class="w-10 text-ink-400 shrink-0">第${r.period}期</span>
+        <div class="flex-1 h-6 bg-canvas rounded"><div class="h-6 rounded" style="width:${w}%;background:${c}"></div></div>
+        <span class="num w-14 text-right font-bold">${fmt(r[key])}</span></div>`;
+    }).join('');
+  }
+  // 0基準・左寄せのレート系バー（％表示）
+  function barsRate(el,fn,c){
+    const vals=history.map(fn), max=Math.max(1,...vals.map(v=>Math.abs(v)));
+    $(el).innerHTML=history.map((r,i)=>{
+      const v=vals[i], w=Math.max(2,Math.min(100,Math.abs(v)/max*100));
+      return `<div class="flex items-center gap-2 text-xs"><span class="w-10 text-ink-400 shrink-0">第${r.period}期</span>
+        <div class="flex-1 h-6 bg-canvas rounded"><div class="h-6 rounded" style="width:${w}%;background:${c}"></div></div>
+        <span class="num w-14 text-right font-bold">${Math.round(v)}%</span></div>`;
+    }).join('');
+  }
+  const mRate  = r=> r.PQ? r.mPQ/r.PQ*100 : 0;                    // 粗利率（MQ率）
+  const bepRate= r=> r.mPQ>0? r.F/r.mPQ*100 : (r.G<0?150:0);      // 損益分岐点比率
+  const equityOf= r=> r.capEnd + r.retEnd;                        // 自己資本
+  // 利益構造（STRAC）の積み上げバー：変動費｜固定費｜利益(or 損失=PQ線の外へ赤)
+  function renderStructure(){
+    const scaleMax=Math.max(1,...history.map(r=>Math.max(r.PQ, r.vPQ+r.F)));
+    const W=x=>x/scaleMax*100;
+    const seg=(w,c,t)=> w>0?`<div class="h-full" style="width:${W(w)}%;background:${c}" title="${t}"></div>`:'';
+    $('rv-struct').innerHTML=history.map(r=>{
+      const v=r.vPQ, fCov=Math.min(r.F, Math.max(0,r.PQ-v)), prof=Math.max(0,r.G), loss=Math.max(0,-r.G);
+      return `<div class="text-xs">
+        <div class="flex items-center justify-between mb-1"><span class="text-ink-500 font-bold">第${r.period}期 <span class="text-ink-300 font-normal">PQ ${fmt(r.PQ)}</span></span><span class="num font-bold ${r.G<0?'text-accent-ink':'text-g-ink'}">G ${fmtA(r.G)}</span></div>
+        <div class="relative h-7 rounded-md overflow-hidden bg-canvas border border-line">
+          <div class="absolute inset-0 flex">${seg(v,'#37a36b','変動費 '+fmt(v))}${seg(fCov,'#3b6fd4','固定費 '+fmt(r.F))}${seg(prof,'#d98a06','利益 '+fmt(prof))}${seg(loss,'#c8322b','損失 '+fmt(loss))}</div>
+          <div class="absolute top-0 bottom-0 border-r-2 border-ink/55" style="left:${W(r.PQ)}%"></div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function renderScore(){
+    const last=history[history.length-1], prev=history.length>1?history[history.length-2]:null;
+    $('rv-score-title').textContent=`第${last.period}期のハイライト${prev?`（第${prev.period}期比）`:''}`;
+    const delta=(cur,pre,dUnit,higherGood=true)=>{
+      if(pre==null) return '<span class="text-ink-300 text-[11px]">前期比 —</span>';
+      const d=Math.round(cur-pre); if(d===0) return '<span class="text-ink-300 text-[11px] font-bold">前期比 ±0</span>';
+      const up=d>0, c=(up===higherGood)?'#15803d':'#c8322b';   // ＋＝増・▲＝減（▲は本アプリの負記号）
+      return `<span class="text-[11px] font-bold" style="color:${c}">前期比 ${up?'＋':'▲'}${fmt(Math.abs(d))}${dUnit}</span>`;
+    };
+    const card=(label,valHtml,deltaHtml)=>`<div class="bg-white rounded-2xl shadow-card border border-line p-4">
+      <div class="text-ink-400 text-[11px] font-bold mb-1">${label}</div>
+      <div class="num font-black text-xl leading-none">${valHtml}</div>
+      <div class="mt-1.5">${deltaHtml}</div></div>`;
+    const gCol = last.G<0?'text-accent-ink':'text-g-ink';
+    $('rv-score').innerHTML=
+      card('経常利益 G', `<span class="${gCol}">${fmtA(last.G)}</span>`, delta(last.G, prev&&prev.G, ''))
+     +card('売上 PQ', fmt(last.PQ), delta(last.PQ, prev&&prev.PQ, ''))
+     +card('粗利率', `${Math.round(mRate(last))}<span class="text-xs font-bold text-ink-400 ml-0.5">%</span>`, delta(mRate(last), prev?mRate(prev):null, 'pt'))
+     +card('自己資本', fmt(equityOf(last)), delta(equityOf(last), prev?equityOf(prev):null, ''));
+  }
+  function renderInsights(){
+    const last=history[history.length-1], prev=history.length>1?history[history.length-2]:null;
+    const li=(ic,txt)=>`<li class="flex gap-2"><span class="shrink-0">${ic}</span><span class="text-ink-600">${txt}</span></li>`;
+    const o=[];
+    o.push(li(last.G>=0?'🟢':'🔴', `第${last.period}期は<b>${last.G>=0?'黒字':'赤字'}</b>（経常利益 ${fmtA(last.G)}・当期利益 ${fmtA(last.net)}）。`));
+    if(history.length>1){ const best=history.reduce((a,b)=>b.G>a.G?b:a), worst=history.reduce((a,b)=>b.G<a.G?b:a);
+      o.push(li('🏆', `最高益は<b>第${best.period}期</b>（G ${fmtA(best.G)}）${worst.G!==best.G?`、要改善は<b>第${worst.period}期</b>（G ${fmtA(worst.G)}）`:''}。`)); }
+    if(prev){ const d=Math.round(mRate(last)-mRate(prev));
+      o.push(li(d>=0?'📈':'📉', `粗利率 ${Math.round(mRate(prev))}% → <b>${Math.round(mRate(last))}%</b>（${d>=0?'＋':'▲'}${Math.abs(d)}pt）。${d<0?'原価率の上昇か売価の下落。仕入単価・売価を点検。':'付加価値づくりが効いています。'}`)); }
+    else o.push(li('🧮', `粗利率は <b>${Math.round(mRate(last))}%</b>（売上に占める粗利の割合）。`));
+    const bep=bepRate(last);
+    o.push(li(bep<=80?'🟢':bep<=100?'🟡':'🔴', `損益分岐点比率 <b>${Math.round(bep)}%</b>（${bep<100?`安全余裕 ${Math.round(100-bep)}%＝売上がこれだけ減っても黒字`:'固定費が粗利を超過。固定費の削減か粗利拡大が必要'}）。`));
+    if(prev){ const d=Math.round(last.cashEnd-prev.cashEnd);
+      o.push(li(d>=0?'💰':'⚠️', `現金 ${fmt(prev.cashEnd)} → <b>${fmt(last.cashEnd)}</b>（${d>=0?'＋':'▲'}${fmt(Math.abs(d))}）。${d<0?'資金繰りに注意。':''}`)); }
+    if(prev){ const d=Math.round(equityOf(last)-equityOf(prev));
+      o.push(li('🏛️', `自己資本 ${fmt(equityOf(prev))} → <b>${fmt(equityOf(last))}</b>（${d>=0?'＋':'▲'}${fmt(Math.abs(d))}）。利益の蓄積が会社を強くします。`)); }
+    $('rv-insights').innerHTML=o.join('');
+  }
+  function renderReview(){
+    if(history.length===0){ $('review-empty').classList.remove('hidden'); $('review-body').classList.add('hidden'); return; }
+    $('review-empty').classList.add('hidden'); $('review-body').classList.remove('hidden');
+    renderScore();
+    renderStructure();
+    // 組織タブと同じ6指標：売上PQ / 経常利益G / 当期純利益 / FM比率 / 純資産 / 粗利率
+    lineChart('rv-PQ', r=>r.PQ, '#e07b2a', {});
+    lineChart('rv-G', r=>r.G, '#d98a06', {signed:true});
+    lineChart('rv-NET', r=>r.net, '#0f766e', {signed:true});
+    lineChart('rv-FM', r=>r.mPQ>0?r.F/r.mPQ*100:(r.G<0?150:0), '#3b6fd4', {pct:true});
+    lineChart('rv-EQ', r=>r.capEnd+r.retEnd, '#6b4fa0', {signed:true});
+    lineChart('rv-MR', mRate, '#cf4d80', {pct:true});
+    lineChart('rv-TURN', r=>r.turns||0, '#1f7a8c', {});
+    lineChart('rv-DEC', r=>r.decisions||0, '#5b6472', {});
+    renderInsights();
+  }
+
+  // ====================== 組織（localStorage で同一組織コードの会社を比較） ======================
+  const ORG_COLORS=['#0f766e','#c8322b','#2f6fe0','#d98324','#9d3464','#6b4fa0','#ca9a06','#1f7a8c'];
+  function orgStore(){ try{ return JSON.parse(localStorage.getItem('mgOrg')||'{}'); }catch(e){ return {}; } }
+  function orgWrite(o){ try{ localStorage.setItem('mgOrg', JSON.stringify(o)); }catch(e){} }
+  // 管理者ビュー用：自分のライブ状態（st全体＋history）を localStorage に保存（プレイ中ずっと更新）
+  function liveStore(){ try{ return JSON.parse(localStorage.getItem('mgLive')||'{}'); }catch(e){ return {}; } }
+  function saveLive(){
+    if(viewMode || !st.org || !st.name) return;
+    try{ const o=liveStore(); o[st.org]=o[st.org]||{};
+      o[st.org][st.name]={ st:JSON.parse(JSON.stringify(st)), history:history, ts:Date.now(),
+        sum:{ period:st.period, cash:cashNow(), settled:st.settled, started:st.started, president:st.president } };
+      localStorage.setItem('mgLive', JSON.stringify(o));
+      localStorage.setItem('mgMe', JSON.stringify({org:st.org, name:st.name})); }catch(e){}  // 自分の識別（リロード復元用）
+  }
+  function histLite(hs){ return hs.map(r=>({period:r.period, G:r.G, PQ:r.PQ, mPQ:r.mPQ, F:r.F, net:r.net, capEnd:r.capEnd, retEnd:r.retEnd, cashEnd:r.cashEnd, turns:r.turns||0, decisions:r.decisions||0})); }
+  // 自分の会社の成績を組織コード配下に保存（決算ごと・組織コード変更時）
+  function saveOrg(){
+    if(!st.org || !history.length) return;
+    const o=orgStore(); o[st.org]=o[st.org]||{};
+    o[st.org][st.name]={president:st.president, history:histLite(history)};
+    orgWrite(o);
+  }
+  // この組織の全社（保存データ＋自分の最新ライブ）をまとめる
+  function orgMembers(){
+    const o=orgStore(), m=Object.assign({}, o[st.org]||{});
+    if(st.org && history.length) m[st.name]={president:st.president, history:histLite(history)};   // 自分を最新で上書き
+    return m;
+  }
+  // 複数系列の折れ線グラフ（期×値、会社ごとに1本）
+  function multiLine(el, members, names, getVal, opts){
+    const o=opts||{};
+    const series=names.map((nm,i)=>({nm, c:ORG_COLORS[i%ORG_COLORS.length], me:nm===st.name, pts:(members[nm].history||[]).map(h=>({x:h.period,y:getVal(h)}))}));
+    const allY=series.flatMap(s=>s.pts.map(p=>p.y));
+    if(!allY.length){ $(el).innerHTML='<div class="text-ink-300 text-xs py-6 text-center">データなし</div>'; return; }
+    const maxP=Math.max(5,...series.flatMap(s=>s.pts.map(p=>p.x)));
+    let mx=Math.max(...allY), mn=Math.min(...allY);
+    if(o.signed){ mx=Math.max(mx,0); mn=Math.min(mn,0); } else { mn=Math.min(mn,0); if(mx<=0)mx=1; }
+    if(mx===mn) mx=mn+1;
+    const W=340,H=150,padL=14,padR=12,padT=14,padB=22, span=mx-mn;
+    const X=p=> maxP<=1?(padL+(W-padL-padR)/2):padL+(p-1)*(W-padL-padR)/(maxP-1);
+    const Y=v=> padT+(mx-v)/span*(H-padT-padB);
+    const fmtV=o.pct?(v=>Math.round(v)+'%'):(o.signed?(v=>fmtA(v)):(v=>fmt(v)));
+    let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" preserveAspectRatio="xMidYMid meet" style="height:auto">`;
+    if(mn<0){ const zy=Y(0).toFixed(1); s+=`<line x1="${padL}" y1="${zy}" x2="${W-padR}" y2="${zy}" stroke="#cbd2da" stroke-width="1" stroke-dasharray="3 3"/>`; }
+    for(let p=1;p<=maxP;p++){ const x=X(p).toFixed(1); s+=`<text x="${x}" y="${H-6}" text-anchor="middle" font-size="8.5" fill="#9aa3b2">第${p}期</text>`; }
+    series.forEach(se=>{
+      if(!se.pts.length) return;
+      const sp=[...se.pts].sort((a,b)=>a.x-b.x);
+      if(sp.length>1){ const pts=sp.map(p=>`${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ');
+        s+=`<polyline points="${pts}" fill="none" stroke="${se.c}" stroke-width="${se.me?3:2}" stroke-linejoin="round" stroke-linecap="round" ${se.me?'':'opacity="0.85"'}/>`; }
+      sp.forEach(p=>{ s+=`<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${se.me?3.6:2.8}" fill="#fff" stroke="${se.c}" stroke-width="2"/>`; });
+    });
+    s+='</svg>';
+    // 凡例
+    let lg='<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[11px]">'+series.map(se=>`<span class="inline-flex items-center gap-1 ${se.me?'font-bold':''}"><span style="width:10px;height:10px;border-radius:9999px;background:${se.c};display:inline-block"></span>${se.nm}${se.me?'（あなた）':''}</span>`).join('')+'</div>';
+    $(el).innerHTML=s+lg;
+  }
+  // 組織タブ：チャート／数値（順位）切替
+  let orgView='charts';
+  const ORG_METRICS=[
+    {k:'EQ',   label:'純資産',     get:h=>h.capEnd+h.retEnd,                  good:'desc', f:v=>fmtA(v)},
+    {k:'G',    label:'経常利益G',  get:h=>h.G,                                good:'desc', f:v=>fmtA(v)},
+    {k:'net',  label:'当期純利益', get:h=>h.net,                              good:'desc', f:v=>fmtA(v)},
+    {k:'PQ',   label:'売上PQ',     get:h=>h.PQ,                               good:'desc', f:v=>fmt(v)},
+    {k:'MR',   label:'粗利率',     get:h=>h.PQ?h.mPQ/h.PQ*100:0,              good:'desc', f:v=>Math.round(v)+'%'},
+    {k:'FM',   label:'FM比率',     get:h=>h.mPQ>0?h.F/h.mPQ*100:(h.G<0?150:0), good:'asc',  f:v=>Math.round(v)+'%'},
+    {k:'turns',label:'ターン数',   get:h=>h.turns||0,                         good:'desc', f:v=>fmt(v), note:'ルールA＋イベント'},
+    {k:'dec',  label:'意思決定',   get:h=>h.decisions||0,                     good:'desc', f:v=>fmt(v), note:'ルールA'},
+  ];
+  function renderOrgRank(members, names){
+    const M=ORG_METRICS;
+    const lastOf=nm=>{ const h=members[nm].history; return h[h.length-1]; };
+    const medal=n=> n===1?'🥇':n===2?'🥈':n===3?'🥉':'';
+    const rcol=n=> n===1?'#caa12a':n===2?'#7c8694':n===3?'#b5630f':'#9aa3b2';
+    // 指標ごとに1カード。各カード内＝その指標の良い順に並べた「順位・会社・数値」の表
+    const card=m=>{
+      const arr=names.map(nm=>({nm, last:lastOf(nm), v:m.get(lastOf(nm))}))
+        .sort((a,b)=> m.good==='asc'? a.v-b.v : b.v-a.v);
+      let rank=0, prev=null;
+      const rows=arr.map((x,i)=>{ if(prev===null||x.v!==prev){ rank=i+1; prev=x.v; }
+        const ci=names.indexOf(x.nm), c=ORG_COLORS[ci%ORG_COLORS.length], me=x.nm===st.name;
+        return `<tr class="border-t border-line/60"${me?' style="background:#fff7e6"':''}>
+          <td class="px-2 py-1.5 text-center whitespace-nowrap"><span class="text-[13px] font-bold" style="color:${rcol(rank)}">${medal(rank)}${rank}位</span></td>
+          <td class="px-2 py-1.5"><span style="width:9px;height:9px;border-radius:9999px;background:${c};display:inline-block;margin-right:5px"></span>${x.nm}${me?' <span class="text-ink-400 text-[11px]">(あなた)</span>':''} <span class="num text-ink-300 text-[10px]">第${x.last.period}期</span></td>
+          <td class="px-2 py-1.5 text-right num font-bold text-ink">${m.f(x.v)}</td></tr>`; }).join('');
+      return `<div class="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 class="font-bold mb-2">${m.label} の順位 <span class="text-ink-300 text-xs font-normal">${m.good==='asc'?'低い順':'高い順'}${m.note?' ・'+m.note:''}</span></h2>
+        <table class="w-full text-[13px]"><thead><tr class="text-ink-400 text-[11px]">
+          <th class="px-2 py-1 text-center font-normal w-14">順位</th><th class="px-2 py-1 text-left font-normal">会社</th><th class="px-2 py-1 text-right font-normal">数値</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    $('org-table').innerHTML=M.map(card).join('');
+  }
+  function renderOrg(){
+    $('org-code').textContent = st.org || '—';
+    if(!st.org){ $('org-empty').classList.remove('hidden'); $('org-body').classList.add('hidden'); $('org-empty').innerHTML='会社情報で<b>組織コード</b>を入力すると、同じコードの会社を比較できます。'; return; }
+    const members=orgMembers(), names=Object.keys(members).filter(n=>(members[n].history||[]).length);
+    if(!names.length){ $('org-empty').classList.remove('hidden'); $('org-body').classList.add('hidden'); $('org-empty').innerHTML='まだ成績がありません。決算を確定すると自分の会社が組織に登録されます。<br>他社と比較するには「サンプル企業を追加」もご利用ください。'; return; }
+    $('org-empty').classList.add('hidden'); $('org-body').classList.remove('hidden');
+    $('org-count').textContent=`（${names.length}社）`;
+    $('org-members').innerHTML=names.map((nm,i)=>{ const c=ORG_COLORS[i%ORG_COLORS.length], h=members[nm].history, last=h[h.length-1], me=nm===st.name;
+      return `<div class="rounded-xl border px-3 py-2 ${me?'ring-2 ring-ink/20':''}" style="border-color:${c}55;background:${c}0d">
+        <div class="flex items-center gap-1.5 text-sm font-bold"><span style="width:10px;height:10px;border-radius:9999px;background:${c};display:inline-block"></span>${nm}${me?' <span class="text-ink-400 font-normal text-xs">(あなた)</span>':''}</div>
+        <div class="num text-[11px] text-ink-500 mt-0.5">第${last.period}期まで・G ${fmtA(last.G)}・自己資本 ${fmt(last.capEnd+last.retEnd)}</div></div>`; }).join('');
+    paintTabs('.ov-tab','data-ov',orgView);
+    $('org-charts').classList.toggle('hidden', orgView!=='charts');
+    $('org-table').classList.toggle('hidden', orgView!=='table');
+    if(orgView==='table'){ renderOrgRank(members, names); return; }
+    multiLine('org-PQ', members, names, h=>h.PQ, {});
+    multiLine('org-G', members, names, h=>h.G, {signed:true});
+    multiLine('org-NET', members, names, h=>h.net, {signed:true});
+    multiLine('org-FM', members, names, h=>h.mPQ>0?h.F/h.mPQ*100:(h.G<0?150:0), {pct:true});
+    multiLine('org-EQ', members, names, h=>h.capEnd+h.retEnd, {signed:true});
+    multiLine('org-MR', members, names, h=>h.PQ?h.mPQ/h.PQ*100:0, {pct:true});
+    multiLine('org-TURN', members, names, h=>h.turns||0, {});
+    multiLine('org-DEC', members, names, h=>h.decisions||0, {});
+  }
+  document.querySelectorAll('.ov-tab').forEach(b=>b.addEventListener('click',()=>{ orgView=b.dataset.ov; renderOrg(); }));
+  // サンプル企業を現在の組織コードに追加（比較デモ用）
+  function addSampleOrgMembers(){
+    if(!st.org){ uiAlert('先に会社情報で組織コードを入力してください。'); return; }
+    const samples={
+      'ライバル製菓':{president:'佐藤',history:[{period:1,G:18,PQ:230,mPQ:150,F:132,net:8,capEnd:300,retEnd:8,cashEnd:240,turns:9,decisions:7},{period:2,G:42,PQ:300,mPQ:185,F:143,net:30,capEnd:300,retEnd:38,cashEnd:300,turns:11,decisions:9},{period:3,G:70,PQ:360,mPQ:220,F:150,net:49,capEnd:300,retEnd:87,cashEnd:360,turns:12,decisions:10}]},
+      'となり工房':{president:'鈴木',history:[{period:1,G:-12,PQ:180,mPQ:120,F:132,net:-17,capEnd:300,retEnd:-17,cashEnd:210,turns:7,decisions:6},{period:2,G:8,PQ:240,mPQ:150,F:142,net:3,capEnd:300,retEnd:-14,cashEnd:250,turns:9,decisions:7},{period:3,G:35,PQ:320,mPQ:190,F:155,net:25,capEnd:300,retEnd:11,cashEnd:300,turns:10,decisions:8}]},
+    };
+    const o=orgStore(); o[st.org]=o[st.org]||{};
+    Object.assign(o[st.org], samples); orgWrite(o); renderOrg();
+  }
+
+  // ====================== 会社情報 ======================
+  $('c-apply').addEventListener('click',()=>{
+    if(st.started) return;                         // 開始済み（2期以降を含む）は再実行不可
+    if(['c-name','c-pres','c-org'].some(id=>!(($(id)||{}).value||'').trim())){ uiAlert('会社名・社長名・組織コードを入力してください。'); return; }
+    st.name=$('c-name').value||'（無名）'; st.president=$('c-pres').value;
+    st.org=($('c-org').value||'').trim();
+    st.period=parseInt($('c-period').value)||1;
+    const cap=parseFloat($('c-capital').value)||0;
+    let row=st.tx.find(x=>x.isCapital);
+    if(row){ row.amount=cap; } else { st.tx.unshift({id:st.seq++,label:'資本金',col:0,amount:cap,isCapital:true}); }
+    st.started=true;                               // 開始 → 他タブ解放・開始ボタン無効化
+    $('c-applied').classList.remove('hidden');
+    recompute(); renderAll();
+    switchTab('opening');                          // 期首処理へ進む
+  });
+
+  // 期セレクタ：到達済みの期（過去＋最新）だけを表示。過去を選ぶとその期の決算書を閲覧、最新で現在に戻る。
+  function updatePeriodOptions(){
+    const sel=$('c-period'); if(!sel) return;
+    const maxP = st.started ? st.period : 1;
+    const cur = stmtView ? stmtView.period : st.period;
+    let html='';
+    for(let p=1;p<=maxP;p++) html+=`<option value="${p}"${p===cur?' selected':''}>第${p}期</option>`;
+    sel.innerHTML=html;
+  }
+  $('c-period').addEventListener('change',()=>{
+    if(!st.started) return;                        // 開始前は開始時に反映（選択肢は第1期のみ）
+    const p=parseInt($('c-period').value)||1;
+    if(p>=st.period){ stmtView=null; switchTab(st.settled?'statement':'play'); }       // 最新＝現在に戻る
+    else { const r=history.find(h=>h.period===p); if(r){ stmtView=r; switchTab('statement'); } }  // 過去＝その期の決算書を閲覧
+  });
+
+  // 組織コードはいつでも変更可（入力した組織に参加）
+  $('c-org').addEventListener('change',()=>{ st.org=($('c-org').value||'').trim(); saveOrg(); });
+  // 会社名・社長名・組織コードの入力に応じて「開始」ボタンの有効/無効を更新
+  ['c-name','c-pres','c-org'].forEach(id=>{ const el=$(id); if(el) el.addEventListener('input', updateTabLock); });
+  $('org-sample').addEventListener('click', addSampleOrgMembers);
+  // 増資は「期首処理」タブ（第2期以降）へ移動（renderOpening内で処理）
+
+  // ====================== タブ ======================
+  function paintTabs(sel,attr,active){
+    document.querySelectorAll(sel).forEach(b=>{
+      const on=b.getAttribute(attr)===active;
+      b.classList.toggle('bg-ink',on); b.classList.toggle('text-white',on); b.classList.toggle('shadow-sm',on);
+      b.classList.toggle('text-ink-400',!on);
+    });
+  }
+  function switchTab(tab){
+    paintTabs('.tab-btn','data-tab',tab);
+    document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden',p.dataset.panel!==tab));
+    if(tab==='opening') renderOpening();
+    if(tab==='closing') renderClosing();
+    if(tab==='statement') renderStatement();
+    if(tab==='history') renderHistory();
+    if(tab==='review') renderReview();
+    if(tab==='org') renderOrg();
+    if(tab==='play') renderBoard();
+    if(tab==='company') updatePeriodOptions();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  // 決算書タブを開いても閲覧中の期(stmtView)は維持する。期の変更は「期」セレクタ/履歴の詳細/「履歴に戻る」で行う（勝手に現在期へ戻さない）
+  document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{ if(!st.started && !viewMode && b.dataset.tab!=='company') return; switchTab(b.dataset.tab); }));
+  // 第1期は「会社情報」で開始するまで他タブをロック。開始後（2期以降含む）は開始ボタンを無効化。
+  function updateTabLock(){
+    document.querySelectorAll('.tab-btn').forEach(b=>{
+      const locked = !st.started && !viewMode && b.dataset.tab!=='company';
+      b.classList.toggle('opacity-40', locked);
+      b.classList.toggle('pointer-events-none', locked);
+      b.classList.toggle('cursor-not-allowed', locked);
+      b.title = locked ? '「会社情報」で開始すると使えます' : '';
+    });
+    const ap=$('c-apply');
+    if(ap){
+      const filled = ['c-name','c-pres','c-org'].every(id=>(($(id)||{}).value||'').trim()!=='');
+      const ok = !st.started && filled;                 // 会社名・社長名・組織コードが揃って初めて押せる
+      ap.disabled = !ok;
+      ap.classList.toggle('opacity-40', !ok);
+      ap.classList.toggle('pointer-events-none', !ok);
+      ap.textContent = st.started ? '開始済み（ゲーム進行中）' : (filled ? 'この内容で開始（資本金を記帳）' : '会社名・社長名・組織コードを入力してください');
+    }
+  }
+  function switchSub(sub){
+    paintTabs('.sub-btn','data-sub',sub);
+    document.querySelectorAll('[data-sub-panel]').forEach(p=>p.classList.toggle('hidden',p.dataset.subPanel!==sub));
+    if(sub==='board') renderBoard();
+  }
+  document.querySelectorAll('.sub-btn').forEach(b=>b.addEventListener('click',()=>switchSub(b.dataset.sub)));
+
+  function updateSettleBtn(){
+    const b=$('play-settle'), hint=$('play-hint'), undo=$('play-undo-closing');
+    if(!b) return;
+    b.classList.toggle('opacity-50',st.settled); b.classList.toggle('pointer-events-none',st.settled);
+    if(st.settled){ b.textContent='決算済み（決算書・次の期へ）'; hint.classList.add('hidden'); undo.classList.add('hidden'); }
+    else if(st.closingPrep){ b.textContent='この期を決算にする →'; hint.classList.remove('hidden'); undo.classList.remove('hidden'); }
+    else { b.textContent='期末処理を行う（給与・家賃を計上）'; hint.classList.add('hidden'); undo.classList.add('hidden'); }
+  }
+  $('play-settle').addEventListener('click',()=>{
+    if(st.settled) return;
+    if(!st.closingPrep){ doClosingPrep(); }          // 1段目：給与・家賃を計上→確認フェーズ
+    else { settle(); switchTab('closing'); }          // 2段目：決算を確定
+  });
+  $('play-undo-closing').addEventListener('click',undoClosingPrep);
+  $('opening-toplay').addEventListener('click',()=>switchTab('play'));
+  $('closing-run').addEventListener('click',()=>settle());
+  $('closing-view').addEventListener('click',()=>switchTab('statement'));
+  $('statement-next').addEventListener('click',()=>nextPeriod());
+  $('stmt-back').addEventListener('click',()=>{ stmtView=null; switchTab('history'); });
+
+  // ====================== 描画まとめ ======================
+  function renderAll(flash){
+    renderLedger(flash); renderBoard(); renderOpening(); updateSettleBtn(); updateTabLock(); updatePeriodOptions();
+    $('hd-name').textContent=st.name; $('hd-period').textContent='第'+st.period+'期';
+    const cn=cashNow(), hc=$('hd-cash'); hc.textContent=fmt(cn); hc.style.color=cn<0?'#c8322b':'';
+    $('c-captotal').textContent=fmt(st.openingCapital+colTotals()[0]);
+    $('sc-cash').textContent=fmt(cashNow()); $('sc-mat').textContent=fmt(st.rawCubes);
+    $('sc-prod').textContent=fmt(st.products); $('sc-sales').textContent=fmt(colTotals()[2]);
+    saveLive();   // ライブ状態を保存（管理者ビュー用）
+  }
+
+  // ====================== 前回セッションの復元 ======================
+  function showResumeBanner(){
+    const b=$('resume-banner'); if(!b) return;
+    const txc=(st.tx||[]).filter(x=>!x.isCapital).length;
+    const info=$('resume-info'); if(info) info.textContent=`（${st.name}・第${st.period}期・記帳${txc}件）`;
+    b.classList.remove('hidden');
+  }
+  { const rd=$('resume-dismiss'); if(rd) rd.addEventListener('click',()=>$('resume-banner').classList.add('hidden')); }
+  { const rn=$('resume-new'); if(rn) rn.addEventListener('click',()=>{
+      uiConfirm('現在の記帳データを破棄して新しく始めますか？（元に戻せません）', ()=>{
+        try{ const o=liveStore(); if(o[st.org]){ delete o[st.org][st.name]; if(!Object.keys(o[st.org]).length) delete o[st.org]; localStorage.setItem('mgLive', JSON.stringify(o)); }
+          localStorage.removeItem('mgMe'); }catch(e){}
+        location.reload();
+      }, {okText:'新しく始める'});
+    }); }
+
+  // ====================== 初期化 ======================
+  // 管理者ビュー（?vorg=組織コード&vco=会社名[&tab=タブ]）：参加者のライブ状態を読み込み閲覧専用で表示
+  const _q=new URLSearchParams(location.search);
+  const _vorg=_q.get('vorg'), _vco=_q.get('vco');
+  let _loaded=false, _histOnly=false;
+  if(_vorg && _vco){
+    const live=(liveStore()[_vorg]||{})[_vco];
+    const hist=(orgStore()[_vorg]||{})[_vco];
+    if(live && live.st){                               // ライブ状態あり：その人の画面を完全再現
+      Object.assign(st, live.st);
+      history.length=0; (live.history||[]).forEach(h=>history.push(h));
+      _loaded=true;
+    } else if(hist){                                   // 成績のみ：組織コード・会社名・履歴を復元（組織/履歴/振り返りを閲覧可）
+      st.org=_vorg; st.name=_vco; st.president=hist.president||''; st.started=true;
+      history.length=0; (hist.history||[]).forEach(h=>history.push(h));
+      st.result = history.length ? history[history.length-1] : null;
+      _loaded=true; _histOnly=true;
+    }
+    if(_loaded){
+      viewMode=true; document.body.classList.add('viewmode');
+      const bn=document.createElement('div'); bn.id='vm-banner';
+      bn.innerHTML=`🔍 管理者ビュー（閲覧専用）　組織 ${_vorg}　／　${st.name}${_histOnly?'（成績データ）':''}`;
+      document.body.appendChild(bn);
+    }
+  }
+  if(!_loaded){
+    const _join=(_q.get('org')||'').trim();
+    // 前回セッションの自動復元（同一ブラウザ・mgMeで自分を識別。?org=時は同じ組織のみ）
+    let _resumed=false;
+    try{
+      const me=JSON.parse(localStorage.getItem('mgMe')||'null');
+      if(me && me.name && (!_join || me.org===_join)){
+        const saved=(liveStore()[me.org]||{})[me.name];
+        if(saved && saved.st && saved.st.started){
+          Object.assign(st, saved.st);
+          history.length=0; (saved.history||[]).forEach(h=>history.push(h));
+          _resumed=true;
+        }
+      }
+    }catch(e){}
+    if(_resumed){
+      switchSub('A'); recompute(); renderAll();
+      if($('c-name')) $('c-name').value=st.name;
+      if($('c-pres')) $('c-pres').value=st.president||'';
+      if($('c-org')){ $('c-org').value=st.org||''; if(_join){ $('c-org').readOnly=true; $('c-org').classList.add('bg-canvas','text-ink-600','cursor-not-allowed'); } }
+      showResumeBanner();
+      switchTab(st.settled?'statement':'play');       // 続きから（未決算＝記帳／決算済＝決算書）
+    } else {
+      switchTab('company'); switchSub('A');
+      // 参加者の参加URL（?org=組織コード・講師が管理画面で発行）：組織コードを自動設定（ログイン不要）
+      if(_join){ const oe=$('c-org'); if(oe){ oe.value=_join; oe.readOnly=true; oe.classList.add('bg-canvas','text-ink-600','cursor-not-allowed'); }
+        const oh=$('c-org-hint'); if(oh){ oh.textContent='組織コードはURL（講師が配布）から設定済み。会社名・社長名を入力して開始してください。'; } }
+      st.tx.unshift({id:st.seq++,label:'資本金',col:0,amount:300,isCapital:true});  // 初期資本金（会社情報の既定値で開始）
+      recompute(); renderAll();
+    }
+  } else {
+    switchSub('A'); recompute(); renderAll();
+    let tab=_q.get('tab') || 'play';                   // tab=org で組織比較、既定は記帳
+    if(_histOnly && tab!=='org') tab=(history.length?'history':'org');  // 成績のみは記帳が無いので履歴/組織を表示
+    switchTab(tab);
+  }
+</script>
+</body>
+</html>
