@@ -17,7 +17,17 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
-app.use(express.json({ limit: '2mb' }))
+app.disable('x-powered-by')
+
+// 基本セキュリティヘッダ
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+  next()
+})
+app.use(express.json({ limit: '1mb' }))
 
 const ADMIN_PASSWORD = process.env.MG_ADMIN_PW || 'mg'
 const tokens = new Set()
@@ -38,9 +48,24 @@ const wrap = (fn) => (req, res) => {
   try {
     fn(req, res)
   } catch (e) {
+    // 内部エラーの詳細はサーバログのみ。クライアントには汎用メッセージ（情報漏洩防止）
     console.error(e)
-    res.status(500).json({ error: String((e && e.message) || e) })
+    res.status(500).json({ error: 'サーバエラーが発生しました' })
   }
+}
+
+// 管理ログインのレート制限（総当たり対策・IP単位で15分に10回まで）
+const loginHits = new Map()
+function loginRateLimited(ip) {
+  const now = Date.now()
+  const win = 15 * 60 * 1000
+  const rec = loginHits.get(ip)
+  if (!rec || now > rec.resetAt) {
+    loginHits.set(ip, { count: 1, resetAt: now + win })
+    return false
+  }
+  rec.count++
+  return rec.count > 10
 }
 
 // ---- 参加者（ログイン不要）----
@@ -68,9 +93,13 @@ app.put(
   '/api/company/:id/state',
   wrap((req, res) => {
     const id = Number(req.params.id)
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid id' })
     const row = fullState(id)
     if (!row) return res.status(404).json({ error: 'not found' })
-    res.json(saveState(id, req.body || {}))
+    const body = req.body || {}
+    if (Array.isArray(body.entries) && body.entries.length > 5000)
+      return res.status(413).json({ error: 'データが大きすぎます' })
+    res.json(saveState(id, body))
   }),
 )
 
@@ -86,8 +115,12 @@ app.get(
 app.post(
   '/api/admin/login',
   wrap((req, res) => {
+    const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown'
+    if (loginRateLimited(ip))
+      return res.status(429).json({ error: 'ログイン試行が多すぎます。しばらくしてからお試しください。' })
     const { password } = req.body || {}
-    if (password === ADMIN_PASSWORD) return res.json({ token: makeToken() })
+    if (typeof password === 'string' && password === ADMIN_PASSWORD)
+      return res.json({ token: makeToken() })
     res.status(401).json({ error: 'パスワードが違います' })
   }),
 )
