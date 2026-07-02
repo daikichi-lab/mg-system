@@ -1,64 +1,189 @@
-// 実DB層：Node 24 内蔵の node:sqlite（ファイル永続の本物のSQLite）。
-// 会社(companies) / 記帳(entries) / 期別成績(period_results) を正規化して保存する。
+// 実DB層（二刀流）。
+//  - 既定: Node 24 内蔵 node:sqlite（ローカル開発/E2E・追加インフラ不要）
+//  - DATABASE_URL があれば PostgreSQL（pg）を使用（本番・Supabase等の無料枠でも可）
+// クエリ文字列は `?` プレースホルダで共通化し、pg ドライバ側で $1.. へ変換する。
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const DB_PATH = process.env.MG_DB || new URL('./data/mg.db', import.meta.url).pathname
-mkdirSync(dirname(DB_PATH), { recursive: true })
-
-export const db = new DatabaseSync(DB_PATH)
-db.exec('PRAGMA journal_mode = WAL;')
-db.exec('PRAGMA foreign_keys = ON;')
-
-db.exec(`
+// ---- スキーマ（DDLはドライバごと。autoincrement 構文が異なる）----
+const SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS companies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  org TEXT NOT NULL,
-  name TEXT NOT NULL,
-  president TEXT DEFAULT '',
-  period INTEGER DEFAULT 1,
-  started INTEGER DEFAULT 0,
-  settled INTEGER DEFAULT 0,
-  opening_json TEXT DEFAULT '{}',
-  seq INTEGER DEFAULT 1,
-  updated_at INTEGER DEFAULT 0,
+  org TEXT NOT NULL, name TEXT NOT NULL, president TEXT DEFAULT '',
+  period INTEGER DEFAULT 1, started INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
+  opening_json TEXT DEFAULT '{}', seq INTEGER DEFAULT 1, updated_at INTEGER DEFAULT 0,
   UNIQUE(org, name)
 );
 CREATE TABLE IF NOT EXISTS entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  company_id INTEGER NOT NULL,
-  period INTEGER NOT NULL,
-  ord INTEGER NOT NULL,
-  tx_id INTEGER,
-  key TEXT,
-  fvals_json TEXT DEFAULT '{}',
-  label TEXT DEFAULT '',
-  col INTEGER,
-  amount REAL DEFAULT 0,
-  note TEXT DEFAULT '',
-  flags_json TEXT DEFAULT '{}',
+  company_id INTEGER NOT NULL, period INTEGER NOT NULL, ord INTEGER NOT NULL,
+  tx_id INTEGER, key TEXT, fvals_json TEXT DEFAULT '{}', label TEXT DEFAULT '',
+  col INTEGER, amount REAL DEFAULT 0, note TEXT DEFAULT '', flags_json TEXT DEFAULT '{}',
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS period_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  company_id INTEGER NOT NULL,
-  period INTEGER NOT NULL,
-  pq REAL, mpq REAL, f REAL, g REAL, net REAL,
-  cap_end REAL, ret_end REAL, cash_end REAL,
-  turns INTEGER, decisions INTEGER,
-  result_json TEXT DEFAULT '{}',
+  company_id INTEGER NOT NULL, period INTEGER NOT NULL,
+  pq REAL, mpq REAL, f REAL, g REAL, net REAL, cap_end REAL, ret_end REAL, cash_end REAL,
+  turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period),
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+);`
+
+const PG_SCHEMA = `
+CREATE TABLE IF NOT EXISTS companies (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  org TEXT NOT NULL, name TEXT NOT NULL, president TEXT DEFAULT '',
+  period INTEGER DEFAULT 1, started INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
+  opening_json TEXT DEFAULT '{}', seq INTEGER DEFAULT 1, updated_at BIGINT DEFAULT 0,
+  UNIQUE(org, name)
 );
-`)
+CREATE TABLE IF NOT EXISTS entries (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  period INTEGER NOT NULL, ord INTEGER NOT NULL,
+  tx_id BIGINT, key TEXT, fvals_json TEXT DEFAULT '{}', label TEXT DEFAULT '',
+  col INTEGER, amount DOUBLE PRECISION DEFAULT 0, note TEXT DEFAULT '', flags_json TEXT DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS period_results (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  period INTEGER NOT NULL,
+  pq DOUBLE PRECISION, mpq DOUBLE PRECISION, f DOUBLE PRECISION, g DOUBLE PRECISION,
+  net DOUBLE PRECISION, cap_end DOUBLE PRECISION, ret_end DOUBLE PRECISION, cash_end DOUBLE PRECISION,
+  turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
+  UNIQUE(company_id, period)
+);`
 
-const now = () => Date.now()
+// `?` → `$1,$2,...`（Postgres系）
+export function pgConv(sql) {
+  let i = 0
+  return sql.replace(/\?/g, () => '$' + ++i)
+}
 
-// ---- 会社 ----
+// ---- ドライバ ----
+async function makeSqlite() {
+  const path = process.env.MG_DB || new URL('./data/mg.db', import.meta.url).pathname
+  mkdirSync(dirname(path), { recursive: true })
+  const db = new DatabaseSync(path)
+  db.exec('PRAGMA journal_mode = WAL;')
+  db.exec('PRAGMA foreign_keys = ON;')
+  db.exec(SQLITE_SCHEMA)
+  const base = {
+    all: async (s, p = []) => db.prepare(s).all(...p),
+    get: async (s, p = []) => db.prepare(s).get(...p),
+    run: async (s, p = []) => {
+      db.prepare(s).run(...p)
+    },
+  }
+  return {
+    ...base,
+    tx: async (fn) => {
+      db.exec('BEGIN')
+      try {
+        const r = await fn(base)
+        db.exec('COMMIT')
+        return r
+      } catch (e) {
+        db.exec('ROLLBACK')
+        throw e
+      }
+    },
+  }
+}
+
+// TLS設定：既定で証明書検証あり（MITM対策）。ローカルは非TLS。
+// 特定CAが必要なら MG_PG_CA にPEMを設定。検証無効化は dev 限定で MG_PG_INSECURE=1 を明示した場合のみ。
+function pgSsl(connectionString) {
+  if (/localhost|127\.0\.0\.1/.test(connectionString)) return false
+  if (process.env.MG_PG_CA) return { ca: process.env.MG_PG_CA }
+  if (process.env.MG_PG_INSECURE === '1') {
+    console.warn('[WARN] MG_PG_INSECURE=1: TLS証明書の検証を無効化しています（開発用途のみ）')
+    return { rejectUnauthorized: false }
+  }
+  return true // 既定：システムCAで検証
+}
+
+async function makePg(connectionString) {
+  const pg = await import('pg')
+  const Pool = pg.default?.Pool || pg.Pool
+  const pool = new Pool({ connectionString, ssl: pgSsl(connectionString), max: 5 })
+  await pool.query(PG_SCHEMA)
+  const clientOps = (c) => ({
+    all: async (s, p = []) => (await c.query(pgConv(s), p)).rows,
+    get: async (s, p = []) => (await c.query(pgConv(s), p)).rows[0],
+    run: async (s, p = []) => {
+      await c.query(pgConv(s), p)
+    },
+  })
+  return {
+    ...clientOps(pool),
+    tx: async (fn) => {
+      const c = await pool.connect()
+      try {
+        await c.query('BEGIN')
+        const r = await fn(clientOps(c))
+        await c.query('COMMIT')
+        return r
+      } catch (e) {
+        await c.query('ROLLBACK')
+        throw e
+      } finally {
+        c.release()
+      }
+    },
+  }
+}
+
+// pglite（WASM版Postgres）でPG方言を検証するためのドライバ（テスト用）
+export async function makePgliteDriver(pglite) {
+  await pglite.exec(PG_SCHEMA) // 複数文はquery不可・execで実行
+  const ops = {
+    all: async (s, p = []) => (await pglite.query(pgConv(s), p)).rows,
+    get: async (s, p = []) => (await pglite.query(pgConv(s), p)).rows[0],
+    run: async (s, p = []) => {
+      await pglite.query(pgConv(s), p)
+    },
+  }
+  return {
+    ...ops,
+    tx: async (fn) => {
+      await pglite.query('BEGIN')
+      try {
+        const r = await fn(ops)
+        await pglite.query('COMMIT')
+        return r
+      } catch (e) {
+        await pglite.query('ROLLBACK')
+        throw e
+      }
+    },
+  }
+}
+
+let D = null
+export async function initDb(override) {
+  if (override) {
+    D = override
+    return D
+  }
+  if (D) return D
+  D = process.env.DATABASE_URL ? await makePg(process.env.DATABASE_URL) : await makeSqlite()
+  return D
+}
+
+// ---- 変換ヘルパ ----
+function safeParse(s, fallback) {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return fallback
+  }
+}
 const stMap = (row) =>
   row && {
-    id: row.id,
+    id: Number(row.id),
     org: row.org,
     name: row.name,
     president: row.president,
@@ -67,168 +192,142 @@ const stMap = (row) =>
     settled: !!row.settled,
     opening: safeParse(row.opening_json, {}),
     seq: row.seq,
-    updatedAt: row.updated_at,
+    updatedAt: Number(row.updated_at),
   }
-
-function safeParse(s, fallback) {
-  try {
-    return JSON.parse(s)
-  } catch {
-    return fallback
-  }
-}
-
-export function getCompanyRow(org, name) {
-  return db.prepare('SELECT * FROM companies WHERE org = ? AND name = ?').get(org, name)
-}
-
-export function joinCompany(org, name, president) {
-  let row = getCompanyRow(org, name)
-  if (!row) {
-    db.prepare(
-      'INSERT INTO companies (org, name, president, period, started, settled, opening_json, seq, updated_at) VALUES (?, ?, ?, 1, 0, 0, ?, 1, ?)',
-    ).run(org, name, president || '', '{}', now())
-    row = getCompanyRow(org, name)
-  } else if (president && row.president !== president) {
-    db.prepare('UPDATE companies SET president = ?, updated_at = ? WHERE id = ?').run(president, now(), row.id)
-    row = getCompanyRow(org, name)
-  }
-  return fullState(row.id)
-}
-
-// 会社の全状態（スカラー＋当期の記帳＋全期の成績）を返す
-export function fullState(companyId) {
-  const row = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId)
-  if (!row) return null
-  const company = stMap(row)
-  const entries = db
-    .prepare('SELECT * FROM entries WHERE company_id = ? AND period = ? ORDER BY ord ASC')
-    .all(companyId, row.period)
-    .map(entryMap)
-  const results = db
-    .prepare('SELECT * FROM period_results WHERE company_id = ? ORDER BY period ASC')
-    .all(companyId)
-    .map((r) => safeParse(r.result_json, {}))
-  return { company, entries, results }
-}
-
 const entryMap = (r) => ({
-  id: r.id,
-  txId: r.tx_id,
+  id: Number(r.id),
+  txId: r.tx_id === null || r.tx_id === undefined ? undefined : Number(r.tx_id),
   key: r.key || undefined,
   fvals: safeParse(r.fvals_json, {}),
   label: r.label,
-  col: r.col === null ? null : r.col,
+  col: r.col === null || r.col === undefined ? null : r.col,
   amount: r.amount,
   note: r.note,
   ...safeParse(r.flags_json, {}),
 })
-
-// 手動トランザクション（node:sqlite には better-sqlite3 の .transaction() が無い）
-function tx(fn) {
-  db.exec('BEGIN')
-  try {
-    const r = fn()
-    db.exec('COMMIT')
-    return r
-  } catch (e) {
-    db.exec('ROLLBACK')
-    throw e
-  }
-}
-
-// クライアントの現在状態を丸ごと保存（正規化して entries / results に反映）
-function saveTx(companyId, payload) {
-  const period = payload.period
-  db.prepare(
-    'UPDATE companies SET president = ?, period = ?, started = ?, settled = ?, opening_json = ?, seq = ?, updated_at = ? WHERE id = ?',
-  ).run(
-    payload.president || '',
-    period,
-    payload.started ? 1 : 0,
-    payload.settled ? 1 : 0,
-    JSON.stringify(payload.opening || {}),
-    payload.seq || 1,
-    now(),
-    companyId,
-  )
-  // 当期の記帳を入れ替え（過去期の記帳＝ledger履歴は保持）
-  db.prepare('DELETE FROM entries WHERE company_id = ? AND period = ?').run(companyId, period)
-  const ins = db.prepare(
-    'INSERT INTO entries (company_id, period, ord, tx_id, key, fvals_json, label, col, amount, note, flags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  )
-  ;(payload.entries || []).forEach((e, i) => {
-    const { id, txId, key, fvals, label, col, amount, note, ...flags } = e
-    ins.run(
-      companyId,
-      period,
-      i,
-      txId ?? id ?? null,
-      key ?? null,
-      JSON.stringify(fvals || {}),
-      label || '',
-      col === null || col === undefined ? null : col,
-      amount || 0,
-      note || '',
-      JSON.stringify(flags || {}),
-    )
-  })
-  // 成績（settle済みの各期）を UPSERT
-  const upR = db.prepare(
-    `INSERT INTO period_results (company_id, period, pq, mpq, f, g, net, cap_end, ret_end, cash_end, turns, decisions, result_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(company_id, period) DO UPDATE SET
-       pq=excluded.pq, mpq=excluded.mpq, f=excluded.f, g=excluded.g, net=excluded.net,
-       cap_end=excluded.cap_end, ret_end=excluded.ret_end, cash_end=excluded.cash_end,
-       turns=excluded.turns, decisions=excluded.decisions, result_json=excluded.result_json`,
-  )
-  ;(payload.results || []).forEach((r) => {
-    upR.run(
-      companyId,
-      r.period,
-      num(r.PQ),
-      num(r.mPQ),
-      num(r.F),
-      num(r.G),
-      num(r.net),
-      num(r.capEnd),
-      num(r.retEnd),
-      num(r.cashEnd),
-      int(r.turns),
-      int(r.decisions),
-      JSON.stringify(r),
-    )
-  })
-}
-
 const num = (v) => (v === null || v === undefined || Number.isNaN(v) ? null : Number(v))
 const int = (v) => (v === null || v === undefined || Number.isNaN(v) ? 0 : Math.round(v))
+const now = () => Date.now()
 
-export function saveState(companyId, payload) {
-  tx(() => saveTx(companyId, payload))
+// ---- 会社 ----
+export async function getCompanyRow(org, name) {
+  return D.get('SELECT * FROM companies WHERE org = ? AND name = ?', [org, name])
+}
+
+export async function joinCompany(org, name, president) {
+  let row = await getCompanyRow(org, name)
+  if (!row) {
+    await D.run(
+      'INSERT INTO companies (org, name, president, period, started, settled, opening_json, seq, updated_at) VALUES (?, ?, ?, 1, 0, 0, ?, 1, ?)',
+      [org, name, president || '', '{}', now()],
+    )
+    row = await getCompanyRow(org, name)
+  } else if (president && row.president !== president) {
+    await D.run('UPDATE companies SET president = ?, updated_at = ? WHERE id = ?', [president, now(), row.id])
+    row = await getCompanyRow(org, name)
+  }
+  return fullState(Number(row.id))
+}
+
+export async function fullState(companyId) {
+  const row = await D.get('SELECT * FROM companies WHERE id = ?', [companyId])
+  if (!row) return null
+  const entries = (
+    await D.all('SELECT * FROM entries WHERE company_id = ? AND period = ? ORDER BY ord ASC', [companyId, row.period])
+  ).map(entryMap)
+  const results = (
+    await D.all('SELECT result_json FROM period_results WHERE company_id = ? ORDER BY period ASC', [companyId])
+  ).map((r) => safeParse(r.result_json, {}))
+  return { company: stMap(row), entries, results }
+}
+
+export async function saveState(companyId, payload) {
+  const period = payload.period
+  await D.tx(async (q) => {
+    await q.run(
+      'UPDATE companies SET president = ?, period = ?, started = ?, settled = ?, opening_json = ?, seq = ?, updated_at = ? WHERE id = ?',
+      [
+        payload.president || '',
+        period,
+        payload.started ? 1 : 0,
+        payload.settled ? 1 : 0,
+        JSON.stringify(payload.opening || {}),
+        payload.seq || 1,
+        now(),
+        companyId,
+      ],
+    )
+    await q.run('DELETE FROM entries WHERE company_id = ? AND period = ?', [companyId, period])
+    const list = payload.entries || []
+    for (let i = 0; i < list.length; i++) {
+      const { id, txId, key, fvals, label, col, amount, note, ...flags } = list[i]
+      await q.run(
+        'INSERT INTO entries (company_id, period, ord, tx_id, key, fvals_json, label, col, amount, note, flags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          companyId,
+          period,
+          i,
+          txId ?? id ?? null,
+          key ?? null,
+          JSON.stringify(fvals || {}),
+          label || '',
+          col === null || col === undefined ? null : col,
+          amount || 0,
+          note || '',
+          JSON.stringify(flags || {}),
+        ],
+      )
+    }
+    for (const r of payload.results || []) {
+      await q.run(
+        `INSERT INTO period_results (company_id, period, pq, mpq, f, g, net, cap_end, ret_end, cash_end, turns, decisions, result_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (company_id, period) DO UPDATE SET
+           pq=excluded.pq, mpq=excluded.mpq, f=excluded.f, g=excluded.g, net=excluded.net,
+           cap_end=excluded.cap_end, ret_end=excluded.ret_end, cash_end=excluded.cash_end,
+           turns=excluded.turns, decisions=excluded.decisions, result_json=excluded.result_json`,
+        [
+          companyId,
+          r.period,
+          num(r.PQ),
+          num(r.mPQ),
+          num(r.F),
+          num(r.G),
+          num(r.net),
+          num(r.capEnd),
+          num(r.retEnd),
+          num(r.cashEnd),
+          int(r.turns),
+          int(r.decisions),
+          JSON.stringify(r),
+        ],
+      )
+    }
+  })
   return fullState(companyId)
 }
 
-// ---- 組織（管理者・比較用）----
-export function listOrg(code) {
-  const companies = db.prepare('SELECT * FROM companies WHERE org = ? ORDER BY name ASC').all(code).map(stMap)
-  return companies.map((c) => ({
-    ...c,
-    results: db
-      .prepare('SELECT * FROM period_results WHERE company_id = ? ORDER BY period ASC')
-      .all(c.id)
-      .map((r) => safeParse(r.result_json, {})),
-  }))
+// ---- 組織（比較・管理者）----
+export async function listOrg(code) {
+  const companies = (await D.all('SELECT * FROM companies WHERE org = ? ORDER BY name ASC', [code])).map(stMap)
+  const out = []
+  for (const c of companies) {
+    const results = (
+      await D.all('SELECT result_json FROM period_results WHERE company_id = ? ORDER BY period ASC', [c.id])
+    ).map((r) => safeParse(r.result_json, {}))
+    out.push({ ...c, results })
+  }
+  return out
 }
 
-export function listOrgs() {
-  return db.prepare('SELECT DISTINCT org FROM companies ORDER BY org ASC').all().map((r) => r.org)
+export async function listOrgs() {
+  return (await D.all('SELECT DISTINCT org FROM companies ORDER BY org ASC', [])).map((r) => r.org)
 }
 
-export function deleteCompany(id) {
-  db.prepare('DELETE FROM companies WHERE id = ?').run(id)
+export async function deleteCompany(id) {
+  await D.run('DELETE FROM companies WHERE id = ?', [id])
 }
 
-export function deleteOrg(code) {
-  db.prepare('DELETE FROM companies WHERE org = ?').run(code)
+export async function deleteOrg(code) {
+  await D.run('DELETE FROM companies WHERE org = ?', [code])
 }
