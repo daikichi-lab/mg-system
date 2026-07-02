@@ -186,6 +186,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
 
+    // ランダム組織コード生成（推測不可な参加URL）
+    await page.getByTestId('gen-code').click()
+    await expect(page.getByTestId('new-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
+    await expect(page.getByTestId('new-url')).toContainText('/?org=MG-')
+
     // 組織 E2E を選択して成績一覧（DBの実値）
     await expect(page.getByTestId('admin-org')).toBeVisible()
     await page.getByTestId('admin-org').selectOption(ORG)

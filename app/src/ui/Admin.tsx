@@ -11,6 +11,7 @@ export default function Admin() {
   const [orgs, setOrgs] = useState<string[]>([])
   const [org, setOrg] = useState('')
   const [companies, setCompanies] = useState<ApiOrgCompany[]>([])
+  const [newCode, setNewCode] = useState('')
 
   const loadOrgs = useCallback(async (tk: string) => {
     try {
@@ -50,6 +51,20 @@ export default function Admin() {
     }
   }
 
+  // 推測されにくい高エントロピーな組織コードを生成（紛らわしい文字を除外）
+  function genCode() {
+    const alpha = 'abcdefghjkmnpqrstuvwxyz23456789'
+    const bytes = crypto.getRandomValues(new Uint8Array(12))
+    setNewCode('MG-' + Array.from(bytes, (b) => alpha[b % alpha.length]).join(''))
+  }
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      /* クリップボード不可の環境では無視 */
+    }
+  }
+
   if (!token) {
     return (
       <div className="min-h-screen grid place-items-center p-4 bg-canvas">
@@ -86,6 +101,7 @@ export default function Admin() {
   companies.forEach((c) => (c.results || []).forEach((r: any) => rows.push({ c, r })))
 
   const joinUrl = org ? new URL(`/?org=${encodeURIComponent(org)}`, location.href).href : ''
+  const newUrl = newCode.trim() ? new URL(`/?org=${encodeURIComponent(newCode.trim())}`, location.href).href : ''
 
   return (
     <div className="min-h-screen">
@@ -128,6 +144,42 @@ export default function Admin() {
       </header>
 
       <main className="max-w-6xl mx-auto p-4 space-y-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-line p-4">
+          <div className="font-bold text-sm mb-1">新しい組織の参加用URLを発行</div>
+          <p className="text-ink-400 text-xs mb-2">
+            ランダムな組織コードにすると、URLを推測されて部外者に参加・閲覧されるのを防げます。参加者にこのURLを配布してください。
+          </p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <input
+              data-testid="new-code"
+              value={newCode}
+              onChange={(e) => setNewCode(e.target.value)}
+              placeholder="組織コード（例）MG-xxxx"
+              className="h-10 border border-line rounded-lg px-3 text-sm flex-1 min-w-[180px]"
+            />
+            <button
+              data-testid="gen-code"
+              onClick={genCode}
+              className="h-10 px-3 rounded-lg bg-ink text-white text-xs font-bold whitespace-nowrap"
+            >
+              ランダム生成
+            </button>
+          </div>
+          {newUrl && (
+            <div className="mt-2 flex gap-2 items-center flex-wrap">
+              <code data-testid="new-url" className="num text-xs bg-canvas px-2 py-1 rounded flex-1 min-w-[220px] break-all">
+                {newUrl}
+              </code>
+              <button
+                data-testid="copy-url"
+                onClick={() => copyText(newUrl)}
+                className="h-9 px-3 rounded-lg border border-line text-xs font-bold whitespace-nowrap"
+              >
+                URLをコピー
+              </button>
+            </div>
+          )}
+        </div>
         <div className="bg-white rounded-2xl shadow-sm border border-line p-4 flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm">
             参加用URL：
