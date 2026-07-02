@@ -18,6 +18,8 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.disable('x-powered-by')
+// リバースプロキシ（Render/nginx等）配下で req.ip を正しく判定（レート制限用）
+app.set('trust proxy', 1)
 
 // 基本セキュリティヘッダ
 app.use((_req, res, next) => {

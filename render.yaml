@@ -1,0 +1,23 @@
+# Render Blueprint（https://render.com）。リポジトリを接続すると自動で読み込まれる。
+# Node ランタイム＋永続ディスクで SQLite を保持。MG_ADMIN_PW はダッシュボードで秘密として設定。
+services:
+  - type: web
+    name: mg-system
+    runtime: node
+    plan: starter        # 永続ディスク利用には有料プラン（starter以上）が必要
+    rootDir: app
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.1
+      - key: MG_DB
+        value: /data/mg.db
+      - key: MG_ADMIN_PW
+        sync: false        # ← ダッシュボードで強力なパスワードを設定（デモ mg は使わない）
+    disk:
+      name: mg-data
+      mountPath: /data
+      sizeGB: 1

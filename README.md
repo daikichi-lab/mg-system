@@ -25,7 +25,8 @@ npm run build && npm start        # http://localhost:3001/（参加者） /admin
 ```
 React+Vite+TS+Tailwind ＋ Express＋**node:sqlite（実DB）**。計算は `app/src/lib/calc.ts` に純関数移植し
 **実mockと数値一致（golden-master）**・**Playwright E2E で全ボタン/全処理を検証（全パス）**。
-状態はDB保存で**リロード/再訪復元**、表示値はすべてDB由来。詳細は **[app/README.md](app/README.md)**。
+状態はDB保存で**リロード/再訪復元**、表示値はすべてDB由来。
+詳細は **[app/README.md](app/README.md)**、本番デプロイ手順は **[DEPLOY.md](DEPLOY.md)**（Render / Docker / VPS）。
 
 ## 起動方法（モック／プロトタイプ）
 ビルド不要。ローカルサーバ経由が確実です。
