@@ -1,10 +1,11 @@
-# Render Blueprint（https://render.com）。リポジトリを接続すると自動で読み込まれる。
-# Node ランタイム＋永続ディスクで SQLite を保持。MG_ADMIN_PW はダッシュボードで秘密として設定。
+# Render Blueprint（https://render.com）。リポジトリ接続で自動読込。
+# 構成: 無料 Node Web Service ＋ 外部 Postgres（Supabase）。永続ディスク不要＝月$0。
+# デプロイ後、ダッシュボードで DATABASE_URL（Supabaseの接続URI）と MG_ADMIN_PW（強力なPW）を設定すること。
 services:
   - type: web
     name: mg-system
     runtime: node
-    plan: starter        # 永続ディスク利用には有料プラン（starter以上）が必要
+    plan: free
     rootDir: app
     buildCommand: npm ci && npm run build
     startCommand: npm start
@@ -13,11 +14,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.1
-      - key: MG_DB
-        value: /data/mg.db
+      - key: DATABASE_URL
+        sync: false # ← Supabase の接続URI（パスワード置換済み）をダッシュボードで設定
       - key: MG_ADMIN_PW
-        sync: false        # ← ダッシュボードで強力なパスワードを設定（デモ mg は使わない）
-    disk:
-      name: mg-data
-      mountPath: /data
-      sizeGB: 1
+        sync: false # ← 講師ログインの強力なパスワードをダッシュボードで設定
+# ※SQLite（永続ディスク）で運用する場合は plan を starter 等にし、
+#   envVars を MG_DB=/data/mg.db に、disk: (name/mountPath:/data/sizeGB:1) を追加する。

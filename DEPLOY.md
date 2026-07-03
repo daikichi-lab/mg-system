@@ -22,13 +22,29 @@
 
 ---
 
-## 方法A：Render（最短・推奨）
-1. GitHub の `daikichi-lab/mg-system` を Render に接続 → **Blueprint** で `render.yaml` が読み込まれる。
-2. デプロイ設定を確認（`rootDir: app` / build `npm ci && npm run build` / start `npm start` / 永続ディスク `/data` / healthcheck `/api/health`）。
-3. **環境変数 `MG_ADMIN_PW`** をダッシュボードで強力なパスワードに設定（`sync:false` のため必須）。
-4. デプロイ → `https://<app>.onrender.com/api/health` が `{"ok":true}` を返せば成功。
-   - 参加者: `https://<app>.onrender.com/` ／ 講師: `.../admin`
-5. ※永続ディスクは Render の有料プラン（starter 以上）が必要。無料枠だと再起動でDBが消えるため、無料で試すだけなら Postgres 移行を検討。
+## 方法A：Render ＋ Supabase（無料・推奨・$0）★
+### 手順1. Supabase（DB）を用意
+1. https://supabase.com → Sign up（GitHubログイン可）。
+2. **New project** → 名前／**Database Password**（控える）／Region（Tokyo等）→ Create（1〜2分）。
+3. **Project Settings → Database → Connection string** → **URI**（推奨: Session pooler）をコピー。
+   - `[YOUR-PASSWORD]` を手順2のDBパスワードに置換したものが **`DATABASE_URL`**。
+
+### 手順2. Render（アプリ）にデプロイ
+1. https://render.com → Sign up（GitHubで）。
+2. **New + → Web Service** → リポジトリ `daikichi-lab/mg-system` を接続。
+   - Blueprint（`render.yaml`）が検出されればそれでOK。手動なら:
+     Root Directory `app` ／ Build `npm ci && npm run build` ／ Start `npm start` ／ Instance Type **Free**。
+3. **Environment** に環境変数を設定:
+   - `DATABASE_URL` ＝ 手順1のURI ／ `MG_ADMIN_PW` ＝ 強力なパスワード
+4. **Create Web Service** → ビルド完了を待つ。
+
+### 手順3. 確認
+- `https://<app>.onrender.com/api/health` が `{"ok":true}`、Renderログに `(postgres)` が出れば成功。
+- `.../admin` にログイン → 「ランダム生成」で組織コード発行 → 参加URL（`.../?org=...`）を配布。
+- 参加者URLで1周（会社作成→記帳→決算）動作確認。
+
+> **TLSでエラーが出たら**（`self-signed certificate` 等）: 環境変数 `MG_PG_CA` に Supabase のCA証明書（Settings→Database→SSL certificate からDL）を設定＝安全。急ぎは `MG_PG_INSECURE=1`（暗号化は維持・証明書検証のみ無効／簡易）。
+> **無料枠の癖**: Render無料は無操作でスリープ（初回アクセスが遅い）／Supabase無料は長期未使用で一時停止。研修用途では実用範囲。
 
 ## 方法D：完全無料（Supabase Postgres ＋ 無料Nodeホスト）★おすすめ（$0）
 永続ディスク不要。DBを外部Postgresにするので、揮発FSの無料ホストでも本番運用できます。
