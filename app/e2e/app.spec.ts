@@ -87,6 +87,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // --- 決算書：貸借一致 ---
     await expect(page.getByTestId('statement')).toBeVisible()
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+    // 決算書の図解（STRAC 面積図 ⇄ P/L ウォーターフォール・B/S図・CF図）
+    await expect(page.getByTestId('strac-fig')).toBeVisible()
+    await page.getByTestId('pl-wf').click()
+    await expect(page.getByTestId('strac-fig')).toBeVisible()
+    await page.getByTestId('pl-strac').click()
+    await expect(page.getByTestId('bs-fig')).toBeVisible()
+    await expect(page.getByTestId('cf-fig')).toBeVisible()
     // 資産合計＝負債純資産計
     const assets1 = await page.getByTestId('bs-assets').textContent()
     const liabeq1 = await page.getByTestId('bs-liabeq').textContent()

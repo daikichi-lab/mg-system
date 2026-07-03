@@ -15,8 +15,14 @@ import {
   type Fvals,
 } from '../lib/calc'
 import { eventFvals } from '../lib/game'
+import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from '../lib/figures'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
+
+// 数値データから生成した図解HTML（ユーザ入力を含まない）を描画
+function Figure({ html, testid }: { html: string; testid?: string }) {
+  return <div data-testid={testid} className="overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />
+}
 
 const TABS = [
   ['company', '会社情報'],
@@ -554,6 +560,7 @@ function StatementTab({
   onNext: () => void
   onBack: () => void
 }) {
+  const [plView, setPlView] = useState<'strac' | 'wf'>('strac')
   const r = view || st.result
   if (!r) {
     return (
@@ -582,8 +589,32 @@ function StatementTab({
           </button>
         </div>
       )}
+
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <h2 className="font-bold">戦略会計 STRAC 図</h2>
+          <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold">
+            <button
+              data-testid="pl-strac"
+              onClick={() => setPlView('strac')}
+              className={`px-3 py-1 rounded-md ${plView === 'strac' ? 'bg-ink text-white shadow-sm' : 'text-ink-400'}`}
+            >
+              STRAC
+            </button>
+            <button
+              data-testid="pl-wf"
+              onClick={() => setPlView('wf')}
+              className={`px-3 py-1 rounded-md ${plView === 'wf' ? 'bg-ink text-white shadow-sm' : 'text-ink-400'}`}
+            >
+              ウォーターフォール
+            </button>
+          </div>
+        </div>
+        <Figure testid="strac-fig" html={plView === 'strac' ? stracHTML(r) : plWaterfallHTML(r)} />
+      </div>
+
       <div className="grid sm:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-line p-5 text-sm">
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
           <h2 className="font-bold mb-2">損益計算（STRAC）</h2>
           {row('売上高 PQ', fmt(r.PQ), 'st-pq')}
           {row('変動費 vPQ', '▲' + fmt(r.vPQ), 'st-vpq')}
@@ -601,9 +632,10 @@ function StatementTab({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-line p-5 text-sm">
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
           <h2 className="font-bold mb-2">貸借対照表</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <Figure testid="bs-fig" html={bsFigureHTML(r, 150)} />
+          <div className="grid grid-cols-2 gap-4 mt-3">
             <div>
               <div className="text-ink-400 text-xs mb-1">資産</div>
               {row('現金', fmt(r.cashEnd), 'bs-cash')}
@@ -631,9 +663,10 @@ function StatementTab({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-5 text-sm">
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
         <h2 className="font-bold mb-2">キャッシュフロー</h2>
-        <div className="grid sm:grid-cols-4 gap-2">
+        <Figure testid="cf-fig" html={cfWaterfallHTML(r)} />
+        <div className="grid sm:grid-cols-4 gap-2 mt-3">
           {row('営業CF', fmtA(cf.opCF), 'cf-op')}
           {row('投資CF', fmtA(cf.invCF), 'cf-inv')}
           {row('財務CF', fmtA(cf.finCF), 'cf-fin')}
