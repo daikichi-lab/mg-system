@@ -322,10 +322,17 @@ export async function listOrg(code) {
   return out
 }
 
+// 組織コード一覧を作成日時の新しい順（最新が先頭）で返す。
+// 登録(orgs)は created_at、会社のみ存在する組織は最初の会社更新時刻で代替。
 export async function listOrgs() {
-  const a = (await D.all('SELECT code AS org FROM orgs', [])).map((r) => r.org)
-  const b = (await D.all('SELECT DISTINCT org FROM companies', [])).map((r) => r.org)
-  return [...new Set([...a, ...b])].sort()
+  const ts = new Map()
+  for (const r of await D.all('SELECT code AS org, created_at FROM orgs', [])) {
+    ts.set(r.org, Number(r.created_at) || 0)
+  }
+  for (const r of await D.all('SELECT org, MIN(updated_at) AS t FROM companies GROUP BY org', [])) {
+    if (!ts.has(r.org)) ts.set(r.org, Number(r.t) || 0)
+  }
+  return [...ts.keys()].sort((x, y) => ts.get(y) - ts.get(x) || (x < y ? 1 : x > y ? -1 : 0))
 }
 
 // ---- 組織コードの登録（講師が発行）／存在チェック ----
