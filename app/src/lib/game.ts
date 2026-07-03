@@ -263,9 +263,49 @@ export function recordAction(st: St, key: string, fvals: Fvals): string | null {
 export function deleteRow(st: St, id: number) {
   const t = st.tx.find((x) => x.id === id)
   if (!t) return
-  if (t.isClosing || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest) return
+  if (t.isClosing || t.isCapital || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest || t.isAutoRepay) return
   st.tx = st.tx.filter((x) => x.id !== id)
   recompute(st)
+}
+
+// アクション行の編集：数量など fvals を差し替えて再検証（対象行を除いた盤面で検証）
+export function editActionRow(st: St, id: number, fvals: Fvals): string | null {
+  if (st.settled) return 'この期は決算済みです。決算書から次の期へ進んでください。'
+  if (st.closingPrep) return '期末処理を計上済みです。「記帳に戻る」を押してください。'
+  const idx = st.tx.findIndex((x) => x.id === id)
+  if (idx < 0) return '対象の記帳が見つかりません。'
+  const t = st.tx[idx]
+  const key = t.key
+  if (!key || !ACTIONS[key]) return 'この行は編集できません。'
+  const a = ACTIONS[key]
+  const original = st.tx
+  // 対象行を除いた状態で検証（自分自身の在庫/能力消費を二重計上しない）
+  st.tx = original.filter((x) => x.id !== id)
+  recompute(st)
+  const err = validate(st, key, fvals)
+  if (err) {
+    st.tx = original
+    recompute(st)
+    return err
+  }
+  st.tx = original.map((x) =>
+    x.id === id ? { ...x, fvals, col: a.col, amount: a.amount(fvals) || 0, note: rownote(key, fvals), noCash: a.noCash } : x,
+  )
+  recompute(st)
+  return null
+}
+
+// 金額のみ変更（キーレス行：資本金・増資・給料/家賃(期末)・その他）
+export function editAmountRow(st: St, id: number, amount: number): string | null {
+  if (st.settled) return 'この期は決算済みです。決算書から次の期へ進んでください。'
+  const t = st.tx.find((x) => x.id === id)
+  if (!t) return '対象の記帳が見つかりません。'
+  if (t.key || t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest)
+    return 'この行は自動計算のため金額を変更できません。'
+  if (!(amount >= 0)) return '金額を正しく入力してください。'
+  t.amount = amount
+  recompute(st)
+  return null
 }
 
 export function clearLedger(st: St) {

@@ -16,6 +16,7 @@ import {
   type St,
   type Result,
   type Fvals,
+  type TxRow,
 } from '../lib/calc'
 import { eventFvals } from '../lib/game'
 import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from '../lib/figures'
@@ -54,8 +55,24 @@ export default function Participant() {
   const game = useGame()
   const [tab, setTab] = useState<TabKey>('company')
   const [modalKey, setModalKey] = useState<string | null>(null)
+  const [editTx, setEditTx] = useState<TxRow | null>(null) // 編集対象のアクション行
+  const [amountTx, setAmountTx] = useState<TxRow | null>(null) // 金額のみ編集する行（資本金/給料/家賃 等）
   const [stmtView, setStmtView] = useState<Result | null>(null)
   const st = game.st
+
+  // 記帳行の ✎ 編集：アクション行→モーダル再表示、キーレス行→金額編集
+  const openEditRow = (t: TxRow) => {
+    if (t.key && FORMS[t.key]) {
+      setEditTx(t)
+      setModalKey(t.key)
+    } else {
+      setAmountTx(t)
+    }
+  }
+  const closeModal = () => {
+    setModalKey(null)
+    setEditTx(null)
+  }
 
   if (!game.ready) return <div className="p-10 text-center text-ink-400">読み込み中…</div>
   if (game.orgError && !st.started) return <OrgError />
@@ -119,7 +136,9 @@ export default function Participant() {
           <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
         )}
         {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} />}
-        {tab === 'play' && <PlayTab game={game} onOpen={setModalKey} onSettleTab={() => go('closing')} />}
+        {tab === 'play' && (
+          <PlayTab game={game} onOpen={setModalKey} onEditRow={openEditRow} onSettleTab={() => go('closing')} />
+        )}
         {tab === 'closing' && (
           <ClosingTab game={game} onStatement={() => go('statement')} />
         )}
@@ -143,14 +162,25 @@ export default function Participant() {
         <ActionModal
           st={st}
           keyName={modalKey}
-          onClose={() => setModalKey(null)}
+          editTx={editTx}
+          onClose={closeModal}
           onAct={(k, f) => {
-            const err = game.act(k, f)
-            if (!err) setModalKey(null)
+            const err = editTx ? game.editAction(editTx.id, f) : game.act(k, f)
+            if (!err) closeModal()
           }}
           onEvent={(k) => {
             const err = game.actEvent(k)
-            if (!err) setModalKey(null)
+            if (!err) closeModal()
+          }}
+        />
+      )}
+      {amountTx && (
+        <AmountModal
+          tx={amountTx}
+          onClose={() => setAmountTx(null)}
+          onSave={(amt) => {
+            const err = game.editAmount(amountTx.id, amt)
+            if (!err) setAmountTx(null)
           }}
         />
       )}
@@ -599,10 +629,12 @@ function ActBtn({ k, disabled, onOpen }: { k: string; disabled: boolean; onOpen:
 function PlayTab({
   game,
   onOpen,
+  onEditRow,
   onSettleTab,
 }: {
   game: ReturnType<typeof useGame>
   onOpen: (k: string) => void
+  onEditRow: (t: TxRow) => void
   onSettleTab: () => void
 }) {
   const st = game.st
@@ -686,7 +718,7 @@ function PlayTab({
         )}
       </div>
 
-      <Ledger st={st} onDelete={game.del} />
+      <Ledger st={st} onDelete={game.del} onEditRow={onEditRow} />
 
       <div className="flex gap-2 flex-wrap items-center">
         <button
@@ -809,7 +841,7 @@ function EventPicker({ disabled, onPick }: { disabled: boolean; onPick: (k: stri
   )
 }
 
-function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
+function Ledger({ st, onDelete, onEditRow }: { st: St; onDelete: (id: number) => void; onEditRow: (t: TxRow) => void }) {
   const tot = colTotals(st)
   let bal = st.openingCash
   const th = (i: number) => (
@@ -838,7 +870,14 @@ function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
             const hasCol = t.col !== null && t.col !== undefined
             if (hasCol && IN_COLS.includes(t.col as number)) bal += t.amount
             else if (hasCol) bal -= t.amount
-            const locked = t.isClosing || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest || t.isCapital
+            const derived = t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest
+            const isCustom = t.key === 'ibutsu' || t.key === 'suigai'
+            // ✎ 編集：アクション行はモーダル（記帳前のみ）、キーレス行（資本金/給料/家賃/増資）は金額編集（決算前）
+            const canEditModal = !!t.key && !!FORMS[t.key] && !isCustom && !st.settled && !st.closingPrep
+            const canEditAmount = !t.key && !derived && !st.settled
+            const showEdit = canEditModal || canEditAmount
+            // ✕ 削除：資本金・期末（給料/家賃）・自動行は不可
+            const showDelete = !derived && !t.isClosing && !t.isCapital && !st.settled && !st.closingPrep
             const label = t.label || (t.key ? ACTIONS[t.key]?.label : '') || ''
             return (
               <tr key={t.id} className="border-b border-line/60">
@@ -856,16 +895,29 @@ function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
                   </td>
                 ))}
                 <td className="px-2 py-1 text-right num font-medium">{hasCol ? fmt(bal) : ''}</td>
-                <td className="px-1 py-1 text-center">
-                  {!locked && (
-                    <button
-                      data-testid={`del-${t.id}`}
-                      onClick={() => onDelete(t.id)}
-                      className="text-ink-300 hover:text-accent text-[10px]"
-                    >
-                      ✕
-                    </button>
-                  )}
+                <td className="px-1 py-1 whitespace-nowrap text-center">
+                  <span className="inline-flex items-center gap-1.5">
+                    {showEdit && (
+                      <button
+                        data-testid={`edit-${t.id}`}
+                        onClick={() => onEditRow(t)}
+                        title="編集"
+                        className="text-ink-300 hover:text-ink text-xs leading-none"
+                      >
+                        ✎
+                      </button>
+                    )}
+                    {showDelete && (
+                      <button
+                        data-testid={`del-${t.id}`}
+                        onClick={() => onDelete(t.id)}
+                        title="削除"
+                        className="text-ink-300 hover:text-accent text-[10px] leading-none"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </span>
                 </td>
               </tr>
             )
@@ -1611,12 +1663,14 @@ function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
 function ActionModal({
   st,
   keyName,
+  editTx,
   onClose,
   onAct,
   onEvent,
 }: {
   st: St
   keyName: string
+  editTx?: TxRow | null
   onClose: () => void
   onAct: (k: string, f: Fvals) => void
   onEvent: (k: string) => void
@@ -1626,12 +1680,19 @@ function ActionModal({
   const isCustomEvent = keyName === 'ibutsu' || keyName === 'suigai'
   const [single, setSingle] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {}
-    form?.fields.forEach((fl) => (o[fl.name] = String(fl.default)))
+    form?.fields.forEach((fl) => (o[fl.name] = String(editTx?.fvals?.[fl.name] ?? fl.default)))
     return o
   })
-  const [items, setItems] = useState<Record<string, string>[]>(() =>
-    form?.multi ? [initRow(form.rowFields!)] : [],
-  )
+  const [items, setItems] = useState<Record<string, string>[]>(() => {
+    if (form?.multi && Array.isArray(editTx?.fvals?.items) && editTx.fvals.items.length) {
+      return editTx.fvals.items.map((it: Fvals) => {
+        const o: Record<string, string> = {}
+        form.rowFields!.forEach((fl) => (o[fl.name] = String(it[fl.name] ?? fl.default)))
+        return o
+      })
+    }
+    return form?.multi ? [initRow(form.rowFields!)] : []
+  })
 
   function initRow(fields: Field[]) {
     const o: Record<string, string> = {}
@@ -1674,6 +1735,7 @@ function ActionModal({
       <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto">
         <h3 className="font-bold text-lg mb-1" data-testid="modal-title">
           {a.label}
+          {editTx ? <span className="text-ink-400 font-normal text-sm ml-1">の編集</span> : null}
         </h3>
         {form?.note && <p className="text-ink-400 text-xs mb-3">{form.note}</p>}
         {isCustomEvent && <p className="text-ink-500 text-sm mb-3">この盤面で記帳します。</p>}
@@ -1741,7 +1803,48 @@ function ActionModal({
             onClick={() => (isCustomEvent ? onEvent(keyName) : onAct(keyName, buildFvals()))}
             className="h-11 flex-1 rounded-xl bg-ink text-white font-bold"
           >
-            決定して記帳
+            {editTx ? '変更を保存' : '決定して記帳'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// キーレス行（資本金・給料/家賃(期末)・増資 など）の金額のみを編集するモーダル
+function AmountModal({ tx, onClose, onSave }: { tx: TxRow; onClose: () => void; onSave: (amount: number) => void }) {
+  const [v, setV] = useState(String(tx.amount))
+  const label = tx.label || (tx.key ? ACTIONS[tx.key]?.label : '') || '金額'
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5">
+        <h3 className="font-bold text-lg mb-1" data-testid="amount-title">
+          {label}
+          <span className="text-ink-400 font-normal text-sm ml-1">の金額を変更</span>
+        </h3>
+        <p className="text-ink-400 text-xs mb-3">金額のみ変更できます（この行の削除はできません）。</p>
+        <label className="block mb-3">
+          <span className="text-sm">金額</span>
+          <input
+            data-testid="amount-input"
+            type="number"
+            inputMode="numeric"
+            value={v}
+            onChange={(e) => setV(e.target.value)}
+            className="mt-1 w-full h-11 border border-line rounded-lg px-3 num text-right"
+          />
+        </label>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="h-11 flex-1 rounded-xl border border-line font-bold text-ink-600">
+            やめる
+          </button>
+          <button
+            data-testid="amount-ok"
+            onClick={() => onSave(Math.max(0, Math.round(Number(v) || 0)))}
+            className="h-11 flex-1 rounded-xl bg-ink text-white font-bold"
+          >
+            変更を保存
           </button>
         </div>
       </div>

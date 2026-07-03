@@ -8,6 +8,8 @@ import {
   recordAction,
   eventFvals,
   deleteRow,
+  editActionRow,
+  editAmountRow,
   clearLedger,
   doClosing,
   undoClosing,
@@ -33,6 +35,8 @@ export interface Game {
   act: (key: string, fvals: Record<string, any>) => string | null
   actEvent: (key: string, extra?: Record<string, any>) => string | null
   del: (id: number) => void
+  editAction: (id: number, fvals: Record<string, any>) => string | null
+  editAmount: (id: number, amount: number) => string | null
   clear: () => void
   seedFlood: () => string | null
   closing: () => void
@@ -168,6 +172,14 @@ export function useGame(): Game {
     [runMut],
   )
   const del = useCallback((id: number) => runMut(() => deleteRow(stRef.current, id)), [runMut])
+  const editAction = useCallback(
+    (id: number, fvals: Record<string, any>) => runMut(() => editActionRow(stRef.current, id, fvals)),
+    [runMut],
+  )
+  const editAmount = useCallback(
+    (id: number, amount: number) => runMut(() => editAmountRow(stRef.current, id, amount)),
+    [runMut],
+  )
   const clear = useCallback(() => runMut(() => clearLedger(stRef.current)), [runMut])
   const runSeedFlood = useCallback(
     () =>
@@ -272,6 +284,8 @@ export function useGame(): Game {
     act,
     actEvent,
     del,
+    editAction,
+    editAmount,
     clear,
     seedFlood: runSeedFlood,
     closing,

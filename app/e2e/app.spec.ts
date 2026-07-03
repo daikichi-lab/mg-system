@@ -263,6 +263,48 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     expect((page as any)._mgErrors).toEqual([])
   })
 
+  test('記帳の編集・削除：アクション行は数量編集、期末(給料/家賃)は金額のみ編集で削除不可', async ({ page }) => {
+    await registerOrg(page, 'E2E4')
+    await page.goto(`/?org=E2E4`)
+    await page.getByTestId('c-name').fill('編集製菓')
+    await page.getByTestId('c-pres').fill('編集太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    await act(page, 'kikai', { n: 1 })
+    await act(page, 'saiyo', { mfg: 2, sales: 1 })
+    await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
+
+    // 仕入れ行を ✎ 編集：数量 6→8（金額 78→104・材料も 6→8 に反映）
+    const shiireRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '仕入れ' })
+    await shiireRow.getByTestId(/^edit-/).click()
+    await expect(page.getByTestId('field-qty-0')).toHaveValue('6')
+    await setField(page, 'field-qty-0', 8)
+    await page.getByTestId('modal-ok').click()
+    await expect(page.getByTestId('modal-ok')).toBeHidden()
+    await expect(shiireRow).toContainText('104')
+    await expect(page.getByTestId('stat-raw')).toHaveText('8')
+
+    // 期末処理（1段目）で給料/家賃を計上
+    await page.getByTestId('closing').click()
+
+    // 家賃(期末)：✎ 編集はあるが ✕ 削除は無い → 金額を 25→30 に変更
+    const rentRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '家賃(期末)' })
+    await expect(rentRow.getByTestId(/^del-/)).toHaveCount(0)
+    await rentRow.getByTestId(/^edit-/).click()
+    await expect(page.getByTestId('amount-input')).toHaveValue('25')
+    await page.getByTestId('amount-input').fill('30')
+    await page.getByTestId('amount-ok').click()
+    await expect(page.getByTestId('amount-ok')).toBeHidden()
+    await expect(rentRow).toContainText('30')
+
+    // 給料(期末)も削除不可
+    const salaryRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '給料(期末)' })
+    await expect(salaryRow.getByTestId(/^del-/)).toHaveCount(0)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
   test('管理者：ログイン→成績一覧(DB値)→CSV→リセット', async ({ page }) => {
     await page.goto('/admin')
     await page.getByTestId('admin-pw').fill('mg')
