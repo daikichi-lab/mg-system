@@ -128,6 +128,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('pl-strac').click()
     await expect(page.getByTestId('bs-fig')).toBeVisible()
     await expect(page.getByTestId('cf-fig')).toBeVisible()
+    // CF数値（営業/投資/財務）・法人税計算・補助勘定が表示される
+    await expect(page.getByTestId('cf-op')).toBeVisible()
+    await expect(page.getByTestId('cf-inv')).toBeVisible()
+    await expect(page.getByTestId('cf-fin')).toBeVisible()
+    await expect(page.getByTestId('cf-net')).toBeVisible()
+    await expect(page.getByTestId('tx-tax')).toBeVisible() // ⑤ 法人税等
+    await expect(page.getByTestId('tx-ret1')).toBeVisible() // ⑦ 次期繰越利益剰余金
     // 資産合計＝負債純資産計
     const assets1 = await page.getByTestId('bs-assets').textContent()
     const liabeq1 = await page.getByTestId('bs-liabeq').textContent()

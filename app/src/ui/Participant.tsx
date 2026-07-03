@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   ACTIONS,
   caps,
@@ -1028,12 +1028,58 @@ function StatementTab({
   }
   const rt = ratios(r)
   const cf = cashflow(r)
+  const c = r.colTot
   const row = (l: string, v: string, testid?: string, bold?: boolean) => (
     <div className={`flex justify-between py-1 ${bold ? 'font-bold border-t border-line' : ''}`}>
       <span className={bold ? '' : 'text-ink-500'}>{l}</span>
       <span className="num" data-testid={testid}>
         {v}
       </span>
+    </div>
+  )
+  // キャッシュフロー計算書：活動グループ（色ヘッダー＋明細＋小計）
+  const cfItem = (l: string, v: number) => (
+    <div key={l} className="flex justify-between items-center py-1 px-3 text-[13px]">
+      <span className="text-ink-500">{l}</span>
+      <b className={`num font-medium ${v < 0 ? 'text-accent-ink' : 'text-ink'}`}>{fmtA(v)}</b>
+    </div>
+  )
+  const cfGroup = (title: string, color: string, items: ReactNode, subLabel: string, subVal: number, testid: string) => (
+    <div className="rounded-xl border border-line overflow-hidden mb-2.5">
+      <div className="px-3 py-1.5 text-[12px] font-bold" style={{ background: color + '16', color }}>
+        {title}
+      </div>
+      <div className="divide-y divide-line/70">{items}</div>
+      <div
+        className="flex justify-between items-center px-3 py-2 border-t-2 font-bold text-[15px]"
+        style={{ borderColor: color + '66', background: color + '0d' }}
+      >
+        <span style={{ color }}>{subLabel}</span>
+        <b className={`num ${subVal < 0 ? 'text-accent-ink' : ''}`} style={subVal < 0 ? undefined : { color }} data-testid={testid}>
+          {fmtA(subVal)}
+        </b>
+      </div>
+    </div>
+  )
+  // 法人税・利益剰余金の行／補助勘定の行
+  const txRow = (l: string, v: string, testid: string) => (
+    <div className="flex justify-between">
+      <span className="text-ink-600">{l}</span>
+      <b className="num" data-testid={testid}>
+        {v}
+      </b>
+    </div>
+  )
+  const subRow = (l: string, v: string) => (
+    <div className="flex justify-between">
+      <span className="text-ink-600">{l}</span>
+      <span className="num">{v}</span>
+    </div>
+  )
+  const subRowB = (l: string, v: string) => (
+    <div className="flex justify-between font-bold border-t border-line mt-1 pt-1">
+      <span>{l}</span>
+      <span className="num">{v}</span>
     </div>
   )
   return (
@@ -1070,67 +1116,202 @@ function StatementTab({
         <Figure testid="strac-fig" html={plView === 'strac' ? stracHTML(r) : plWaterfallHTML(r)} />
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        {/* STRAC（P/L）数値：固定費の内訳＋各比率カードまで */}
         <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
-          <h2 className="font-bold mb-2">損益計算（STRAC）</h2>
-          {row('売上高 PQ', fmt(r.PQ), 'st-pq')}
+          <h2 className="font-bold mb-2">STRAC（P/L）数値</h2>
+          <p className="text-ink-400 text-[11px] mb-2">売上高 −変動費 ＝粗利、粗利 −固定費 ＝経常利益。</p>
+          {row(`売上高 PQ（個数 ${fmt(r.Q)}）`, fmt(r.PQ), 'st-pq')}
           {row('変動費 vPQ', '▲' + fmt(r.vPQ), 'st-vpq')}
           {row('粗利益 mPQ', fmt(r.mPQ), 'st-mpq', true)}
           {row('固定費 F', '▲' + fmt(r.F), 'st-f')}
-          {row('経常利益 G', fmtA(r.G), 'st-g', true)}
-          <div className="text-ink-300 text-[11px] mt-1">
-            粗利率 {rt.grossRate}% / 損益分岐点比率 {rt.bepRate}%
+          <div className="pl-4 text-[12px] text-ink-500 flex flex-col gap-y-0.5 my-1">
+            <div className="flex justify-between"><span>人件費（カ）</span><b className="num" data-testid="st-labor">{fmt(r.laborF)}</b></div>
+            <div className="flex justify-between"><span>販売費（キ）</span><b className="num" data-testid="st-sell">{fmt(r.sellF)}</b></div>
+            <div className="flex justify-between"><span>管理費（ク）</span><b className="num" data-testid="st-admin">{fmt(r.adminF)}</b></div>
+            <div className="flex justify-between"><span>減価償却</span><b className="num" data-testid="st-dep">{fmt(r.depF)}</b></div>
           </div>
-          <div className="mt-2 pt-2 border-t border-line/70">
-            {row('特別損益（保険金−廃棄損）', fmtA(r.special), 'st-special')}
-            {row('税引前利益', fmtA(r.pretax), 'st-pretax')}
-            {row('法人税', '▲' + fmt(r.tax), 'st-tax')}
-            {row('当期純利益', fmtA(r.net), 'st-net', true)}
+          {row('経常利益 G', fmtA(r.G), 'st-g', true)}
+          <div className="grid grid-cols-3 gap-2 pt-3 text-center">
+            <div className="rounded-lg border border-line py-1.5">
+              <div className="text-ink-400 text-[11px]">原価率</div>
+              <div className="num font-bold">{r.PQ ? rt.costRate + '%' : '–'}</div>
+            </div>
+            <div className="rounded-lg border border-line py-1.5">
+              <div className="text-ink-400 text-[11px]">粗利率</div>
+              <div className="num font-bold">{r.PQ ? rt.grossRate + '%' : '–'}</div>
+            </div>
+            <div className="rounded-lg border border-line py-1.5">
+              <div className="text-ink-400 text-[11px]">損益分岐点</div>
+              <div className="num font-bold">{r.mPQ ? rt.bepRate + '%' : '–'}</div>
+            </div>
           </div>
         </div>
 
+        {/* 貸借対照表 B/S（図＋数値） */}
         <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
-          <h2 className="font-bold mb-2">貸借対照表</h2>
+          <h2 className="font-bold mb-2">貸借対照表 B/S</h2>
           <Figure testid="bs-fig" html={bsFigureHTML(r, 150)} />
-          <div className="grid grid-cols-2 gap-4 mt-3">
-            <div>
-              <div className="text-ink-400 text-xs mb-1">資産</div>
-              {row('現金', fmt(r.cashEnd), 'bs-cash')}
-              {row('棚卸資産', fmt(r.endInvVal), 'bs-inv')}
-              {row('什器', fmt(r.equipEnd), 'bs-equip')}
-              {row('資産合計', fmt(r.assets), 'bs-assets', true)}
-            </div>
-            <div>
-              <div className="text-ink-400 text-xs mb-1">負債・純資産</div>
-              {row('未払法人税', fmt(r.tax), 'bs-tax')}
-              {row('借入金', fmt(r.loanEnd), 'bs-loan')}
-              {row('資本金', fmt(r.capEnd), 'bs-cap')}
-              {row('利益剰余金', fmtA(r.retEnd), 'bs-ret')}
-              {row('負債純資産計', fmt(r.liabEq), 'bs-liabeq', true)}
-            </div>
-          </div>
           <div
             data-testid="bs-check"
-            className={`mt-2 text-center text-xs font-bold rounded py-1 ${
+            className={`mt-2 text-center text-xs font-bold rounded py-1.5 ${
               Math.abs(r.diff) < 0.5 ? 'bg-emerald-50 text-emerald-700' : 'bg-accent/10 text-accent-ink'
             }`}
           >
-            {Math.abs(r.diff) < 0.5 ? '✓ 貸借一致（差額0）' : `差額 ${fmtA(r.diff)}`}
+            {Math.abs(r.diff) < 0.5 ? '✓ 差 0 ＝ 貸借一致' : `差額 ${fmtA(Math.round(r.diff))}`}
+          </div>
+          <div className="grid grid-cols-2 gap-x-5 mt-3">
+            <div className="text-ink-400 text-xs border-b border-line pb-1 mb-2">資産</div>
+            <div className="text-ink-400 text-xs border-b border-line pb-1 mb-2">負債・純資産</div>
+            <div className="flex flex-col gap-1.5">
+              {row('現金', fmt(r.cashEnd), 'bs-cash')}
+              {row('在庫', fmt(r.endInvVal), 'bs-inv')}
+              {row('什器', fmt(r.equipEnd), 'bs-equip')}
+              {row('資産合計', fmt(r.assets), 'bs-assets', true)}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {row('未払法人税等', fmt(r.tax), 'bs-tax')}
+              {row('借入金', fmt(r.loanEnd), 'bs-loan')}
+              <div className="flex justify-between border-t border-dashed border-line pt-1 font-semibold">
+                <span>負債合計</span>
+                <span className="num">{fmt(r.tax + r.loanEnd)}</span>
+              </div>
+              {row('資本金', fmt(r.capEnd), 'bs-cap')}
+              {row('利益剰余金', fmtA(r.retEnd), 'bs-ret')}
+              <div className="flex justify-between border-t border-dashed border-line pt-1 font-semibold">
+                <span>純資産合計</span>
+                <span className="num">{fmtA(r.capEnd + r.retEnd)}</span>
+              </div>
+              {row('負債・純資産合計', fmt(r.liabEq), 'bs-liabeq', true)}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
-        <h2 className="font-bold mb-2">キャッシュフロー</h2>
+      {/* C/F キャッシュフロー（ウォーターフォール図・全幅） */}
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 className="font-bold mb-3">
+          <span className="text-[9px] text-accent-ink mr-1.5 font-bold tracking-wide">C / F</span>
+          キャッシュフロー（現金の増減）
+        </h2>
         <Figure testid="cf-fig" html={cfWaterfallHTML(r)} />
-        <div className="grid sm:grid-cols-4 gap-2 mt-3">
-          {row('営業CF', fmtA(cf.opCF), 'cf-op')}
-          {row('投資CF', fmtA(cf.invCF), 'cf-inv')}
-          {row('財務CF', fmtA(cf.finCF), 'cf-fin')}
-          {row('現金増減', fmtA(cf.netCF), 'cf-net', true)}
+      </div>
+
+      {/* CF数値 ｜ 法人税＋補助勘定 */}
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        {/* キャッシュフロー計算書（数値・営業／投資／財務） */}
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5 flex flex-col">
+          <h2 className="font-bold mb-1">キャッシュフロー計算書</h2>
+          <p className="text-ink-400 text-xs mb-3">現金の増減を 営業・投資・財務 に分けて表示します。</p>
+          <div className="text-sm">
+            {cfGroup(
+              '営業活動によるCF',
+              '#0f766e',
+              <>
+                {cfItem('売上収入 (ウ)', c[2])}
+                {cfItem('受取保険金 (A)', c[3])}
+                {cfItem('材料仕入 (オ)', -c[5])}
+                {cfItem('人件費 (カ)', -c[6])}
+                {cfItem('販売費 (キ)', -c[7])}
+                {cfItem('管理費 (ク)', -c[8])}
+                {cfItem('法人税の支払 (コ)', -c[10])}
+              </>,
+              '営業CF',
+              cf.opCF,
+              'cf-op',
+            )}
+            {cfGroup('投資活動によるCF', '#6b4fa0', cfItem('什器の購入 (エ)', -c[4]), '投資CF', cf.invCF, 'cf-inv')}
+            {cfGroup(
+              '財務活動によるCF',
+              '#9a7d10',
+              <>
+                {cfItem('資本金 (ア)', c[0])}
+                {cfItem('借入 (イ)', c[1])}
+                {cfItem('借入金返済 (ケ)', -c[9])}
+              </>,
+              '財務CF',
+              cf.finCF,
+              'cf-fin',
+            )}
+            <div className="rounded-xl border-2 border-ink/15 bg-canvas px-3 py-2.5">
+              <div className="flex justify-between items-center py-0.5 text-[13px]">
+                <span className="text-ink-600">現金の増減（営業＋投資＋財務）</span>
+                <b className={`num ${cf.netCF < 0 ? 'text-accent-ink' : ''}`} data-testid="cf-net">
+                  {fmtA(cf.netCF)}
+                </b>
+              </div>
+              <div className="flex justify-between items-center py-0.5 text-[13px]">
+                <span className="text-ink-600">期首現金</span>
+                <b className="num">{fmt(r.openCash)}</b>
+              </div>
+              <div className="flex justify-between items-center border-t-2 border-ink/20 mt-1.5 pt-2">
+                <span className="font-black">期末現金</span>
+                <b className="num font-black text-lg">{fmt(r.openCash + cf.netCF)}</b>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="text-ink-300 text-[11px] mt-1">
-          期首現金 {fmt(r.openCash)} ＋ 増減 {fmtA(cf.netCF)} ＝ 期末現金 {fmt(r.cashEnd)}
+
+        {/* 法人税・利益剰余金の計算＋補助勘定 */}
+        <div className="flex flex-col gap-4">
+          <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+            <h2 className="font-bold mb-3">法人税・利益剰余金の計算</h2>
+            <div className="space-y-2 text-sm">
+              {txRow('① 特別損益', fmtA(r.special), 'tx-special')}
+              {txRow('② 税引前当期純利益（G ＋ ①）', fmtA(r.pretax), 'tx-pre')}
+              {txRow('③ 前期繰越利益剰余金', fmtA(r.ret0), 'tx-ret0')}
+              <div className="flex justify-between border-t border-dashed border-line pt-2">
+                <span className="text-ink-600">④ 合計（② ＋ ③）</span>
+                <b className="num" data-testid="tx-total">{fmtA(r.total4)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-600">
+                  ⑤ 法人税等 <span className="text-ink-400 text-xs">来期期首納税</span>
+                </span>
+                <b className="num" style={{ color: '#9a7d10' }} data-testid="tx-tax">
+                  {fmt(r.tax)}
+                </b>
+              </div>
+              {txRow('⑥ 当期純利益（② − ⑤）', fmtA(r.net), 'tx-net')}
+              <div className="flex justify-between border-t-2 border-line pt-2 font-bold">
+                <span>⑦ 次期繰越利益剰余金（⑥ ＋ ③）</span>
+                <b className="num" data-testid="tx-ret1">{fmtA(r.retEnd)}</b>
+              </div>
+            </div>
+            <p className="text-ink-400 text-[11px] mt-3 leading-relaxed">
+              ②か④が▲なら5を納税／合計が+なら30%（前期繰越が▲のときは合計×30%）。※最低納税額は5。
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+            <h2 className="font-bold mb-3">補助勘定</h2>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-4 text-[13px]">
+              <div>
+                <div className="text-ink-400 text-xs mb-1">現金勘定</div>
+                {subRow('前期繰越', fmt(r.openCash))}
+                {subRow('＋入金 −出金', (r.cashFlow >= 0 ? '+' : '') + fmt(r.cashFlow))}
+                {subRowB('次期繰越', fmt(r.cashEnd))}
+              </div>
+              <div>
+                <div className="text-ink-400 text-xs mb-1">什器</div>
+                {subRow('前期繰越', fmt(r.eq0))}
+                {subRow('−減価償却', '−' + fmt(r.dep))}
+                {subRowB('次期繰越', fmt(r.equipEnd))}
+              </div>
+              <div>
+                <div className="text-ink-400 text-xs mb-1">借入金</div>
+                {subRow('前期繰越', fmt(r.loan0))}
+                {subRow('＋借入 −返済', fmt(r.loanEnd - r.loan0))}
+                {subRowB('次期繰越', fmt(r.loanEnd))}
+              </div>
+              <div>
+                <div className="text-ink-400 text-xs mb-1">在庫・原価</div>
+                {subRow('平均単価', fmt(r.avg))}
+                {subRow('売上原価', fmt(r.vPQ))}
+                {subRowB('次期繰越', `${fmt(r.endInvQty)} / ${fmt(r.endInvVal)}`)}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
