@@ -28,6 +28,7 @@ import {
   inflowOutflowHTML,
 } from '../lib/figures-account'
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, multiLineHTML, ORG_COLORS } from '../lib/figures-review'
+import { savePdf } from '../lib/pdf'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
 
@@ -843,13 +844,20 @@ function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Re
               <td className="px-2 py-2 text-right num">{fmtA(r.net)}</td>
               <td className="px-2 py-2 text-right num">{fmt(r.capEnd + r.retEnd)}</td>
               <td className="px-2 py-2 text-right num">{fmt(r.cashEnd)}</td>
-              <td className="px-2 py-2 text-right">
+              <td className="px-2 py-2 text-right whitespace-nowrap">
                 <button
                   data-testid={`detail-${r.period}`}
                   onClick={() => onDetail(r)}
                   className="h-7 px-3 rounded-lg border border-line text-ink-600 text-[12px] font-bold"
                 >
                   詳細
+                </button>{' '}
+                <button
+                  data-testid={`pdf-${r.period}`}
+                  onClick={() => savePdf(r)}
+                  className="h-7 px-3 rounded-lg border border-accent/40 text-accent-ink text-[12px] font-bold hover:bg-accent/5"
+                >
+                  PDF保存
                 </button>
               </td>
             </tr>
