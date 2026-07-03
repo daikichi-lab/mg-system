@@ -8,6 +8,8 @@ import {
   fmtA,
   ratios,
   cashflow,
+  loanCap,
+  fmRatio,
   IN_COLS,
   SALARY_TABLE,
   type St,
@@ -16,6 +18,16 @@ import {
 } from '../lib/calc'
 import { eventFvals } from '../lib/game'
 import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from '../lib/figures'
+import {
+  cashAccountHTML,
+  inventoryCountHTML,
+  inventoryValueHTML,
+  equipHTML,
+  loanHTML,
+  taxTableHTML,
+  inflowOutflowHTML,
+} from '../lib/figures-account'
+import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, multiLineHTML, ORG_COLORS } from '../lib/figures-review'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
 
@@ -31,6 +43,7 @@ const TABS = [
   ['closing', '期末処理'],
   ['statement', '決算書'],
   ['history', '履歴'],
+  ['review', '振り返り'],
   ['org', '組織'],
 ] as const
 type TabKey = (typeof TABS)[number][0]
@@ -53,7 +66,7 @@ export default function Participant() {
     <div className="min-h-screen">
       <Header st={st} />
       <nav className="max-w-5xl mx-auto px-3 sm:px-6 pb-2 pt-3">
-        <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 bg-canvas border border-line rounded-xl p-1">
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 bg-canvas border border-line rounded-xl p-1">
           {TABS.map(([k, label]) => {
             const locked = !st.started && k !== 'company'
             return (
@@ -124,6 +137,7 @@ export default function Participant() {
             }}
           />
         )}
+        {tab === 'review' && <ReviewTab history={game.history} />}
         {tab === 'org' && <OrgTab game={game} />}
       </main>
 
@@ -391,23 +405,64 @@ function EventPicker({ disabled, onPick }: { disabled: boolean; onPick: (k: stri
   )
 }
 
+// 現金出納帳 11列（ア〜コ）の配色（決算書PDF準拠）と見出し
+const LCOL = [
+  { h: '#fbe0ea', c: '#fdf1f6', t: '#b03a6a' },
+  { h: '#fdf3c7', c: '#fef9e6', t: '#9a7d10' },
+  { h: '#fde3c4', c: '#fef3e6', t: '#b5630f' },
+  { h: '#fce8ef', c: '#fdf4f8', t: '#b85c7e' },
+  { h: '#e4dcf3', c: '#f3eefb', t: '#6b4fa0' },
+  { h: '#d8ecd8', c: '#eef7ee', t: '#3f7a3f' },
+  { h: '#d6e6f7', c: '#eef5fc', t: '#2f5f93' },
+  { h: '#d3ecf2', c: '#eef8fb', t: '#1f7a8c' },
+  { h: '#dfe2f5', c: '#f1f2fb', t: '#4a55a8' },
+  { h: '#fdf3c7', c: '#fef9e6', t: '#9a7d10' },
+  { h: '#e7e9ec', c: '#f5f6f7', t: '#5b6472' },
+]
+const LHEAD = [
+  { s: 'ア', n: '資本金' },
+  { s: 'イ', n: '借入金' },
+  { s: 'ウ', n: '売上' },
+  { s: 'A', n: '保険金' },
+  { s: 'エ', n: '什器' },
+  { s: 'オ', n: '材料仕入' },
+  { s: 'カ', n: '人件費' },
+  { s: 'キ', n: '販売費' },
+  { s: 'ク', n: '管理費' },
+  { s: 'ケ', n: '返済' },
+  { s: 'コ', n: '納税' },
+]
+
 function StatusPanel({ st }: { st: St }) {
-  const cell = (l: string, v: number | string, id?: string) => (
-    <div className="rounded-lg bg-canvas border border-line px-2 py-1.5 text-center">
-      <div className="text-[10px] text-ink-400">{l}</div>
-      <div className="num font-bold" data-testid={id}>
+  const c = caps(st)
+  const cell = (l: string, v: number | string, id?: string, accent?: boolean) => (
+    <div className={`rounded-lg border px-2 py-1.5 text-center ${accent ? 'bg-cin-bg border-cin-base/30' : 'bg-canvas border-line'}`}>
+      <div className="text-[10px] text-ink-400 whitespace-nowrap">{l}</div>
+      <div className="num font-bold text-[15px]" data-testid={id}>
         {v}
       </div>
     </div>
   )
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-      {cell('製造ｽﾀｯﾌ', st.staffMfg, 'sp-mfg')}
-      {cell('販売ｽﾀｯﾌ', st.staffSales, 'sp-sales')}
-      {cell('材料', st.rawCubes, 'sp-raw')}
-      {cell('製品', st.products, 'sp-prod')}
-      {cell('機械', st.machines, 'sp-machines')}
-      {cell('借入', fmt(st.loan), 'sp-loan')}
+    <div className="bg-white rounded-2xl shadow-card border border-line p-3">
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+        {cell('製造ｽﾀｯﾌ', st.staffMfg, 'sp-mfg')}
+        {cell('販売ｽﾀｯﾌ', st.staffSales, 'sp-sales')}
+        {cell('材料', st.rawCubes, 'sp-raw')}
+        {cell('製品', st.products, 'sp-prod')}
+        {cell('開発', st.dev)}
+        {cell('広告', st.ads)}
+        {cell('機械', st.machines, 'sp-machines')}
+      </div>
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mt-2">
+        {cell('保険', st.insurance)}
+        {cell('教育', st.edu)}
+        {cell('借入', fmt(st.loan), 'sp-loan')}
+        {cell('現金', fmt(cashNow(st)), undefined, true)}
+        {cell('製造能力', c.mfgCap)}
+        {cell('販売能力', c.salesCap)}
+        {st.period > 1 ? cell('借入枠', fmt(loanCap(st))) : cell('借入枠', '—')}
+      </div>
     </div>
   )
 }
@@ -415,43 +470,58 @@ function StatusPanel({ st }: { st: St }) {
 function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
   const tot = colTotals(st)
   let bal = st.openingCash
+  const th = (i: number) => (
+    <th
+      key={i}
+      className="px-1 py-1 text-center align-bottom whitespace-nowrap font-semibold"
+      style={{ background: LCOL[i].h, color: LCOL[i].t }}
+    >
+      <div className="text-[9px] opacity-70 leading-none">{LHEAD[i].s}</div>
+      <div className="text-[10px] leading-tight">{LHEAD[i].n}</div>
+    </th>
+  )
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-line overflow-x-auto">
-      <table className="w-full text-[12px] min-w-[640px]" data-testid="ledger">
+    <div className="bg-white rounded-2xl shadow-card border border-line overflow-x-auto">
+      <table className="text-[11px] min-w-[920px] w-full" data-testid="ledger">
         <thead>
-          <tr className="text-ink-400 border-b border-line bg-canvas">
-            <th className="px-2 py-2 text-left">摘要</th>
-            <th className="px-2 py-2 text-right">入金</th>
-            <th className="px-2 py-2 text-right">出金</th>
-            <th className="px-2 py-2 text-right">残高</th>
-            <th className="px-2 py-2"></th>
+          <tr className="border-b border-line">
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">摘要</th>
+            {LHEAD.map((_, i) => th(i))}
+            <th className="px-2 py-1 text-right align-bottom font-semibold">残高</th>
+            <th className="px-1 py-1"></th>
           </tr>
         </thead>
         <tbody>
           {st.tx.map((t) => {
-            const isIn = t.col !== null && t.col !== undefined && IN_COLS.includes(t.col)
-            const isOut = t.col !== null && t.col !== undefined && !IN_COLS.includes(t.col)
-            if (isIn) bal += t.amount
-            if (isOut) bal -= t.amount
+            const hasCol = t.col !== null && t.col !== undefined
+            if (hasCol && IN_COLS.includes(t.col as number)) bal += t.amount
+            else if (hasCol) bal -= t.amount
             const locked = t.isClosing || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest || t.isCapital
             const label = t.label || (t.key ? ACTIONS[t.key]?.label : '') || ''
             return (
               <tr key={t.id} className="border-b border-line/60">
-                <td className="px-2 py-1.5">
+                <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
                   {label}
                   {t.note ? <span className="text-ink-300 ml-1">{t.note}</span> : null}
                 </td>
-                <td className="px-2 py-1.5 text-right num text-emerald-700">{isIn ? fmt(t.amount) : ''}</td>
-                <td className="px-2 py-1.5 text-right num text-accent-ink">{isOut ? fmt(t.amount) : ''}</td>
-                <td className="px-2 py-1.5 text-right num">{t.col !== null && t.col !== undefined ? fmt(bal) : ''}</td>
-                <td className="px-2 py-1.5 text-right">
+                {LHEAD.map((_, i) => (
+                  <td
+                    key={i}
+                    className="px-1 py-1 text-right num"
+                    style={t.col === i ? { background: LCOL[i].c, color: LCOL[i].t } : undefined}
+                  >
+                    {t.col === i ? fmt(t.amount) : ''}
+                  </td>
+                ))}
+                <td className="px-2 py-1 text-right num font-medium">{hasCol ? fmt(bal) : ''}</td>
+                <td className="px-1 py-1 text-center">
                   {!locked && (
                     <button
                       data-testid={`del-${t.id}`}
                       onClick={() => onDelete(t.id)}
-                      className="text-ink-300 hover:text-accent text-[11px]"
+                      className="text-ink-300 hover:text-accent text-[10px]"
                     >
-                      削除
+                      ✕
                     </button>
                   )}
                 </td>
@@ -461,16 +531,25 @@ function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-line font-bold bg-canvas">
-            <td className="px-2 py-2">合計</td>
-            <td className="px-2 py-2 text-right num text-emerald-700">
-              {fmt(IN_COLS.reduce((s, i) => s + tot[i], 0))}
-            </td>
-            <td className="px-2 py-2 text-right num text-accent-ink">
-              {fmt(tot.reduce((s, v, i) => (IN_COLS.includes(i) ? s : s + v), 0))}
-            </td>
-            <td className="px-2 py-2 text-right num" data-testid="ledger-balance">
+            <td className="sticky left-0 z-10 bg-canvas px-2 py-1.5">合計</td>
+            {LHEAD.map((_, i) => (
+              <td key={i} className="px-1 py-1.5 text-right num" style={{ color: LCOL[i].t }}>
+                {tot[i] ? fmt(tot[i]) : ''}
+              </td>
+            ))}
+            <td className="px-2 py-1.5 text-right num" data-testid="ledger-balance">
               {fmt(cashNow(st))}
             </td>
+            <td></td>
+          </tr>
+          <tr className="text-ink-400 border-t border-line">
+            <td className="sticky left-0 z-10 bg-white px-2 py-1 text-left">勘定科目</td>
+            {LHEAD.map((h, i) => (
+              <td key={i} className="px-1 py-1 text-center whitespace-nowrap" style={{ color: LCOL[i].t }}>
+                <span className="text-[9px] opacity-70">{h.s}</span> {h.n}
+              </td>
+            ))}
+            <td></td>
             <td></td>
           </tr>
         </tfoot>
@@ -490,13 +569,25 @@ function ClosingTab({
   onBackToPlay: () => void
 }) {
   const st = game.st
-  if (st.settled) {
+  if (st.settled && st.result) {
+    const r = st.result
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-5">
-        <p className="text-sm mb-3">この期は決算済みです。</p>
-        <button data-testid="to-statement" onClick={onStatement} className="h-11 px-6 rounded-xl bg-ink text-white font-bold">
-          決算書をみる →
-        </button>
+      <div className="space-y-4">
+        <div className="bg-white rounded-2xl shadow-card border border-line p-4 flex items-center justify-between flex-wrap gap-2">
+          <p className="text-sm font-bold">第{r.period}期 決算済み・勘定の図解</p>
+          <button data-testid="to-statement" onClick={onStatement} className="h-11 px-6 rounded-xl bg-ink text-white font-bold">
+            決算書をみる →
+          </button>
+        </div>
+        <Figure html={inflowOutflowHTML(r)} />
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Figure html={cashAccountHTML(r)} />
+          <Figure html={inventoryCountHTML(r)} />
+          <Figure html={inventoryValueHTML(r)} />
+          <Figure html={equipHTML(r)} />
+          <Figure html={loanHTML(r)} />
+          <Figure html={taxTableHTML(r)} />
+        </div>
       </div>
     )
   }
@@ -740,6 +831,48 @@ function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Re
   )
 }
 
+// ------- 振り返り -------
+function ChartCard({ title, sub, html }: { title: string; sub?: string; html: string }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-card border border-line p-4">
+      <h3 className="font-bold text-sm mb-2">
+        {title}
+        {sub ? <span className="text-ink-300 text-xs font-normal ml-1">{sub}</span> : null}
+      </h3>
+      <Figure html={html} />
+    </div>
+  )
+}
+
+function ReviewTab({ history }: { history: Result[] }) {
+  if (!history.length)
+    return (
+      <div className="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400">
+        まだ決算がありません。決算を確定すると推移が表示されます。
+      </div>
+    )
+  const pts = (f: (r: Result) => number) => history.map((r) => ({ x: r.period, y: f(r) }))
+  return (
+    <div className="space-y-4" data-testid="review">
+      <Figure html={scoreCardsHTML(history)} />
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 className="font-bold mb-2">利益構造 STRAC の推移</h2>
+        <Figure html={structureHTML(history)} />
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <ChartCard title="経常利益 G の推移" html={lineChartHTML(pts((r) => r.G), { signed: true })} />
+        <ChartCard title="売上 PQ の推移" html={lineChartHTML(pts((r) => r.PQ), {})} />
+        <ChartCard title="粗利率の推移" html={lineChartHTML(pts((r) => (r.PQ ? (r.mPQ / r.PQ) * 100 : 0)), { pct: true })} />
+        <ChartCard title="損益分岐点比率の推移" html={lineChartHTML(pts((r) => fmRatio(r)), { pct: true })} />
+      </div>
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 className="font-bold mb-2">気づき</h2>
+        <Figure html={insightsHTML(history)} />
+      </div>
+    </div>
+  )
+}
+
 // ------- 組織 -------
 const METRICS = [
   { k: 'EQ', label: '純資産', get: (h: any) => h.capEnd + h.retEnd, good: 'desc', f: (v: number) => fmtA(v) },
@@ -750,6 +883,7 @@ const METRICS = [
 
 function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
   const [companies, setCompanies] = useState<any[] | null>(null)
+  const [orgView, setOrgView] = useState<'charts' | 'table'>('charts')
   const st = game.st
   const load = async () => setCompanies(await game.refreshOrg())
   useEffect(() => {
@@ -765,19 +899,60 @@ function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
       </div>
     )
   const withHist = companies.filter((c) => (c.results || []).length)
+  const names = withHist.map((c) => c.name)
+  const series = (getVal: (r: any) => number) =>
+    withHist.map((c, i) => ({
+      name: c.name,
+      color: ORG_COLORS[i % ORG_COLORS.length],
+      me: c.name === st.name,
+      pts: (c.results || []).map((r: any) => ({ x: r.period, y: getVal(r) })),
+    }))
+  const ORG_CHARTS: { title: string; sub?: string; get: (r: any) => number; opt: { signed?: boolean; pct?: boolean } }[] = [
+    { title: '売上 PQ の推移', get: (r) => r.PQ, opt: {} },
+    { title: '経常利益 G の推移', get: (r) => r.G, opt: { signed: true } },
+    { title: '当期純利益の推移', get: (r) => r.net, opt: { signed: true } },
+    { title: '純資産の推移', get: (r) => r.capEnd + r.retEnd, opt: { signed: true } },
+    { title: '粗利率の推移', get: (r) => (r.PQ ? (r.mPQ / r.PQ) * 100 : 0), opt: { pct: true } },
+    { title: 'FM比率（損益分岐点比率）の推移', get: (r) => fmRatio(r), opt: { pct: true } },
+  ]
+  const tabBtn = (v: 'charts' | 'table', label: string) => (
+    <button
+      data-testid={`ov-${v}`}
+      onClick={() => setOrgView(v)}
+      className={`px-3 py-1 rounded-md transition ${orgView === v ? 'bg-ink text-white shadow-sm' : 'text-ink-400'}`}
+    >
+      {label}
+    </button>
+  )
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="font-bold">
           組織 {st.org}{' '}
           <span className="text-ink-300 text-sm font-normal" data-testid="org-count">
             （{withHist.length}社）
           </span>
         </h2>
-        <button data-testid="org-refresh" onClick={load} className="h-9 px-3 rounded-lg border border-line text-sm font-bold">
-          更新
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold">
+            {tabBtn('charts', 'チャート')}
+            {tabBtn('table', '数値（順位）')}
+          </div>
+          <button data-testid="org-refresh" onClick={load} className="h-9 px-3 rounded-lg border border-line text-sm font-bold">
+            更新
+          </button>
+        </div>
       </div>
+      {orgView === 'charts' && (
+        <div className="grid sm:grid-cols-2 gap-4" data-testid="org-charts">
+          {names.length ? (
+            ORG_CHARTS.map((ch) => <ChartCard key={ch.title} title={ch.title} html={multiLineHTML(series(ch.get), ch.opt)} />)
+          ) : (
+            <p className="text-ink-300 text-sm p-4">まだ成績がありません。</p>
+          )}
+        </div>
+      )}
+      {orgView === 'table' && (
       <div className="grid sm:grid-cols-2 gap-4" data-testid="org-cards">
         {METRICS.map((m) => {
           const arr = withHist
@@ -807,6 +982,7 @@ function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
           )
         })}
       </div>
+      )}
     </div>
   )
 }

@@ -124,10 +124,20 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('statement')).toContainText('第1期の決算書を表示中')
     await page.getByTestId('stmt-back').click()
 
-    // --- 組織タブ：自社が登録されている（DBから取得） ---
+    // --- 組織タブ：チャート⇄数値（順位）・DBから取得 ---
     await page.getByTestId('tab-org').click()
     await expect(page.getByTestId('org-count')).toContainText('社')
+    await expect(page.getByTestId('org-charts')).toBeVisible()
+    await page.getByTestId('ov-table').click()
     await expect(page.getByTestId('org-cards')).toContainText('E2E製菓')
+
+    // --- 振り返りタブ（推移・気づき） ---
+    await page.getByTestId('tab-review').click()
+    await expect(page.getByTestId('review')).toBeVisible()
+
+    // --- 期末処理タブ：決算済みは勘定の図解を表示 ---
+    await page.getByTestId('tab-closing').click()
+    await expect(page.getByTestId('to-statement')).toBeVisible()
 
     // --- リロード復元（DBから）---
     await page.reload()
