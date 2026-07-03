@@ -69,4 +69,10 @@ export const api = {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }),
+  // 組織自体を削除（登録＋データ）＝以後このURLでは参加できない
+  adminRemoveOrg: (token: string, code: string) =>
+    jf<{ ok: boolean }>(`/api/admin/org/${encodeURIComponent(code)}?full=1`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }),
 }

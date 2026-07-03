@@ -94,8 +94,18 @@ export default function Admin() {
     if (!confirm(`組織「${org}」の参加者${companies.length}名のデータをすべて削除します。元に戻せません。よろしいですか？`)) return
     await api.adminDeleteOrg(token, org)
     setCurCo(null)
-    await loadOrgs(token)
+    await loadCompanies(org)
+  }
+  // 組織自体を削除：登録も消すので、以後この組織コードのURLでは参加できなくなる
+  async function removeOrg() {
+    if (!token || !org) return
+    if (!confirm(`組織「${org}」を削除します。参加者データも参加用URL（組織コード）も無効になり、元に戻せません。よろしいですか？`)) return
+    await api.adminRemoveOrg(token, org)
+    setCurCo(null)
     setCompanies([])
+    const d = await api.adminOrgs(token)
+    setOrgs(d.orgs)
+    setOrg(d.orgs[0] || '')
   }
 
   if (!token) {
@@ -176,6 +186,14 @@ export default function Admin() {
             更新
           </button>
           <button
+            data-testid="admin-remove-org"
+            onClick={removeOrg}
+            disabled={!org}
+            className="h-10 px-3 rounded-lg border border-accent/40 text-accent text-sm font-bold hover:bg-accent/5 disabled:opacity-40"
+          >
+            組織を削除
+          </button>
+          <button
             onClick={() => {
               sessionStorage.removeItem(TOKEN_KEY)
               setToken(null)
@@ -246,7 +264,7 @@ export default function Admin() {
               参加者一覧 {companies.length ? `（${companies.length}名）` : ''}
             </div>
             <button data-testid="admin-clear-org" onClick={clearOrg} className="text-[11px] text-accent hover:underline">
-              組織を全消去
+              参加者データを全消去
             </button>
           </div>
           {companies.length ? (

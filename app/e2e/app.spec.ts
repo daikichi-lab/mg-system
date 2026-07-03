@@ -340,4 +340,27 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     expect((page as any)._mgErrors).toEqual([])
   })
+
+  test('管理者：組織自体を削除（登録＋データが消え、URLも無効化）', async ({ page }) => {
+    await registerOrg(page, 'E2EDEL')
+    // 削除前：このURLで参加フォームが開ける
+    await page.goto('/?org=E2EDEL')
+    await expect(page.getByTestId('c-name')).toBeVisible()
+
+    // admin で E2EDEL を選び「組織を削除」
+    await page.goto('/admin')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+    await page.getByTestId('admin-org').selectOption('E2EDEL')
+    await page.getByTestId('admin-remove-org').click()
+
+    // 組織一覧から E2EDEL が消える
+    await expect(page.locator('[data-testid="admin-org"] option', { hasText: /^E2EDEL$/ })).toHaveCount(0)
+
+    // 参加用URLも無効化：404（参加できない）
+    await page.goto('/?org=E2EDEL')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
 })

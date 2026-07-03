@@ -14,6 +14,7 @@ import {
   listOrgs,
   deleteCompany,
   deleteOrg,
+  removeOrg,
   registerOrg,
   orgExists,
 } from './db.js'
@@ -177,7 +178,9 @@ app.delete(
   '/api/admin/org/:code',
   requireAdmin,
   wrap(async (req, res) => {
-    await deleteOrg(req.params.code)
+    // ?full=1 で組織自体（登録＋データ）を削除。既定は参加者データのみ消去
+    if (String(req.query.full) === '1') await removeOrg(req.params.code)
+    else await deleteOrg(req.params.code)
     res.json({ ok: true })
   }),
 )

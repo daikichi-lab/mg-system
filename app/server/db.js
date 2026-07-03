@@ -344,3 +344,9 @@ export async function deleteCompany(id) {
 export async function deleteOrg(code) {
   await D.run('DELETE FROM companies WHERE org = ?', [code])
 }
+
+// 組織自体を削除：参加者データ＋組織コードの登録を消す（以後このURLでは参加できない）
+export async function removeOrg(code) {
+  await D.run('DELETE FROM companies WHERE org = ?', [code])
+  await D.run('DELETE FROM orgs WHERE code = ?', [code])
+}
