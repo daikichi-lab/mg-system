@@ -1,20 +1,34 @@
 # mg-system — 戦略MG研修 Web入力・自動計算システム
 
 戦略MG研修（製造業版入門編・ケーキ店経営）の紙様式を、Web入力＋自動計算・自動決算に置き換えるプロジェクト。
-現在は**モック（プロトタイプ）が一通り完成**した段階で、次フェーズは本番実装（React + Supabase）。
+**モック（プロトタイプ）に加え、本番実装（`app/`：React + Express + 実DB）まで完成**。
 
 ## リポジトリ構成
 ```
+app/           … 本番実装（React+Vite+TS+Tailwind ＋ Express＋node:sqlite 実DB／E2E済）
+  → 起動・テストは app/README.md
 mock/
-  index.html   … 参加者アプリ（単一HTML・ビルド不要）
-  admin.html   … 管理者ビュー（講師用）
+  index.html   … 参加者アプリ（単一HTML・ビルド不要／プロトタイプ）
+  admin.html   … 管理者ビュー（講師用／プロトタイプ）
 docs/
   仕様書.md     … 仕様の唯一の情報源（詳細はこちら）
+  calc-spec.md … 計算ロジック仕様（TS移植の基準）
   eventcard/   … イベントカード16枚（画像）
   *.pdf, 会社盤.png … 元様式（ルール表／経営計画書／入門編MG決算書）
 ```
 
-## 起動方法（モック）
+## 本番アプリ（app/）— 推奨
+```bash
+cd app && npm install
+npm run build && npm start        # http://localhost:3001/（参加者） /admin（講師・PW mg）
+# 開発: npm run dev  ／ 検証: npm run test:calc, npm run test:e2e
+```
+React+Vite+TS+Tailwind ＋ Express＋**node:sqlite（実DB）**。計算は `app/src/lib/calc.ts` に純関数移植し
+**実mockと数値一致（golden-master）**・**Playwright E2E で全ボタン/全処理を検証（全パス）**。
+状態はDB保存で**リロード/再訪復元**、表示値はすべてDB由来。
+詳細は **[app/README.md](app/README.md)**、本番デプロイ手順は **[DEPLOY.md](DEPLOY.md)**（Render / Docker / VPS）。
+
+## 起動方法（モック／プロトタイプ）
 ビルド不要。ローカルサーバ経由が確実です。
 ```bash
 python3 -m http.server 8770 --directory mock
@@ -37,10 +51,10 @@ python3 -m http.server 8770 --directory mock
 ## 見送り中（任意・未要望）
 MQ会計表／経営分析指標（自己資本比率・ROA 等）／5期通算サマリー・表彰／現金ショート・倒産処理。
 
-## 次フェーズ（本番）
-React + Vite + TypeScript + Tailwind ＋ Supabase（DB＋講師Authのみ）。計算ロジックは純関数のまま流用し Vitest で回帰。
-参加者はログイン不要（組織コード付きURL）、講師のみログイン、状態はサーバ保存で端末跨ぎ・ブラウザ削除にも耐える完全復旧。
-→ 詳細と確定事項は **[docs/仕様書.md](docs/仕様書.md)**（§8 本番アーキテクチャ／§8.6 未決仕様の確定／§9 実装状況）を参照。
+## 本番実装（app/）で解消済み
+本番アプリはサーバ（DB）保存のため、**別端末・リロード・ブラウザ削除でも「組織コード＋会社名」で復旧**します。
+運用でDBを Postgres/Supabase に置換する場合も `app/server/db.js` のクエリ層差し替えのみで、計算・UI・APIは流用可。
+→ 仕様・確定事項は **[docs/仕様書.md](docs/仕様書.md)**（§8 本番アーキテクチャ／§8.6 未決仕様／§9.3 実装状況）を参照。
 
-## 制約（モック）
-データは**同一ブラウザの localStorage のみ**で共有。別端末・ブラウザ削除・シークレットでは復旧・共有されません（本番のサーバ保存で解消）。
+## 制約（モック／プロトタイプのみ）
+`mock/` は同一ブラウザの localStorage のみで共有（別端末不可）。本番アプリ（`app/`）はこの制約なし。

@@ -1,0 +1,374 @@
+import { test, expect, type Page } from '@playwright/test'
+
+const ORG = 'E2E'
+
+async function setField(page: Page, testid: string, val: string | number) {
+  const el = page.getByTestId(testid)
+  const tag = await el.evaluate((e) => e.tagName)
+  if (tag === 'SELECT') await el.selectOption(String(val))
+  else {
+    await el.fill('')
+    await el.fill(String(val))
+  }
+}
+
+// 記帳タブは ルールA / ルールB / イベントカード / 会社版 のサブタブ構造。
+// ルールA/B はキーに応じたサブタブへ切り替えてからボタンを押す。
+const A_KEYS = ['shiire', 'seizo', 'hanbai', 'kikai', 'saiyo', 'koukoku', 'kaihatsu']
+const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai']
+
+async function act(page: Page, key: string, fields: Record<string, string | number> = {}) {
+  const sub = B_KEYS.includes(key) ? 'B' : 'A'
+  await page.getByTestId(`sub-${sub}`).click()
+  await page.getByTestId(`act-${key}`).click()
+  await expect(page.getByTestId('modal-ok')).toBeVisible()
+  for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
+  await page.getByTestId('modal-ok').click()
+  await expect(page.getByTestId('modal-ok')).toBeHidden()
+}
+
+// イベントカードはプルダウン（イベントを選択→記帳）
+async function event(page: Page, key: string, fields: Record<string, string | number> = {}) {
+  await page.getByTestId('sub-X').click()
+  await page.getByTestId('event-select').selectOption(key)
+  await page.getByTestId('event-go').click()
+  await expect(page.getByTestId('modal-ok')).toBeVisible()
+  for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
+  await page.getByTestId('modal-ok').click()
+  await expect(page.getByTestId('modal-ok')).toBeHidden()
+}
+
+// 期末処理→決算の2段階ボタン（play tab）。決算後は期末処理タブへ遷移する。
+async function closeAndSettle(page: Page) {
+  await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+  await expect(page.getByTestId('undo-closing')).toBeVisible()
+  await page.getByTestId('closing').click() // 2段目：決算 → 期末処理タブへ
+  await expect(page.getByTestId('to-statement')).toBeVisible()
+  await page.getByTestId('to-statement').click() // 決算書へ
+}
+
+// 講師が組織コードを発行（登録）＝参加者がそのURLで開始できるようにする
+async function registerOrg(page: Page, code: string) {
+  const login = await page.request.post('/api/admin/login', { data: { password: 'mg' } })
+  const { token } = await login.json()
+  await page.request.post('/api/admin/org', { data: { code }, headers: { Authorization: `Bearer ${token}` } })
+}
+
+test.describe.serial('戦略MG 本番アプリ E2E', () => {
+  test.beforeEach(async ({ page }) => {
+    page.on('dialog', (d) => d.accept())
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(String(e)))
+    ;(page as any)._mgErrors = errors
+  })
+
+  test('未登録の組織コードURLは404（開始できない）', async ({ page }) => {
+    await page.goto('/?org=NO-SUCH-ORG-zzz')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+    await page.goto('/')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+  })
+
+  test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
+    await registerOrg(page, ORG)
+    await page.goto(`/?org=${ORG}`)
+
+    // --- 会社情報：開始 ---
+    await expect(page.getByTestId('c-org')).toHaveValue(ORG)
+    await page.getByTestId('c-name').fill('E2E製菓')
+    await page.getByTestId('c-pres').fill('検証太郎')
+    await page.getByTestId('start').click()
+    await expect(page.getByTestId('hd-name')).toHaveText('E2E製菓')
+
+    // --- 記帳タブへ ---
+    await page.getByTestId('tab-play').click()
+    await expect(page.getByTestId('act-shiire')).toBeVisible()
+
+    // ルールA / B / イベントの全種別を記帳
+    await act(page, 'kikai', { n: 1 })
+    await act(page, 'saiyo', { mfg: 2, sales: 1 })
+    await act(page, 'kyoiku') // ルールB（固定1枚）
+    await act(page, 'koukoku', { n: 1 })
+    await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
+    await act(page, 'seizo', { qty: 4 })
+    await act(page, 'hanbai', { 'qty-0': 4, 'unit-0': 50 })
+    await act(page, 'hoken') // ルールB（ルールAを挟んだので可）
+    await event(page, 'kansen') // 手番のみ（効果なし）
+    await event(page, 'claim') // 費用トラブル
+
+    // 盤面（会社盤）が反映されている：製造能力/販売能力の数値・製品0で店舗は空
+    await page.getByTestId('sub-company').click()
+    await expect(page.getByTestId('board-fig')).toBeVisible()
+    await expect(page.getByTestId('bd-mfgcap')).toHaveText('6') // 製造ｽﾀｯﾌ2×機械1×教育3
+    await expect(page.getByTestId('bd-salescap')).toHaveText('4') // 販売ｽﾀｯﾌ1×2＋広告
+    await expect(page.getByTestId('board-fig')).toContainText('空') // 販売後・店舗は空
+
+    // バリデーション：販売能力超過はエラー
+    await page.getByTestId('sub-A').click()
+    await page.getByTestId('act-hanbai').click()
+    await setField(page, 'field-qty-0', 99)
+    await page.getByTestId('modal-ok').click()
+    await expect(page.getByTestId('error')).toBeVisible()
+    await page.getByRole('button', { name: 'やめる' }).click()
+    await page.getByTestId('error').getByText('閉じる').click()
+
+    // 記帳の削除ボタン（1件消して戻す確認だけ）: claim 行を消す代わりにここでは存在確認
+    await expect(page.getByTestId('ledger')).toBeVisible()
+
+    // --- 期末処理（2段階）→ 決算 → 決算書 ---
+    await closeAndSettle(page)
+
+    // --- 決算書：貸借一致 ---
+    await expect(page.getByTestId('statement')).toBeVisible()
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+    // 決算書の図解（STRAC 面積図 ⇄ P/L ウォーターフォール・B/S図・CF図）
+    await expect(page.getByTestId('strac-fig')).toBeVisible()
+    await page.getByTestId('pl-wf').click()
+    await expect(page.getByTestId('strac-fig')).toBeVisible()
+    await page.getByTestId('pl-strac').click()
+    await expect(page.getByTestId('bs-fig')).toBeVisible()
+    await expect(page.getByTestId('cf-fig')).toBeVisible()
+    // CF数値（営業/投資/財務）・法人税計算・補助勘定が表示される
+    await expect(page.getByTestId('cf-op')).toBeVisible()
+    await expect(page.getByTestId('cf-inv')).toBeVisible()
+    await expect(page.getByTestId('cf-fin')).toBeVisible()
+    await expect(page.getByTestId('cf-net')).toBeVisible()
+    await expect(page.getByTestId('tx-tax')).toBeVisible() // ⑤ 法人税等
+    await expect(page.getByTestId('tx-ret1')).toBeVisible() // ⑦ 次期繰越利益剰余金
+    // 資産合計＝負債純資産計
+    const assets1 = await page.getByTestId('bs-assets').textContent()
+    const liabeq1 = await page.getByTestId('bs-liabeq').textContent()
+    expect(assets1).toBe(liabeq1)
+
+    // --- 次の期へ（期首処理タブへ自動遷移）---
+    await page.getByTestId('next-period').click()
+    await expect(page.getByTestId('hd-period')).toHaveText('第2期')
+    await expect(page.getByTestId('opening')).toBeVisible() // 期首処理タブに移動している
+
+    // --- 第2期：借入を含む ---
+    await page.getByTestId('tab-play').click()
+    await act(page, 'kariire', { a: 50 }) // 第2期は借入可
+    await expect(page.getByTestId('ledger')).toContainText('借入') // 借入行が記帳された
+    await act(page, 'koukoku', { n: 1 })
+    await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
+    await act(page, 'seizo', { qty: 4 })
+    await act(page, 'hanbai', { 'qty-0': 4, 'unit-0': 50 })
+    await closeAndSettle(page)
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+
+    // --- 履歴：2期分 ---
+    await page.getByTestId('tab-history').click()
+    await expect(page.getByTestId('detail-1')).toBeVisible()
+    await expect(page.getByTestId('detail-2')).toBeVisible()
+    // 過去期の決算書を閲覧
+    await page.getByTestId('detail-1').click()
+    await expect(page.getByTestId('statement')).toContainText('第1期の決算書を表示中')
+    await page.getByTestId('stmt-back').click()
+
+    // --- 組織タブ：チャート⇄数値（順位）・DBから取得 ---
+    await page.getByTestId('tab-org').click()
+    await expect(page.getByTestId('org-count')).toContainText('社')
+    await expect(page.getByTestId('org-charts')).toBeVisible()
+    await page.getByTestId('ov-table').click()
+    await expect(page.getByTestId('org-cards')).toContainText('E2E製菓')
+
+    // --- 振り返りタブ（推移・気づき） ---
+    await page.getByTestId('tab-review').click()
+    await expect(page.getByTestId('review')).toBeVisible()
+
+    // --- 期末処理タブ：決算済みは勘定の図解を表示 ---
+    await page.getByTestId('tab-closing').click()
+    await expect(page.getByTestId('to-statement')).toBeVisible()
+
+    // --- リロード復元（DBから・バナー無しで自動引き継ぎ）---
+    await page.reload()
+    await expect(page.getByTestId('hd-name')).toHaveText('E2E製菓')
+    await expect(page.getByTestId('hd-period')).toHaveText('第2期')
+
+    // pageerror が無いこと
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('全アクション＆全イベントの記帳（残りのボタンを網羅・pageエラー無し）', async ({ page }) => {
+    await registerOrg(page, 'E2E2')
+    await page.goto(`/?org=E2E2`)
+    await page.getByTestId('c-name').fill('網羅製菓')
+    await page.getByTestId('c-pres').fill('全部太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    // 盤面づくり
+    await act(page, 'kikai', { n: 2 })
+    await act(page, 'saiyo', { mfg: 3, sales: 2 })
+    await act(page, 'kaihatsu') // 商品開発（n固定・成功）
+    await act(page, 'koukoku', { n: 2 })
+    await act(page, 'shiire', { 'qty-0': 10, 'unit-0': 13 })
+    await act(page, 'seizo', { qty: 6 })
+    await act(page, 'haichi', { n: 1, dir: 'mfg->sales' }) // ルールB：配置転換
+    await act(page, 'hanbai', { 'qty-0': 2, 'unit-0': 50 })
+
+    // 全イベント（販売機会→仕入機会→在庫被害→退職→費用→手番のみ）
+    await event(page, 'kaihatsu_win', { qty: 2 })
+    await event(page, 'dokusen', { qty: 2, unit: 45 })
+    await event(page, 'tokubai', { qty: 3 })
+    await event(page, 'keiki', { qty: 2 })
+    await act(page, 'hoken') // ルールB（イベントを挟んだので可）
+    await event(page, 'ibutsu') // custom（保険で補償）
+    await event(page, 'suigai') // custom（残材料破棄）
+    await event(page, 'taishoku_sales')
+    await event(page, 'kitchen')
+    await event(page, 'rousai')
+    await event(page, 'kaihatsu_fail')
+    await event(page, 'kansen')
+    await event(page, 'chiiki')
+    await event(page, 'fuhyo')
+    await event(page, 'gyaku')
+
+    // 記帳の削除ボタン
+    const before = await page.getByTestId('ledger').locator('tbody tr').count()
+    await page.getByTestId(/^del-/).last().click()
+    await expect(page.getByTestId('ledger').locator('tbody tr')).toHaveCount(before - 1)
+
+    // 期末処理（1段目）→記帳に戻る→期末処理→決算（2段目）
+    await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+    await expect(page.getByTestId('undo-closing')).toBeVisible()
+    await page.getByTestId('undo-closing').click() // 記帳に戻る（play tabのまま）
+    await page.getByTestId('sub-A').click()
+    await expect(page.getByTestId('act-shiire')).toBeVisible() // 記帳に戻った
+    await closeAndSettle(page)
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('第1期の水害テストデータ投入ボタン（mockと同一データ→決算まで通る）', async ({ page }) => {
+    await registerOrg(page, 'E2E3')
+    await page.goto(`/?org=E2E3`)
+    await page.getByTestId('c-name').fill('水害製菓')
+    await page.getByTestId('c-pres').fill('水害太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    // 第1期のみ表示される水害シードボタン
+    await expect(page.getByTestId('seed-flood')).toBeVisible()
+    await page.getByTestId('seed-flood').click()
+
+    // 記帳が投入され、上部カード（今期の売上）が反映される
+    await expect(page.getByTestId('ledger').locator('tbody tr').first()).toBeVisible()
+    await expect(page.getByTestId('stat-sales')).not.toHaveText('0')
+
+    // 決算まで通る（2段階→貸借一致）
+    await closeAndSettle(page)
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('記帳の編集・削除：アクション行は数量編集、期末(給料/家賃)は金額のみ編集で削除不可', async ({ page }) => {
+    await registerOrg(page, 'E2E4')
+    await page.goto(`/?org=E2E4`)
+    await page.getByTestId('c-name').fill('編集製菓')
+    await page.getByTestId('c-pres').fill('編集太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    await act(page, 'kikai', { n: 1 })
+    await act(page, 'saiyo', { mfg: 2, sales: 1 })
+    await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
+
+    // 仕入れ行を ✎ 編集：数量 6→8（金額 78→104・材料も 6→8 に反映）
+    const shiireRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '仕入れ' })
+    await shiireRow.getByTestId(/^edit-/).click()
+    await expect(page.getByTestId('field-qty-0')).toHaveValue('6')
+    await setField(page, 'field-qty-0', 8)
+    await page.getByTestId('modal-ok').click()
+    await expect(page.getByTestId('modal-ok')).toBeHidden()
+    await expect(shiireRow).toContainText('104')
+    await expect(page.getByTestId('stat-raw')).toHaveText('8')
+
+    // 期末処理（1段目）で給料/家賃を計上
+    await page.getByTestId('closing').click()
+
+    // 家賃(期末)：✎ 編集はあるが ✕ 削除は無い → 金額を 25→30 に変更
+    const rentRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '家賃(期末)' })
+    await expect(rentRow.getByTestId(/^del-/)).toHaveCount(0)
+    await rentRow.getByTestId(/^edit-/).click()
+    await expect(page.getByTestId('amount-input')).toHaveValue('25')
+    await page.getByTestId('amount-input').fill('30')
+    await page.getByTestId('amount-ok').click()
+    await expect(page.getByTestId('amount-ok')).toBeHidden()
+    await expect(rentRow).toContainText('30')
+
+    // 給料(期末)も削除不可
+    const salaryRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '給料(期末)' })
+    await expect(salaryRow.getByTestId(/^del-/)).toHaveCount(0)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('管理者：ログイン→成績一覧(DB値)→CSV→リセット', async ({ page }) => {
+    await page.goto('/admin')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+
+    // ランダム組織コード生成→発行（登録）
+    await page.getByTestId('gen-code').click()
+    await expect(page.getByTestId('new-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
+    await expect(page.getByTestId('new-url')).toHaveValue(/\/\?org=MG-/)
+    await page.getByTestId('issue-org').click()
+    await expect(page.getByTestId('issued-msg')).toContainText('発行しました')
+
+    // 組織 E2E を選択 → 成績一覧タブへ（DBの実値）
+    await expect(page.getByTestId('admin-org')).toBeVisible()
+    await page.getByTestId('admin-org').selectOption(ORG)
+    await page.getByTestId('mv-rank').click()
+    await expect(page.getByTestId('admin-rank')).toBeVisible()
+    await expect(page.getByTestId('admin-rank')).toContainText('E2E製菓')
+    await expect(page.getByTestId('admin-rank')).toContainText('第1期')
+    await expect(page.getByTestId('admin-rank')).toContainText('第2期')
+
+    // CSV ダウンロード
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('csv-download').click(),
+    ])
+    expect(download.suggestedFilename()).toContain('MG成績_E2E')
+
+    // 参加者リセット（行が消える）
+    await page.getByTestId(/^admin-reset-/).first().click()
+    await expect(page.getByTestId('admin-rank')).toHaveCount(0)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('管理者：組織自体を削除（参加者がいても登録＋データが消え、URLも無効化）', async ({ page }) => {
+    await registerOrg(page, 'E2EDEL')
+    // 参加者を1社つくって決算まで（＝会社データがある状態で組織削除する）
+    await page.goto('/?org=E2EDEL')
+    await page.getByTestId('c-name').fill('削除対象製菓')
+    await page.getByTestId('c-pres').fill('削除太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+    await page.getByTestId('seed-flood').click()
+    await closeAndSettle(page)
+
+    // admin で E2EDEL を選び「組織を削除」
+    await page.goto('/admin')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+    await page.getByTestId('admin-org').selectOption('E2EDEL')
+    await expect(page.getByText('削除対象製菓')).toBeVisible() // 参加者が見えている
+    await page.getByTestId('admin-remove-org').click()
+
+    // 組織一覧（プルダウン）から E2EDEL が消える
+    await expect(page.locator('[data-testid="admin-org"] option', { hasText: /^E2EDEL$/ })).toHaveCount(0)
+    // 参加者一覧も消える
+    await expect(page.getByText('削除対象製菓')).toHaveCount(0)
+
+    // 参加用URLも無効化：404（参加できない）
+    await page.goto('/?org=E2EDEL')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+})

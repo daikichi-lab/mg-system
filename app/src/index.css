@@ -1,0 +1,77 @@
+@import 'tailwindcss';
+
+/* mock（mock/index.html の tailwind.config）の配色トークンを忠実に移植 */
+@theme {
+  --color-ink: #1b2230;
+  --color-ink-600: #3a4252;
+  --color-ink-400: #6b7384;
+  --color-ink-300: #a0a7b4;
+  --color-line: #e4e7ec;
+  --color-canvas: #f6f7f9;
+
+  --color-accent: #c8322b;
+  --color-accent-ink: #a02620;
+  --color-accent-bg: #fbece9;
+
+  /* 入金(cin)/出金(cout) と STRAC の各色（base/ink/bg） */
+  --color-cin-base: #0f766e;
+  --color-cin-ink: #0b5d56;
+  --color-cin-bg: #e4f1ef;
+  --color-cout-base: #5b6472;
+  --color-cout-ink: #434a57;
+  --color-cout-bg: #edeff2;
+  --color-g-base: #caa12a;
+  --color-g-ink: #876a10;
+  --color-g-bg: #f7efd2;
+  --color-f-base: #2f6fe0;
+  --color-f-ink: #234f9e;
+  --color-f-bg: #e6eefc;
+  --color-m-base: #cf4d80;
+  --color-m-ink: #a3315f;
+  --color-m-bg: #fbe3ec;
+  --color-v-base: #6b7689;
+  --color-v-ink: #4a5366;
+  --color-v-bg: #eaedf3;
+  --color-p-base: #d98324;
+  --color-p-ink: #9c5d12;
+  --color-p-bg: #fbeed9;
+
+  --font-jp: 'Zen Kaku Gothic New', system-ui, sans-serif;
+  --font-num: 'Roboto Mono', 'Zen Kaku Gothic New', monospace;
+  --shadow-card: 0 1px 2px rgba(27, 34, 48, 0.04), 0 8px 24px -16px rgba(27, 34, 48, 0.2);
+}
+
+html,
+body {
+  margin: 0;
+  background: #f6f7f9;
+  color: #1b2230;
+  font-family: 'Zen Kaku Gothic New', system-ui, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+}
+
+/* 数値は等幅・桁揃え */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 決算書PDF（印刷時のみ表示） */
+#pdf-sheet {
+  display: none;
+}
+@media print {
+  @page {
+    size: A3 portrait;
+    margin: 7mm;
+  }
+  body.printing > #root {
+    display: none !important;
+  }
+  body.printing #pdf-sheet {
+    display: block !important;
+  }
+}
