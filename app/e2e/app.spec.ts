@@ -341,21 +341,29 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     expect((page as any)._mgErrors).toEqual([])
   })
 
-  test('管理者：組織自体を削除（登録＋データが消え、URLも無効化）', async ({ page }) => {
+  test('管理者：組織自体を削除（参加者がいても登録＋データが消え、URLも無効化）', async ({ page }) => {
     await registerOrg(page, 'E2EDEL')
-    // 削除前：このURLで参加フォームが開ける
+    // 参加者を1社つくって決算まで（＝会社データがある状態で組織削除する）
     await page.goto('/?org=E2EDEL')
-    await expect(page.getByTestId('c-name')).toBeVisible()
+    await page.getByTestId('c-name').fill('削除対象製菓')
+    await page.getByTestId('c-pres').fill('削除太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+    await page.getByTestId('seed-flood').click()
+    await closeAndSettle(page)
 
     // admin で E2EDEL を選び「組織を削除」
     await page.goto('/admin')
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
     await page.getByTestId('admin-org').selectOption('E2EDEL')
+    await expect(page.getByText('削除対象製菓')).toBeVisible() // 参加者が見えている
     await page.getByTestId('admin-remove-org').click()
 
-    // 組織一覧から E2EDEL が消える
+    // 組織一覧（プルダウン）から E2EDEL が消える
     await expect(page.locator('[data-testid="admin-org"] option', { hasText: /^E2EDEL$/ })).toHaveCount(0)
+    // 参加者一覧も消える
+    await expect(page.getByText('削除対象製菓')).toHaveCount(0)
 
     // 参加用URLも無効化：404（参加できない）
     await page.goto('/?org=E2EDEL')
