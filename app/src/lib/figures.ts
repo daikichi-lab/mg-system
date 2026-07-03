@@ -47,7 +47,7 @@ export function stracHTML(r: Result): string {
   const pillar = (w: number, bg: string, bd: string, inner: string) =>
     `<div style="width:${w}px;height:${pqH}px;background:${bg};border:1px solid ${bd};border-radius:4px;display:grid;place-items:center;text-align:center;overflow:hidden;flex:none">${inner}</div>`
 
-  const fig = `<div style="display:flex;align-items:flex-start;gap:4px">
+  const fig = `<div style="max-width:560px;margin:0 auto;overflow-x:auto"><div style="display:flex;align-items:flex-start;gap:4px;min-width:max-content">
         ${pillar(34, '#fbe7d3', '#e08a3c', `<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div style="${NUM};font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)}
         <div style="width:34px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
           <div style="height:${vH}px;background:#37a36b;color:#fff;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">変動単価</div><div style="${NUM};font-weight:700;font-size:10px">${f(vP)}</div></div></div>
@@ -55,7 +55,7 @@ export function stracHTML(r: Result): string {
         </div>
         <div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px 5px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div style="${NUM};font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>
         ${pillar(56, '#fbe7d3', '#e08a3c', `<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div style="${NUM};font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)}
-        <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div style="width:240px;max-width:60vw;flex:none;display:flex;flex-direction:column;min-width:0">
           <div style="height:${vH}px;background:#37a36b;color:#fff;border:1px solid #2f8d5c;border-bottom:0;border-radius:4px 4px 0 0;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">変動費 vPQ</div><div style="${NUM};font-weight:800;font-size:11px">${f(r.vPQ)}</div><div style="font-size:6.5px;opacity:.85">売上原価</div></div></div>
           <div style="display:flex;align-items:flex-start">
             ${
@@ -67,7 +67,7 @@ export function stracHTML(r: Result): string {
             }
           </div>
         </div>
-      </div>`
+      </div></div>`
 
   const chip = (l: string, v: string) =>
     `<span style="border:1px solid #d6dae0;border-radius:5px;padding:1px 6px;font-size:9px">${l} <b style="${NUM}">${v}</b></span>`
