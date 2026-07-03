@@ -140,9 +140,10 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     const liabeq1 = await page.getByTestId('bs-liabeq').textContent()
     expect(assets1).toBe(liabeq1)
 
-    // --- 次の期へ ---
+    // --- 次の期へ（期首処理タブへ自動遷移）---
     await page.getByTestId('next-period').click()
     await expect(page.getByTestId('hd-period')).toHaveText('第2期')
+    await expect(page.getByTestId('opening')).toBeVisible() // 期首処理タブに移動している
 
     // --- 第2期：借入を含む ---
     await page.getByTestId('tab-play').click()

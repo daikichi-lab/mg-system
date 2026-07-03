@@ -143,7 +143,15 @@ export default function Participant() {
           <ClosingTab game={game} onStatement={() => go('statement')} />
         )}
         {tab === 'statement' && (
-          <StatementTab st={st} view={stmtView} onNext={() => game.next()} onBack={() => go('history')} />
+          <StatementTab
+            st={st}
+            view={stmtView}
+            onNext={() => {
+              game.next()
+              go('opening')
+            }}
+            onBack={() => go('history')}
+          />
         )}
         {tab === 'history' && (
           <HistoryTab
