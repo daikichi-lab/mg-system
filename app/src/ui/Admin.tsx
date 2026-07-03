@@ -12,6 +12,7 @@ export default function Admin() {
   const [org, setOrg] = useState('')
   const [companies, setCompanies] = useState<ApiOrgCompany[]>([])
   const [newCode, setNewCode] = useState('')
+  const [issuedMsg, setIssuedMsg] = useState('')
 
   const loadOrgs = useCallback(async (tk: string) => {
     try {
@@ -56,6 +57,20 @@ export default function Admin() {
     const alpha = 'abcdefghjkmnpqrstuvwxyz23456789'
     const bytes = crypto.getRandomValues(new Uint8Array(12))
     setNewCode('MG-' + Array.from(bytes, (b) => alpha[b % alpha.length]).join(''))
+    setIssuedMsg('')
+  }
+  // 組織コードを発行（登録）＝参加者がこのURLで開始できるようになる
+  async function issueOrg() {
+    const code = newCode.trim()
+    if (!code || !token) return
+    setIssuedMsg('')
+    try {
+      await api.adminCreateOrg(token, code)
+      setIssuedMsg(`✓ 「${code}」を発行しました。参加者はこのURLで開始できます。`)
+      await loadOrgs(token)
+    } catch (e: any) {
+      setIssuedMsg('発行に失敗しました：' + e.message)
+    }
   }
   async function copyText(text: string) {
     try {
@@ -147,24 +162,40 @@ export default function Admin() {
         <div className="bg-white rounded-2xl shadow-sm border border-line p-4">
           <div className="font-bold text-sm mb-1">新しい組織の参加用URLを発行</div>
           <p className="text-ink-400 text-xs mb-2">
-            ランダムな組織コードにすると、URLを推測されて部外者に参加・閲覧されるのを防げます。参加者にこのURLを配布してください。
+            コードを決めて<b>「発行」</b>すると、そのURLで参加者が開始できるようになります（未発行のコードでは参加できません）。ランダムなコードにすると推測による部外者参加を防げます。
           </p>
           <div className="flex gap-2 flex-wrap items-center">
             <input
               data-testid="new-code"
               value={newCode}
-              onChange={(e) => setNewCode(e.target.value)}
+              onChange={(e) => {
+                setNewCode(e.target.value)
+                setIssuedMsg('')
+              }}
               placeholder="組織コード（例）MG-xxxx"
               className="h-10 border border-line rounded-lg px-3 text-sm flex-1 min-w-[180px]"
             />
             <button
               data-testid="gen-code"
               onClick={genCode}
-              className="h-10 px-3 rounded-lg bg-ink text-white text-xs font-bold whitespace-nowrap"
+              className="h-10 px-3 rounded-lg border border-line text-ink-600 text-xs font-bold whitespace-nowrap"
             >
               ランダム生成
             </button>
+            <button
+              data-testid="issue-org"
+              onClick={issueOrg}
+              disabled={!newCode.trim()}
+              className="h-10 px-4 rounded-lg bg-ink text-white text-xs font-bold whitespace-nowrap disabled:opacity-40"
+            >
+              発行
+            </button>
           </div>
+          {issuedMsg && (
+            <p data-testid="issued-msg" className="text-emerald-700 text-xs mt-2">
+              {issuedMsg}
+            </p>
+          )}
           {newUrl && (
             <div className="mt-2 flex gap-2 items-center flex-wrap">
               <code data-testid="new-url" className="num text-xs bg-canvas px-2 py-1 rounded flex-1 min-w-[220px] break-all">

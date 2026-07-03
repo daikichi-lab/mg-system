@@ -57,6 +57,7 @@ export default function Participant() {
   const st = game.st
 
   if (!game.ready) return <div className="p-10 text-center text-ink-400">読み込み中…</div>
+  if (game.orgError && !st.started) return <OrgError message={game.orgError} />
 
   const go = (t: TabKey) => {
     if (t === 'statement') setStmtView(null)
@@ -161,6 +162,21 @@ export default function Participant() {
   )
 }
 
+function OrgError({ message }: { message: string }) {
+  return (
+    <div className="min-h-screen grid place-items-center p-6 bg-canvas" data-testid="org-error">
+      <div className="bg-white rounded-2xl shadow-card border border-line p-8 max-w-md text-center">
+        <div className="text-5xl font-black text-ink-300 mb-2">404</div>
+        <h1 className="text-lg font-black mb-2">参加できません</h1>
+        <p className="text-ink-500 text-sm mb-4">{message}</p>
+        <p className="text-ink-400 text-xs">
+          研修の講師から配布された<b>参加用URL</b>（例：<code className="num">…/?org=コード</code>）を開いてご参加ください。
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function Header({ st }: { st: St }) {
   return (
     <header className="bg-white border-b border-line sticky top-0 z-20">
@@ -193,7 +209,7 @@ function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onS
   const st = game.st
   const [name, setName] = useState(st.name)
   const [pres, setPres] = useState(st.president)
-  const [org, setOrg] = useState(st.org || game.joinOrg)
+  const org = st.org || game.joinOrg
   const [capital, setCapital] = useState(300)
   const started = st.started
   const canStart = name.trim() && pres.trim() && org.trim()
@@ -229,12 +245,11 @@ function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onS
           <input
             data-testid="c-org"
             value={org}
-            disabled={started || !!game.joinOrg}
-            onChange={(e) => setOrg(e.target.value)}
-            className="mt-1 h-11 w-full border border-line rounded-lg px-3 disabled:bg-canvas"
-            placeholder="例）MG2026"
+            readOnly
+            disabled
+            className="mt-1 h-11 w-full border border-line rounded-lg px-3 bg-canvas text-ink-600 cursor-not-allowed"
           />
-          <span className="text-ink-400 text-xs">同じ組織コードの会社を「組織」タブで比較できます。</span>
+          <span className="text-ink-400 text-xs">参加用URL（講師が発行）から自動設定されます。編集はできません。</span>
         </label>
         {!started && (
           <label className="block">

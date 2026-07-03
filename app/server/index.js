@@ -14,6 +14,8 @@ import {
   listOrgs,
   deleteCompany,
   deleteOrg,
+  registerOrg,
+  orgExists,
 } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -77,7 +79,11 @@ app.post(
   wrap(async (req, res) => {
     const { org, name, president } = req.body || {}
     if (!org || !name) return res.status(400).json({ error: 'org と name は必須です' })
-    res.json(await joinCompany(String(org).trim(), String(name).trim(), String(president || '').trim()))
+    const code = String(org).trim()
+    // 講師が発行（登録）した組織コードでのみ開始できる
+    if (!(await orgExists(code)))
+      return res.status(404).json({ error: '組織コードが見つかりません。講師が発行したURLからご参加ください。', code: 'ORG_NOT_FOUND' })
+    res.json(await joinCompany(code, String(name).trim(), String(president || '').trim()))
   }),
 )
 
@@ -114,6 +120,15 @@ app.get(
   }),
 )
 
+// 組織コードの存在確認（参加者がURLの有効性を確認）
+app.get(
+  '/api/org-exists',
+  wrap(async (req, res) => {
+    const code = String(req.query.code || '').trim()
+    res.json({ exists: code ? await orgExists(code) : false })
+  }),
+)
+
 // ---- 管理者（ログイン必須）----
 app.post(
   '/api/admin/login',
@@ -133,6 +148,18 @@ app.get(
   requireAdmin,
   wrap(async (_req, res) => {
     res.json({ orgs: await listOrgs() })
+  }),
+)
+
+// 組織コードを発行（登録）＝この組織のURLで参加者が開始できるようになる
+app.post(
+  '/api/admin/org',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const code = String((req.body || {}).code || '').trim()
+    if (!code) return res.status(400).json({ error: '組織コードを指定してください' })
+    await registerOrg(code)
+    res.json({ ok: true, org: code })
   }),
 )
 

@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS period_results (
   turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period),
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
-);`
+);
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, created_at INTEGER DEFAULT 0);`
 
 const PG_SCHEMA = `
 CREATE TABLE IF NOT EXISTS companies (
@@ -54,7 +55,8 @@ CREATE TABLE IF NOT EXISTS period_results (
   net DOUBLE PRECISION, cap_end DOUBLE PRECISION, ret_end DOUBLE PRECISION, cash_end DOUBLE PRECISION,
   turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period)
-);`
+);
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, created_at BIGINT DEFAULT 0);`
 
 // `?` → `$1,$2,...`（Postgres系）
 export function pgConv(sql) {
@@ -321,7 +323,18 @@ export async function listOrg(code) {
 }
 
 export async function listOrgs() {
-  return (await D.all('SELECT DISTINCT org FROM companies ORDER BY org ASC', [])).map((r) => r.org)
+  const a = (await D.all('SELECT code AS org FROM orgs', [])).map((r) => r.org)
+  const b = (await D.all('SELECT DISTINCT org FROM companies', [])).map((r) => r.org)
+  return [...new Set([...a, ...b])].sort()
+}
+
+// ---- 組織コードの登録（講師が発行）／存在チェック ----
+export async function registerOrg(code) {
+  await D.run('INSERT INTO orgs (code, created_at) VALUES (?, ?) ON CONFLICT (code) DO NOTHING', [code, now()])
+}
+export async function orgExists(code) {
+  const r = await D.get('SELECT code FROM orgs WHERE code = ?', [code])
+  return !!r
 }
 
 export async function deleteCompany(id) {

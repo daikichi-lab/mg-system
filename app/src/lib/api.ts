@@ -50,7 +50,13 @@ export const api = {
     jf<ApiState>(`/api/company/${id}/state`, { ...jsonPost(payload), method: 'PUT' }),
   org: (code: string) =>
     jf<{ org: string; companies: ApiOrgCompany[] }>(`/api/org/${encodeURIComponent(code)}`),
+  orgExists: (code: string) => jf<{ exists: boolean }>(`/api/org-exists?code=${encodeURIComponent(code)}`),
   adminLogin: (password: string) => jf<{ token: string }>('/api/admin/login', jsonPost({ password })),
+  adminCreateOrg: (token: string, code: string) =>
+    jf<{ ok: boolean; org: string }>('/api/admin/org', {
+      ...jsonPost({ code }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }),
   adminOrgs: (token: string) =>
     jf<{ orgs: string[] }>('/api/admin/orgs', { headers: { Authorization: `Bearer ${token}` } }),
   adminDeleteCompany: (token: string, id: number) =>

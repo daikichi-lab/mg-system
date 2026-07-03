@@ -29,6 +29,13 @@ async function event(page: Page, key: string, fields: Record<string, string | nu
   await expect(page.getByTestId('modal-ok')).toBeHidden()
 }
 
+// 講師が組織コードを発行（登録）＝参加者がそのURLで開始できるようにする
+async function registerOrg(page: Page, code: string) {
+  const login = await page.request.post('/api/admin/login', { data: { password: 'mg' } })
+  const { token } = await login.json()
+  await page.request.post('/api/admin/org', { data: { code }, headers: { Authorization: `Bearer ${token}` } })
+}
+
 test.describe.serial('戦略MG 本番アプリ E2E', () => {
   test.beforeEach(async ({ page }) => {
     page.on('dialog', (d) => d.accept())
@@ -37,7 +44,15 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     ;(page as any)._mgErrors = errors
   })
 
+  test('未登録の組織コードURLは404（開始できない）', async ({ page }) => {
+    await page.goto('/?org=NO-SUCH-ORG-zzz')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+    await page.goto('/')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+  })
+
   test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
+    await registerOrg(page, ORG)
     await page.goto(`/?org=${ORG}`)
 
     // --- 会社情報：開始 ---
@@ -149,6 +164,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
   })
 
   test('全アクション＆全イベントの記帳（残りのボタンを網羅・pageエラー無し）', async ({ page }) => {
+    await registerOrg(page, 'E2E2')
     await page.goto(`/?org=E2E2`)
     await page.getByTestId('c-name').fill('網羅製菓')
     await page.getByTestId('c-pres').fill('全部太郎')
@@ -203,10 +219,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
 
-    // ランダム組織コード生成（推測不可な参加URL）
+    // ランダム組織コード生成→発行（登録）
     await page.getByTestId('gen-code').click()
     await expect(page.getByTestId('new-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
     await expect(page.getByTestId('new-url')).toContainText('/?org=MG-')
+    await page.getByTestId('issue-org').click()
+    await expect(page.getByTestId('issued-msg')).toContainText('発行しました')
 
     // 組織 E2E を選択して成績一覧（DBの実値）
     await expect(page.getByTestId('admin-org')).toBeVisible()

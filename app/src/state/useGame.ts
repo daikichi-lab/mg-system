@@ -24,6 +24,7 @@ export interface Game {
   companyId: number | null
   version: number
   error: string | null
+  orgError: string | null
   resumed: boolean
   setError: (e: string | null) => void
   joinOrg: string
@@ -48,6 +49,7 @@ export function useGame(): Game {
   const [ready, setReady] = useState(false)
   const [resumed, setResumed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [orgError, setOrgError] = useState<string | null>(null)
   const joinOrgRef = useRef('')
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -87,7 +89,19 @@ export function useGame(): Game {
           /* not found → fresh */
         }
       }
-      if (joinOrg) stRef.current.org = joinOrg
+      // 新規参加：講師が発行したURL(?org=)で、かつ登録済みの組織のみ開始できる
+      if (joinOrg) {
+        stRef.current.org = joinOrg
+        try {
+          const r = await api.orgExists(joinOrg)
+          if (!alive) return
+          if (!r.exists) setOrgError('組織コードが見つかりません。講師が発行したURLからご参加ください。')
+        } catch {
+          /* ネットワーク不通時は開始で再検証 */
+        }
+      } else {
+        setOrgError('この画面は講師が発行した参加用URLからのみ開けます。')
+      }
       if (alive) {
         setReady(true)
         bump()
@@ -116,7 +130,8 @@ export function useGame(): Game {
         setError(null)
         bump()
       } catch (e: any) {
-        setError(e.message)
+        if (String(e.message).includes('組織')) setOrgError(e.message)
+        else setError(e.message)
       }
     },
     [bump, sync],
@@ -185,6 +200,7 @@ export function useGame(): Game {
     companyId: idRef.current,
     version,
     error,
+    orgError,
     resumed,
     setError,
     joinOrg: joinOrgRef.current,
