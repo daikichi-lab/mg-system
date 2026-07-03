@@ -48,6 +48,7 @@ export interface Game {
   setBoard: (b: { mfg: number; sales: number; mat: number; prod: number; dev: number; ads: number; mach: number }) => string | null
   refreshOrg: () => Promise<ApiOrgCompany[]>
   resetAll: () => void
+  spectator: boolean
 }
 
 export function useGame(): Game {
@@ -59,6 +60,8 @@ export function useGame(): Game {
   const [resumed, setResumed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [orgError, setOrgError] = useState<string | null>(null)
+  const [spectator, setSpectator] = useState(false)
+  const spectatorRef = useRef(false)
   const joinOrgRef = useRef('')
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -76,6 +79,26 @@ export function useGame(): Game {
     let alive = true
     ;(async () => {
       const q = new URLSearchParams(location.search)
+      // 講師の閲覧専用ビュー（?vorg=&vco=）：その会社の状態をDBから読み込み、操作は不可
+      const vorg = (q.get('vorg') || '').trim()
+      const vco = (q.get('vco') || '').trim()
+      if (vorg && vco) {
+        try {
+          const data = await api.get(vorg, vco)
+          if (!alive) return
+          idRef.current = data.company.id
+          histRef.current = applyApiState(stRef.current, data)
+          spectatorRef.current = true
+          setSpectator(true)
+        } catch {
+          if (alive) setOrgError('この参加者のデータが見つかりません。')
+        }
+        if (alive) {
+          setReady(true)
+          bump()
+        }
+        return
+      }
       const joinOrg = (q.get('org') || '').trim()
       joinOrgRef.current = joinOrg
       let ident: any = null
@@ -148,6 +171,7 @@ export function useGame(): Game {
 
   const runMut = useCallback(
     (fn: () => string | null | void): string | null => {
+      if (spectatorRef.current) return null // 閲覧専用ビューでは変更しない
       const r = fn()
       if (typeof r === 'string' && r) {
         setError(r)
@@ -194,6 +218,7 @@ export function useGame(): Game {
   const closing = useCallback(() => runMut(() => doClosing(stRef.current)), [runMut])
   const undoClose = useCallback(() => runMut(() => undoClosing(stRef.current)), [runMut])
   const settleNow = useCallback((): Result | null => {
+    if (spectatorRef.current) return null
     const r = doSettle(stRef.current, histRef.current)
     setError(null)
     bump()
@@ -297,5 +322,6 @@ export function useGame(): Game {
     setBoard,
     refreshOrg,
     resetAll,
+    spectator,
   }
 }

@@ -314,13 +314,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // ランダム組織コード生成→発行（登録）
     await page.getByTestId('gen-code').click()
     await expect(page.getByTestId('new-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
-    await expect(page.getByTestId('new-url')).toContainText('/?org=MG-')
+    await expect(page.getByTestId('new-url')).toHaveValue(/\/\?org=MG-/)
     await page.getByTestId('issue-org').click()
     await expect(page.getByTestId('issued-msg')).toContainText('発行しました')
 
-    // 組織 E2E を選択して成績一覧（DBの実値）
+    // 組織 E2E を選択 → 成績一覧タブへ（DBの実値）
     await expect(page.getByTestId('admin-org')).toBeVisible()
     await page.getByTestId('admin-org').selectOption(ORG)
+    await page.getByTestId('mv-rank').click()
     await expect(page.getByTestId('admin-rank')).toBeVisible()
     await expect(page.getByTestId('admin-rank')).toContainText('E2E製菓')
     await expect(page.getByTestId('admin-rank')).toContainText('第1期')

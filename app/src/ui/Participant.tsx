@@ -99,6 +99,11 @@ export default function Participant() {
 
   return (
     <div className="min-h-screen">
+      {game.spectator && (
+        <div data-testid="spectator-banner" className="bg-ink text-white text-center text-xs font-bold py-1.5 px-4">
+          👁 閲覧専用（講師ビュー）— {st.name || '参加者'}の画面
+        </div>
+      )}
       <Header st={st} />
       <nav className="max-w-5xl mx-auto px-3 sm:px-6 pb-2 pt-3">
         <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 bg-canvas border border-line rounded-xl p-1">
@@ -137,7 +142,13 @@ export default function Participant() {
         )}
         {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} />}
         {tab === 'play' && (
-          <PlayTab game={game} onOpen={setModalKey} onEditRow={openEditRow} onSettleTab={() => go('closing')} />
+          <PlayTab
+            game={game}
+            onOpen={setModalKey}
+            onEditRow={openEditRow}
+            onSettleTab={() => go('closing')}
+            readOnly={game.spectator}
+          />
         )}
         {tab === 'closing' && (
           <ClosingTab game={game} onStatement={() => go('statement')} />
@@ -639,15 +650,17 @@ function PlayTab({
   onOpen,
   onEditRow,
   onSettleTab,
+  readOnly = false,
 }: {
   game: ReturnType<typeof useGame>
   onOpen: (k: string) => void
   onEditRow: (t: TxRow) => void
   onSettleTab: () => void
+  readOnly?: boolean
 }) {
   const st = game.st
   const c = caps(st)
-  const disabled = st.settled || st.closingPrep
+  const disabled = st.settled || st.closingPrep || readOnly
   const [sub, setSub] = useState<'A' | 'B' | 'X' | 'company'>('A')
   const tot = colTotals(st)
 
@@ -726,18 +739,20 @@ function PlayTab({
         )}
       </div>
 
-      <Ledger st={st} onDelete={game.del} onEditRow={onEditRow} />
+      <Ledger st={st} onDelete={game.del} onEditRow={onEditRow} readOnly={readOnly} />
 
       <div className="flex gap-2 flex-wrap items-center">
-        <button
-          data-testid="ledger-clear"
-          onClick={() => {
-            if (confirm('この期の記帳をすべて消去しますか？')) game.clear()
-          }}
-          className="h-11 px-4 rounded-xl border border-line text-ink-600 font-bold text-sm"
-        >
-          記帳を全消去
-        </button>
+        {!readOnly && (
+          <button
+            data-testid="ledger-clear"
+            onClick={() => {
+              if (confirm('この期の記帳をすべて消去しますか？')) game.clear()
+            }}
+            className="h-11 px-4 rounded-xl border border-line text-ink-600 font-bold text-sm"
+          >
+            記帳を全消去
+          </button>
+        )}
         {st.period === 1 && !disabled && (
           <button
             data-testid="seed-flood"
@@ -747,7 +762,7 @@ function PlayTab({
             1期データを追加
           </button>
         )}
-        {!st.settled && (
+        {!st.settled && !readOnly && (
           <div className="flex gap-2 flex-wrap items-center ml-auto">
             {st.closingPrep && (
               <button
@@ -849,7 +864,17 @@ function EventPicker({ disabled, onPick }: { disabled: boolean; onPick: (k: stri
   )
 }
 
-function Ledger({ st, onDelete, onEditRow }: { st: St; onDelete: (id: number) => void; onEditRow: (t: TxRow) => void }) {
+function Ledger({
+  st,
+  onDelete,
+  onEditRow,
+  readOnly = false,
+}: {
+  st: St
+  onDelete: (id: number) => void
+  onEditRow: (t: TxRow) => void
+  readOnly?: boolean
+}) {
   const tot = colTotals(st)
   let bal = st.openingCash
   const th = (i: number) => (
@@ -883,9 +908,9 @@ function Ledger({ st, onDelete, onEditRow }: { st: St; onDelete: (id: number) =>
             // ✎ 編集：アクション行はモーダル（記帳前のみ）、キーレス行（資本金/給料/家賃/増資）は金額編集（決算前）
             const canEditModal = !!t.key && !!FORMS[t.key] && !isCustom && !st.settled && !st.closingPrep
             const canEditAmount = !t.key && !derived && !st.settled
-            const showEdit = canEditModal || canEditAmount
+            const showEdit = !readOnly && (canEditModal || canEditAmount)
             // ✕ 削除：資本金・期末（給料/家賃）・自動行は不可
-            const showDelete = !derived && !t.isClosing && !t.isCapital && !st.settled && !st.closingPrep
+            const showDelete = !readOnly && !derived && !t.isClosing && !t.isCapital && !st.settled && !st.closingPrep
             const label = t.label || (t.key ? ACTIONS[t.key]?.label : '') || ''
             return (
               <tr key={t.id} className="border-b border-line/60">

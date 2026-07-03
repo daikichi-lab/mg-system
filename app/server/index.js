@@ -27,7 +27,8 @@ app.set('trust proxy', 1)
 // 基本セキュリティヘッダ
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('X-Frame-Options', 'DENY')
+  // 講師の参加者ビュー（同一オリジンのiframe）を許可。クロスオリジンの埋め込みは引き続き禁止
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN')
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
   next()
