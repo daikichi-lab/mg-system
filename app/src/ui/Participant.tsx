@@ -105,29 +105,7 @@ export default function Participant() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-5">
-        {game.resumed && (
-          <div
-            data-testid="resume-banner"
-            className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
-          >
-            <div className="text-sm text-emerald-800">
-              🔄 <b>前回の続きを復元しました</b>
-              <span className="text-emerald-700 font-normal">
-                （{st.name}・第{st.period}期・記帳
-                {st.tx.filter((t) => !t.isCapital && !t.isBorrowInterest).length}件）
-              </span>
-            </div>
-            <button
-              data-testid="reset-new"
-              onClick={() => {
-                if (confirm('現在のデータを破棄して新しく始めますか？')) game.resetAll()
-              }}
-              className="h-9 px-3 rounded-lg border border-emerald-400 text-emerald-800 text-xs font-bold hover:bg-emerald-100"
-            >
-              新しく始める
-            </button>
-          </div>
-        )}
+        {/* 同じ組織コード＋会社名なら自動でデータを引き継ぐ（復元バナーは非表示） */}
         {game.error && (
           <div data-testid="error" className="mb-4 rounded-xl border border-accent/40 bg-accent/5 text-accent-ink px-4 py-2.5 text-sm">
             {game.error}

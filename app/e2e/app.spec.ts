@@ -179,9 +179,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-closing').click()
     await expect(page.getByTestId('to-statement')).toBeVisible()
 
-    // --- リロード復元（DBから）---
+    // --- リロード復元（DBから・バナー無しで自動引き継ぎ）---
     await page.reload()
-    await expect(page.getByTestId('resume-banner')).toBeVisible()
+    await expect(page.getByTestId('hd-name')).toHaveText('E2E製菓')
     await expect(page.getByTestId('hd-period')).toHaveText('第2期')
 
     // pageerror が無いこと
