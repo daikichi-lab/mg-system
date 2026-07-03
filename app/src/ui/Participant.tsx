@@ -270,32 +270,61 @@ function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onS
 // ------- 期首処理 -------
 function OpeningTab({ st }: { st: St }) {
   const first = st.period <= 1
-  const kv = (l: string, v: string) => (
+  const openTax = st.tx.find((t) => t.isOpeningTax)?.amount || 0
+  const openInt = st.tx.find((t) => t.isOpeningInterest)?.amount || 0
+  const kv = (l: string, v: string, accent?: boolean) => (
     <div className="flex justify-between border-b border-line/70 py-1.5">
       <span className="text-ink-500">{l}</span>
-      <span className="num font-bold">{v}</span>
+      <span className={`num font-bold ${accent ? 'text-p-ink' : ''}`}>{v}</span>
+    </div>
+  )
+  const token = (l: string, v: number) => (
+    <div className="rounded-lg bg-cin-bg border border-cin-base/30 px-2 py-2 text-center">
+      <div className="text-[10px] text-cin-ink whitespace-nowrap">{l}</div>
+      <div className="num font-black text-lg text-cin-base">{v}</div>
     </div>
   )
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-5">
-        <h2 className="font-bold mb-2">第{st.period}期 期首</h2>
-        <p className="text-ink-400 text-sm mb-3">
+      <div className="rounded-2xl border border-cin-base/30 bg-cin-bg px-5 py-3">
+        <h2 className="font-black text-cin-ink">第{st.period}期 期首</h2>
+        <p className="text-cin-ink/80 text-xs mt-0.5">
           {first
             ? '第1期は前期繰越がありません。開業資本金からスタートします。'
             : '前期からの繰越です。第2期以降は借入・金利・期末返済があります。'}
         </p>
-        <div className="grid sm:grid-cols-2 gap-x-6 text-sm">
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
+          <h2 className="font-bold mb-2">前期繰越</h2>
           {kv('現金', fmt(st.openingCash))}
           {kv('材料在庫（個数）', fmt(st.openingMatQty))}
           {kv('うち製品（個数）', fmt(st.openingProducts))}
           {kv('什器（簿価）', fmt(st.openingEquipVal))}
-          {kv('機械（台）', fmt(st.openingMachines))}
-          {kv('製造スタッフ', fmt(st.openingStaffMfg))}
-          {kv('販売スタッフ', fmt(st.openingStaffSales))}
           {kv('資本金', fmt(st.openingCapital))}
           {kv('利益剰余金', fmtA(st.retained))}
           {kv('借入残高', fmt(st.openingLoan))}
+          {!first && openTax > 0 && kv('法人税納付（期首）', '▲' + fmt(openTax), true)}
+          {!first && openInt > 0 && kv('支払金利（期首）', '▲' + fmt(openInt), true)}
+        </div>
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 className="font-bold mb-3">盤面セットアップ</h2>
+          <div className="grid grid-cols-4 gap-2">
+            {token('製造ｽﾀｯﾌ', st.openingStaffMfg)}
+            {token('販売ｽﾀｯﾌ', st.openingStaffSales)}
+            {token('材料', st.openingMatQty - st.openingProducts)}
+            {token('製品', st.openingProducts)}
+            {token('開発', st.openingDev)}
+            {token('広告', st.openingAds)}
+            {token('機械', st.openingMachines)}
+          </div>
+          {!first && (
+            <div className="mt-4 rounded-lg bg-canvas border border-line p-3 text-xs text-ink-500 space-y-1">
+              <div className="font-bold text-ink">借入・金利・返済（第2期以降）</div>
+              <div>借入可能枠 ＝ 純資産 × {st.loanMult}（現在の枠 {fmt(loanCap(st))}）</div>
+              <div>金利 5% ／ 期末返済率 {st.repayRate}%</div>
+            </div>
+          )}
         </div>
       </div>
     </div>
