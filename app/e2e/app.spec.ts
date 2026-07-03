@@ -12,7 +12,17 @@ async function setField(page: Page, testid: string, val: string | number) {
   }
 }
 
+// 記帳タブは ルールA / ルールB / イベントカード / 会社版 のサブタブ構造。
+// キーに応じて正しいサブタブへ切り替えてからボタンを押す。
+const A_KEYS = ['shiire', 'seizo', 'hanbai', 'kikai', 'saiyo', 'koukoku', 'kaihatsu']
+const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai']
+async function openSubFor(page: Page, key: string) {
+  const sub = A_KEYS.includes(key) ? 'A' : B_KEYS.includes(key) ? 'B' : 'X'
+  await page.getByTestId(`sub-${sub}`).click()
+}
+
 async function act(page: Page, key: string, fields: Record<string, string | number> = {}) {
+  await openSubFor(page, key)
   await page.getByTestId(`act-${key}`).click()
   await expect(page.getByTestId('modal-ok')).toBeVisible()
   for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
@@ -20,13 +30,9 @@ async function act(page: Page, key: string, fields: Record<string, string | numb
   await expect(page.getByTestId('modal-ok')).toBeHidden()
 }
 
+// イベントカードもボタン（act-<key>）化されたので act() と同じ経路
 async function event(page: Page, key: string, fields: Record<string, string | number> = {}) {
-  await page.getByTestId('event-select').selectOption(key)
-  await page.getByTestId('event-go').click()
-  await expect(page.getByTestId('modal-ok')).toBeVisible()
-  for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
-  await page.getByTestId('modal-ok').click()
-  await expect(page.getByTestId('modal-ok')).toBeHidden()
+  await act(page, key, fields)
 }
 
 // 講師が組織コードを発行（登録）＝参加者がそのURLで開始できるようにする
@@ -78,12 +84,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await event(page, 'kansen') // 手番のみ（効果なし）
     await event(page, 'claim') // 費用トラブル
 
-    // 盤面の状態が反映されている
+    // 盤面の状態が反映されている（会社版サブタブ）
+    await page.getByTestId('sub-company').click()
     await expect(page.getByTestId('sp-mfg')).toHaveText('2')
     await expect(page.getByTestId('sp-machines')).toHaveText('1')
     await expect(page.getByTestId('sp-prod')).toHaveText('0') // 販売で製品0
 
     // バリデーション：販売能力超過はエラー
+    await page.getByTestId('sub-A').click()
     await page.getByTestId('act-hanbai').click()
     await setField(page, 'field-qty-0', 99)
     await page.getByTestId('modal-ok').click()
@@ -121,6 +129,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // --- 第2期：借入を含む ---
     await page.getByTestId('tab-play').click()
     await act(page, 'kariire', { a: 50 }) // 第2期は借入可
+    await page.getByTestId('sub-company').click()
     await expect(page.getByTestId('sp-loan')).toHaveText('50')
     await act(page, 'koukoku', { n: 1 })
     await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
@@ -207,6 +216,30 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('closing').click()
     await page.getByTestId('undo-closing').click()
     await expect(page.getByTestId('act-shiire')).toBeVisible() // 記帳に戻った
+    await page.getByTestId('closing').click()
+    await page.getByTestId('settle').click()
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('第1期の水害テストデータ投入ボタン（mockと同一データ→決算まで通る）', async ({ page }) => {
+    await registerOrg(page, 'E2E3')
+    await page.goto(`/?org=E2E3`)
+    await page.getByTestId('c-name').fill('水害製菓')
+    await page.getByTestId('c-pres').fill('水害太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    // 第1期のみ表示される水害シードボタン
+    await expect(page.getByTestId('seed-flood')).toBeVisible()
+    await page.getByTestId('seed-flood').click()
+
+    // 記帳が投入され、上部カード（今期の売上）が反映される
+    await expect(page.getByTestId('ledger').locator('tbody tr').first()).toBeVisible()
+    await expect(page.getByTestId('stat-sales')).not.toHaveText('0')
+
+    // 決算まで通る（貸借一致）
     await page.getByTestId('closing').click()
     await page.getByTestId('settle').click()
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')

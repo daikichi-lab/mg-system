@@ -9,6 +9,8 @@ import {
   ratios,
   cashflow,
   loanCap,
+  loanRoom,
+  equityNow,
   fmRatio,
   IN_COLS,
   SALARY_TABLE,
@@ -57,11 +59,26 @@ export default function Participant() {
   const st = game.st
 
   if (!game.ready) return <div className="p-10 text-center text-ink-400">読み込み中…</div>
-  if (game.orgError && !st.started) return <OrgError message={game.orgError} />
+  if (game.orgError && !st.started) return <OrgError />
 
+  // 決算書タブを開いても閲覧中の期(stmtView)は維持する。期の変更は会社情報の「期」/履歴の詳細/「履歴に戻る」で行う
   const go = (t: TabKey) => {
-    if (t === 'statement') setStmtView(null)
     setTab(t)
+  }
+
+  // 会社情報の「期の選択」：現在＝最新に戻る／過去＝その期の決算書を閲覧
+  const curView = stmtView ? stmtView.period : st.period
+  const onViewPeriod = (p: number) => {
+    if (p >= st.period) {
+      setStmtView(null)
+      setTab(st.settled ? 'statement' : 'play')
+    } else {
+      const r = game.history.find((h) => h.period === p)
+      if (r) {
+        setStmtView(r)
+        setTab('statement')
+      }
+    }
   }
 
   return (
@@ -121,8 +138,10 @@ export default function Participant() {
           </div>
         )}
 
-        {tab === 'company' && <CompanyTab game={game} onStarted={() => go('opening')} />}
-        {tab === 'opening' && <OpeningTab st={st} />}
+        {tab === 'company' && (
+          <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
+        )}
+        {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} />}
         {tab === 'play' && <PlayTab game={game} onOpen={setModalKey} onSettleTab={() => go('closing')} />}
         {tab === 'closing' && (
           <ClosingTab game={game} onStatement={() => go('statement')} onBackToPlay={() => go('play')} />
@@ -162,16 +181,12 @@ export default function Participant() {
   )
 }
 
-function OrgError({ message }: { message: string }) {
+function OrgError() {
   return (
     <div className="min-h-screen grid place-items-center p-6 bg-canvas" data-testid="org-error">
       <div className="bg-white rounded-2xl shadow-card border border-line p-8 max-w-md text-center">
         <div className="text-5xl font-black text-ink-300 mb-2">404</div>
-        <h1 className="text-lg font-black mb-2">参加できません</h1>
-        <p className="text-ink-500 text-sm mb-4">{message}</p>
-        <p className="text-ink-400 text-xs">
-          研修の講師から配布された<b>参加用URL</b>（例：<code className="num">…/?org=コード</code>）を開いてご参加ください。
-        </p>
+        <h1 className="text-lg font-black mb-2">ページがありません。</h1>
       </div>
     </div>
   )
@@ -205,7 +220,17 @@ function Header({ st }: { st: St }) {
 }
 
 // ------- 会社情報 -------
-function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onStarted: () => void }) {
+function CompanyTab({
+  game,
+  onStarted,
+  viewPeriod,
+  onViewPeriod,
+}: {
+  game: ReturnType<typeof useGame>
+  onStarted: () => void
+  viewPeriod: number
+  onViewPeriod: (p: number) => void
+}) {
   const st = game.st
   const [name, setName] = useState(st.name)
   const [pres, setPres] = useState(st.president)
@@ -251,6 +276,25 @@ function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onS
           />
           <span className="text-ink-400 text-xs">参加用URL（講師が発行）から自動設定されます。編集はできません。</span>
         </label>
+        <label className="block">
+          <span className="text-sm font-medium">期</span>
+          <select
+            data-testid="c-period"
+            value={viewPeriod}
+            disabled={!started}
+            onChange={(e) => onViewPeriod(Number(e.target.value))}
+            className="mt-1 h-11 w-full border border-line rounded-lg px-3 bg-white disabled:bg-canvas"
+          >
+            {Array.from({ length: started ? st.period : 1 }, (_, i) => i + 1).map((p) => (
+              <option key={p} value={p}>
+                第{p}期{p === st.period ? '（現在）' : ''}
+              </option>
+            ))}
+          </select>
+          <span className="text-ink-400 text-xs">
+            給料テーブル：1期25 / 2期28 / 3期31 / 4期34 / 5期37。過去の期を選ぶとその期の決算書を表示します。
+          </span>
+        </label>
         {!started && (
           <label className="block">
             <span className="text-sm font-medium">開業資本金</span>
@@ -284,10 +328,67 @@ function CompanyTab({ game, onStarted }: { game: ReturnType<typeof useGame>; onS
 }
 
 // ------- 期首処理 -------
-function OpeningTab({ st }: { st: St }) {
+type BoardVals = { mfg: number; sales: number; mat: number; prod: number; dev: number; ads: number; mach: number }
+
+function BoardEditForm({ st, onSave, onCancel }: { st: St; onSave: (b: BoardVals) => void; onCancel: () => void }) {
+  const [v, setV] = useState<BoardVals>({
+    mfg: st.openingStaffMfg,
+    sales: st.openingStaffSales,
+    mat: st.openingMatQty - st.openingProducts,
+    prod: st.openingProducts,
+    dev: st.openingDev,
+    ads: st.openingAds,
+    mach: st.openingMachines,
+  })
+  const f = (k: keyof BoardVals, label: string) => (
+    <label className="block">
+      <span className="text-[10px] text-ink-400 whitespace-nowrap">{label}</span>
+      <input
+        data-testid={`obe-${k}`}
+        type="number"
+        min={0}
+        value={v[k]}
+        onChange={(e) => setV((s) => ({ ...s, [k]: Math.max(0, Math.round(Number(e.target.value) || 0)) }))}
+        className="mt-0.5 h-9 w-full border border-line rounded px-2 num text-sm"
+      />
+    </label>
+  )
+  return (
+    <div>
+      <div className="grid grid-cols-4 gap-2">
+        {f('mfg', '製造ｽﾀｯﾌ')}
+        {f('sales', '販売ｽﾀｯﾌ')}
+        {f('mat', '材料')}
+        {f('prod', '製品')}
+        {f('dev', '開発')}
+        {f('ads', '広告')}
+        {f('mach', '機械')}
+      </div>
+      <p className="text-ink-300 text-[11px] mt-2">※資産価値の増減は利益剰余金で調整され、貸借は一致を保ちます。</p>
+      <div className="flex gap-2 mt-2">
+        <button onClick={onCancel} className="h-9 px-3 rounded-lg border border-line text-ink-600 text-xs font-bold">
+          やめる
+        </button>
+        <button data-testid="board-save" onClick={() => onSave(v)} className="h-9 px-4 rounded-lg bg-ink text-white text-xs font-bold ml-auto">
+          更新
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function OpeningTab({ game, onToPlay }: { game: ReturnType<typeof useGame>; onToPlay: () => void }) {
+  const st = game.st
   const first = st.period <= 1
   const openTax = st.tx.find((t) => t.isOpeningTax)?.amount || 0
   const openInt = st.tx.find((t) => t.isOpeningInterest)?.amount || 0
+  const [editing, setEditing] = useState(false)
+  const [addCap, setAddCap] = useState(100)
+  const eq = equityNow(st)
+  const cap = loanCap(st)
+  const room = loanRoom(st)
+  const interest = Math.round(st.openingLoan * 0.05)
+  const repayPlan = Math.round((st.openingLoan * st.repayRate) / 100)
   const kv = (l: string, v: string, accent?: boolean) => (
     <div className="flex justify-between border-b border-line/70 py-1.5">
       <span className="text-ink-500">{l}</span>
@@ -301,13 +402,11 @@ function OpeningTab({ st }: { st: St }) {
     </div>
   )
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="opening">
       <div className="rounded-2xl border border-cin-base/30 bg-cin-bg px-5 py-3">
         <h2 className="font-black text-cin-ink">第{st.period}期 期首</h2>
         <p className="text-cin-ink/80 text-xs mt-0.5">
-          {first
-            ? '第1期は前期繰越がありません。開業資本金からスタートします。'
-            : '前期からの繰越です。第2期以降は借入・金利・期末返済があります。'}
+          この期のスタート状態です。前期の決算から繰り越した残高・盤面の駒・期首納税を自動でセットします。記帳の前に確認しましょう。
         </p>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
@@ -324,30 +423,202 @@ function OpeningTab({ st }: { st: St }) {
           {!first && openInt > 0 && kv('支払金利（期首）', '▲' + fmt(openInt), true)}
         </div>
         <div className="bg-white rounded-2xl shadow-card border border-line p-5">
-          <h2 className="font-bold mb-3">盤面セットアップ</h2>
-          <div className="grid grid-cols-4 gap-2">
-            {token('製造ｽﾀｯﾌ', st.openingStaffMfg)}
-            {token('販売ｽﾀｯﾌ', st.openingStaffSales)}
-            {token('材料', st.openingMatQty - st.openingProducts)}
-            {token('製品', st.openingProducts)}
-            {token('開発', st.openingDev)}
-            {token('広告', st.openingAds)}
-            {token('機械', st.openingMachines)}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold">盤面セットアップ</h2>
+            {!editing && !st.settled && (
+              <button
+                data-testid="board-edit"
+                onClick={() => setEditing(true)}
+                className="h-8 px-3 rounded-lg border border-line text-ink-600 text-xs font-bold"
+              >
+                変更
+              </button>
+            )}
           </div>
-          {!first && (
-            <div className="mt-4 rounded-lg bg-canvas border border-line p-3 text-xs text-ink-500 space-y-1">
-              <div className="font-bold text-ink">借入・金利・返済（第2期以降）</div>
-              <div>借入可能枠 ＝ 純資産 × {st.loanMult}（現在の枠 {fmt(loanCap(st))}）</div>
-              <div>金利 5% ／ 期末返済率 {st.repayRate}%</div>
+          {editing ? (
+            <BoardEditForm
+              st={st}
+              onCancel={() => setEditing(false)}
+              onSave={(b) => {
+                const e = game.setBoard(b)
+                if (!e) setEditing(false)
+              }}
+            />
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {token('製造ｽﾀｯﾌ', st.openingStaffMfg)}
+              {token('販売ｽﾀｯﾌ', st.openingStaffSales)}
+              {token('材料', st.openingMatQty - st.openingProducts)}
+              {token('製品', st.openingProducts)}
+              {token('開発', st.openingDev)}
+              {token('広告', st.openingAds)}
+              {token('機械', st.openingMachines)}
             </div>
           )}
         </div>
+      </div>
+
+      {/* ⑨ 借入金可能枠・金利・返済（倍率と返済率は講師設定・第2期以降） */}
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
+        <h2 className="font-bold mb-2 text-f-ink">⑨ 借入金可能枠・金利・返済（倍率・返済率は講師設定）</h2>
+        {first ? (
+          <div className="rounded-lg bg-canvas text-ink-400 p-3 text-center">
+            第1期は借入・金利・期末返済はありません。第2期以降に表示されます。
+          </div>
+        ) : (
+          <>
+            <div className="border-b border-line py-1.5">
+              <span className="text-ink-600">借入金可能枠</span>
+              <div className="flex items-center gap-1 flex-wrap mt-1">
+                純資産 <b className="num">{fmt(eq)}</b> ×
+                <input
+                  data-testid="op-loanmult"
+                  type="number"
+                  min={0}
+                  defaultValue={st.loanMult}
+                  onBlur={(e) => game.setInstr(Number(e.target.value) || 0, st.repayRate)}
+                  className="w-14 h-8 border border-line rounded px-1 text-right num"
+                />
+                倍 ＝ <b className="num text-f-base">{fmt(cap)}</b>
+              </div>
+            </div>
+            {kv('現在借入残高', fmt(st.loan))}
+            <div className="flex justify-between py-1.5">
+              <span className="font-bold">今期借入可能額</span>
+              <b className="num text-f-base text-base">{fmt(room)}</b>
+            </div>
+            <div className="flex justify-between py-1.5 mt-1 rounded-lg px-2 bg-f-bg">
+              <span className="font-bold text-f-ink">金利5%・期首支払金利（期首残高×5%）</span>
+              <b className="num text-f-ink">▲{fmt(interest)}</b>
+            </div>
+            <div className="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 bg-m-bg gap-2 flex-wrap">
+              <span className="font-bold text-m-ink">
+                期末返済（期首残高 ×
+                <input
+                  data-testid="op-repayrate"
+                  type="number"
+                  min={0}
+                  max={100}
+                  defaultValue={st.repayRate}
+                  onBlur={(e) => game.setInstr(st.loanMult, Number(e.target.value) || 0)}
+                  className="w-12 h-7 border border-line rounded px-1 mx-1 text-right num"
+                />
+                %）
+              </span>
+              <b className="num text-m-ink">▲{fmt(repayPlan)}</b>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 増資（第2期以降・任意） */}
+      {!first && (
+        <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+          <h2 className="font-bold mb-1 text-p-ink">増資（任意）</h2>
+          <p className="text-ink-400 text-xs mb-2">この期に追加出資する場合に入力。「ア 資本金」として記帳され、現金と純資産が増えます。</p>
+          <div className="flex gap-2">
+            <input
+              data-testid="op-addcap"
+              type="number"
+              min={0}
+              value={addCap}
+              onChange={(e) => setAddCap(Number(e.target.value) || 0)}
+              className="flex-1 h-11 border border-line rounded-xl px-3 num font-bold text-lg text-p-ink bg-p-bg"
+            />
+            <button
+              data-testid="op-addcap-btn"
+              onClick={() => game.raiseCapital(addCap)}
+              className="px-4 rounded-xl bg-p-base text-white font-bold whitespace-nowrap"
+            >
+              ＋ 増資する
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex">
+        <button
+          data-testid="opening-toplay"
+          onClick={onToPlay}
+          className="h-12 px-6 rounded-xl bg-cin-base text-white font-bold ml-auto hover:brightness-95"
+        >
+          記帳をはじめる →
+        </button>
       </div>
     </div>
   )
 }
 
 // ------- 記帳 -------
+// アクションのアイコン・色（mock STY）とヒント（mock TAGS）
+const STY: Record<string, { c: string; i: string }> = {
+  shiire: { c: '#8b5e3c', i: '📦' },
+  seizo: { c: '#d98324', i: '🍰' },
+  hanbai: { c: '#0f766e', i: '💰' },
+  kikai: { c: '#64748b', i: '⚙️' },
+  saiyo: { c: '#2f6fe0', i: '🧑' },
+  koukoku: { c: '#c8322b', i: '📣' },
+  kaihatsu: { c: '#2563eb', i: '💡' },
+  hoken: { c: '#ca9a06', i: '🛡️' },
+  kyoiku: { c: '#e8842a', i: '📚' },
+  haichi: { c: '#5b6472', i: '🔁' },
+  kariire: { c: '#0f766e', i: '🏦' },
+  hensai: { c: '#5b6472', i: '↩️' },
+  kaihatsu_win: { c: '#0f766e', i: '🎉' },
+  dokusen: { c: '#0f766e', i: '👑' },
+  tokubai: { c: '#3f7a3f', i: '🏷️' },
+  keiki: { c: '#3f7a3f', i: '📈' },
+  ibutsu: { c: '#b85c7e', i: '⚠️' },
+  suigai: { c: '#b85c7e', i: '🌊' },
+  taishoku_mfg: { c: '#2f5f93', i: '🚪' },
+  taishoku_sales: { c: '#2f5f93', i: '🚪' },
+  claim: { c: '#1f7a8c', i: '📞' },
+  kitchen: { c: '#4a55a8', i: '🔧' },
+  rousai: { c: '#4a55a8', i: '🩹' },
+  kaihatsu_fail: { c: '#1f7a8c', i: '💥' },
+  kansen: { c: '#5b6472', i: '🦠' },
+  chiiki: { c: '#5b6472', i: '🎪' },
+  fuhyo: { c: '#5b6472', i: '📉' },
+  gyaku: { c: '#5b6472', i: '🔄' },
+}
+const TAGS: Record<string, string> = {
+  shiire: '−10〜16',
+  kikai: '−100',
+  saiyo: '−5',
+  koukoku: '−10',
+  kaihatsu: '−20',
+  hanbai: '＋ 売上',
+  seizo: '材料→製品',
+  hoken: '−5',
+  kyoiku: '−20',
+  haichi: '−5',
+  kariire: '＋ 借入',
+  hensai: '− 返済',
+}
+
+function ActBtn({ k, disabled, onOpen }: { k: string; disabled: boolean; onOpen: (k: string) => void }) {
+  const a = ACTIONS[k]
+  const sty = STY[k] || { c: '#5b6472', i: '•' }
+  const col = a.col !== null && a.col !== undefined && LCOL[a.col] ? LCOL[a.col].t : sty.c
+  return (
+    <button
+      data-testid={`act-${k}`}
+      disabled={disabled}
+      onClick={() => onOpen(k)}
+      className="text-left rounded-xl bg-white border p-3 flex items-start gap-2 hover:shadow-sm transition disabled:opacity-40"
+      style={{ borderColor: col + '55' }}
+    >
+      <span className="text-lg leading-none mt-0.5">{sty.i}</span>
+      <div className="min-w-0">
+        <div className="font-bold text-sm leading-tight" style={{ color: col }}>
+          {a.label}
+        </div>
+        <div className="text-[11px] text-ink-400 leading-tight">{TAGS[k] || ''}</div>
+      </div>
+    </button>
+  )
+}
+
 function PlayTab({
   game,
   onOpen,
@@ -360,35 +631,94 @@ function PlayTab({
   const st = game.st
   const c = caps(st)
   const disabled = st.settled || st.closingPrep
-  const btn = (k: string) => (
+  const [sub, setSub] = useState<'A' | 'B' | 'X' | 'company'>('A')
+  const tot = colTotals(st)
+  const cats = Array.from(new Set(EVENTS.map((e) => e.cat)))
+
+  const statCard = (label: string, value: string, id?: string) => (
+    <div className="bg-white rounded-2xl shadow-card border border-line px-4 py-3">
+      <div className="text-ink-400 text-xs">{label}</div>
+      <div className="num font-black text-2xl mt-0.5" data-testid={id}>
+        {value}
+      </div>
+    </div>
+  )
+  const subBtn = (v: 'A' | 'B' | 'X' | 'company', label: string) => (
     <button
-      key={k}
-      data-testid={`act-${k}`}
-      disabled={disabled}
-      onClick={() => onOpen(k)}
-      className="h-11 rounded-xl border border-line bg-white font-bold text-sm hover:border-ink/40 disabled:opacity-40"
+      data-testid={`sub-${v}`}
+      onClick={() => setSub(v)}
+      className={`rounded-lg py-2 text-[12px] sm:text-sm font-bold transition ${
+        sub === v ? 'bg-ink text-white shadow-sm' : 'text-ink-400 hover:text-ink'
+      }`}
     >
-      {ACTIONS[k].label}
+      {label}
     </button>
   )
+
   return (
     <div className="space-y-4">
-      <StatusPanel st={st} />
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-4">
-        <div className="text-xs font-bold text-ink-400 mb-2">ルールA（意思決定）</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{A_KEYS.map(btn)}</div>
-        <div className="text-xs font-bold text-ink-400 mb-2 mt-4">ルールB（1ターン1回）</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{B_KEYS.map(btn)}</div>
-        <div className="text-xs font-bold text-ink-400 mb-2 mt-4">イベントカード</div>
-        <EventPicker disabled={disabled} onPick={onOpen} />
-        <div className="text-ink-300 text-[11px] mt-2">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-black">記帳</h1>
+        <p className="text-ink-400 text-sm mt-1">意思決定 → 数値入力 → 実行。現金出納帳に1行ずつ記帳されます。</p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {statCard('現金残高', fmt(cashNow(st)), 'stat-cash')}
+        {statCard('材料・原料', fmt(st.rawCubes), 'stat-raw')}
+        {statCard('製品・陳列', fmt(st.products), 'stat-prod')}
+        {statCard('今期の売上', fmt(tot[2]), 'stat-sales')}
+      </div>
+
+      <div className="grid grid-cols-4 gap-1 bg-canvas border border-line rounded-xl p-1">
+        {subBtn('A', 'ルールA')}
+        {subBtn('B', 'ルールB')}
+        {subBtn('X', 'イベントカード')}
+        {subBtn('company', '会社版')}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-card border border-line p-4">
+        {sub === 'A' && (
+          <>
+            <div className="text-xs font-bold text-ink-400 mb-2">ルールA・意思決定（1回1項目）</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {A_KEYS.map((k) => (
+                <ActBtn key={k} k={k} disabled={disabled} onOpen={onOpen} />
+              ))}
+            </div>
+          </>
+        )}
+        {sub === 'B' && (
+          <>
+            <div className="text-xs font-bold text-ink-400 mb-2">ルールB（1ターンに1回）</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {B_KEYS.map((k) => (
+                <ActBtn key={k} k={k} disabled={disabled} onOpen={onOpen} />
+              ))}
+            </div>
+          </>
+        )}
+        {sub === 'X' && (
+          <div className="space-y-3">
+            {cats.map((cat) => (
+              <div key={cat}>
+                <div className="text-xs font-bold text-ink-400 mb-1">{cat}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {EVENTS.filter((e) => e.cat === cat).map((e) => (
+                    <ActBtn key={e.key} k={e.key} disabled={disabled} onOpen={onOpen} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {sub === 'company' && <StatusPanel st={st} />}
+        <div className="text-ink-300 text-[11px] mt-3">
           製造能力 {c.mfgCap} / 販売能力 {c.salesCap}
         </div>
       </div>
 
       <Ledger st={st} onDelete={game.del} />
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         <button
           data-testid="ledger-clear"
           onClick={() => {
@@ -398,6 +728,15 @@ function PlayTab({
         >
           記帳を全消去
         </button>
+        {st.period === 1 && !disabled && (
+          <button
+            data-testid="seed-flood"
+            onClick={() => game.seedFlood()}
+            className="h-11 px-4 rounded-xl border border-sky-400 text-sky-700 font-bold text-sm hover:bg-sky-50"
+          >
+            1期データを追加（水害）
+          </button>
+        )}
         {!st.closingPrep && !st.settled && (
           <button
             data-testid="closing"
@@ -411,41 +750,6 @@ function PlayTab({
           </button>
         )}
       </div>
-    </div>
-  )
-}
-
-function EventPicker({ disabled, onPick }: { disabled: boolean; onPick: (k: string) => void }) {
-  const [key, setKey] = useState('')
-  const cats = Array.from(new Set(EVENTS.map((e) => e.cat)))
-  return (
-    <div className="flex gap-2">
-      <select
-        data-testid="event-select"
-        value={key}
-        disabled={disabled}
-        onChange={(e) => setKey(e.target.value)}
-        className="flex-1 h-11 border border-line rounded-lg px-2 text-sm bg-white disabled:opacity-40"
-      >
-        <option value="">イベントを選択…</option>
-        {cats.map((cat) => (
-          <optgroup key={cat} label={cat}>
-            {EVENTS.filter((e) => e.cat === cat).map((e) => (
-              <option key={e.key} value={e.key}>
-                {e.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      <button
-        data-testid="event-go"
-        disabled={disabled || !key}
-        onClick={() => onPick(key)}
-        className="h-11 px-4 rounded-xl bg-ink text-white font-bold text-sm disabled:opacity-40"
-      >
-        記帳
-      </button>
     </div>
   )
 }

@@ -274,6 +274,33 @@ export function clearLedger(st: St) {
   recompute(st)
 }
 
+// 第1期の水害テストデータ（mock SEED_FLOOD と完全一致）
+const SEED_FLOOD: [string, Fvals][] = [
+  ['kikai', { n: 1 }],
+  ['saiyo', { mfg: 1, sales: 1, fail: 0 }],
+  ['shiire', { items: [{ qty: 4, unit: 11 }, { qty: 6, unit: 12 }] }],
+  ['seizo', { qty: 2 }],
+  ['seizo', { qty: 2 }],
+  ['kyoiku', { n: 1 }],
+  ['seizo', { qty: 3 }],
+  ['hanbai', { qty: 2, unit: 36 }],
+  ['koukoku', { n: 1 }],
+  ['kaihatsu', { n: 1, result: '成功' }],
+  ['hoken', { n: 1 }],
+  ['hanbai', { qty: 2, unit: 36 }],
+  ['hanbai', { qty: 2, unit: 32 }],
+  ['suigai', { discard: 3, payout: 30, insuredUsed: 1 }],
+]
+export function seedFlood(st: St) {
+  st.tx = st.tx.filter((t) => t.isCapital || t.isOpeningTax || t.isOpeningInterest)
+  st.closingPrep = false
+  for (const [key, fvals] of SEED_FLOOD) {
+    const a = ACTIONS[key]
+    st.tx.push({ id: st.seq++, key, fvals, col: a.col, amount: a.amount(fvals) || 0, note: rownote(key, fvals), noCash: a.noCash })
+  }
+  recompute(st)
+}
+
 export function doClosing(st: St) {
   doClosingPrep(st)
 }
