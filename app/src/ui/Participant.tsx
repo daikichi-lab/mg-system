@@ -30,6 +30,7 @@ import {
   inflowOutflowHTML,
 } from '../lib/figures-account'
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, multiLineHTML, ORG_COLORS } from '../lib/figures-review'
+import { boardHTML } from '../lib/figures-board'
 import { savePdf } from '../lib/pdf'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
@@ -633,7 +634,6 @@ function PlayTab({
   const disabled = st.settled || st.closingPrep
   const [sub, setSub] = useState<'A' | 'B' | 'X' | 'company'>('A')
   const tot = colTotals(st)
-  const cats = Array.from(new Set(EVENTS.map((e) => e.cat)))
 
   const statCard = (label: string, value: string, id?: string) => (
     <div className="bg-white rounded-2xl shadow-card border border-line px-4 py-3">
@@ -697,23 +697,17 @@ function PlayTab({
           </>
         )}
         {sub === 'X' && (
-          <div className="space-y-3">
-            {cats.map((cat) => (
-              <div key={cat}>
-                <div className="text-xs font-bold text-ink-400 mb-1">{cat}</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {EVENTS.filter((e) => e.cat === cat).map((e) => (
-                    <ActBtn key={e.key} k={e.key} disabled={disabled} onOpen={onOpen} />
-                  ))}
-                </div>
-              </div>
-            ))}
+          <>
+            <div className="text-xs font-bold text-ink-400 mb-2">イベントカード（引いたカードを選んで記帳）</div>
+            <EventPicker disabled={disabled} onPick={onOpen} />
+          </>
+        )}
+        {sub === 'company' && <Figure testid="board-fig" html={boardHTML(st)} />}
+        {sub !== 'company' && (
+          <div className="text-ink-300 text-[11px] mt-3">
+            製造能力 {c.mfgCap} / 販売能力 {c.salesCap}
           </div>
         )}
-        {sub === 'company' && <StatusPanel st={st} />}
-        <div className="text-ink-300 text-[11px] mt-3">
-          製造能力 {c.mfgCap} / 販売能力 {c.salesCap}
-        </div>
       </div>
 
       <Ledger st={st} onDelete={game.del} />
@@ -734,22 +728,44 @@ function PlayTab({
             onClick={() => game.seedFlood()}
             className="h-11 px-4 rounded-xl border border-sky-400 text-sky-700 font-bold text-sm hover:bg-sky-50"
           >
-            1期データを追加（水害）
+            1期データを追加
           </button>
         )}
-        {!st.closingPrep && !st.settled && (
-          <button
-            data-testid="closing"
-            onClick={() => {
-              game.closing()
-              onSettleTab()
-            }}
-            className="h-11 px-6 rounded-xl bg-ink text-white font-bold ml-auto"
-          >
-            期末処理を行う（給与・家賃を計上）→
-          </button>
+        {!st.settled && (
+          <div className="flex gap-2 flex-wrap items-center ml-auto">
+            {st.closingPrep && (
+              <button
+                data-testid="undo-closing"
+                onClick={() => game.undoClose()}
+                className="h-11 px-4 rounded-xl border border-line font-bold text-ink-600"
+              >
+                記帳に戻る
+              </button>
+            )}
+            <button
+              data-testid="closing"
+              onClick={() => {
+                if (!st.closingPrep) {
+                  // 1段目：給与・家賃（と期末返済）を記帳に計上（このタブに留まる）
+                  game.closing()
+                } else {
+                  // 2段目：決算を確定し、期末処理タブへ遷移
+                  game.settleNow()
+                  onSettleTab()
+                }
+              }}
+              className={`h-11 px-6 rounded-xl font-bold text-white ${st.closingPrep ? 'bg-accent' : 'bg-ink'}`}
+            >
+              {st.closingPrep ? 'この期を決算にする →' : '期末処理を行う（給与・家賃を計上）'}
+            </button>
+          </div>
         )}
       </div>
+      {st.closingPrep && (
+        <p className="text-ink-400 text-xs text-right">
+          給与・家賃（と期末返済）を記帳に計上しました。決算にするか、記帳に戻れます。
+        </p>
+      )}
     </div>
   )
 }
@@ -782,36 +798,37 @@ const LHEAD = [
   { s: 'コ', n: '納税' },
 ]
 
-function StatusPanel({ st }: { st: St }) {
-  const c = caps(st)
-  const cell = (l: string, v: number | string, id?: string, accent?: boolean) => (
-    <div className={`rounded-lg border px-2 py-1.5 text-center ${accent ? 'bg-cin-bg border-cin-base/30' : 'bg-canvas border-line'}`}>
-      <div className="text-[10px] text-ink-400 whitespace-nowrap">{l}</div>
-      <div className="num font-bold text-[15px]" data-testid={id}>
-        {v}
-      </div>
-    </div>
-  )
+function EventPicker({ disabled, onPick }: { disabled: boolean; onPick: (k: string) => void }) {
+  const [key, setKey] = useState('')
+  const cats = Array.from(new Set(EVENTS.map((e) => e.cat)))
   return (
-    <div className="bg-white rounded-2xl shadow-card border border-line p-3">
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-        {cell('製造ｽﾀｯﾌ', st.staffMfg, 'sp-mfg')}
-        {cell('販売ｽﾀｯﾌ', st.staffSales, 'sp-sales')}
-        {cell('材料', st.rawCubes, 'sp-raw')}
-        {cell('製品', st.products, 'sp-prod')}
-        {cell('開発', st.dev)}
-        {cell('広告', st.ads)}
-        {cell('機械', st.machines, 'sp-machines')}
-      </div>
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mt-2">
-        {cell('保険', st.insurance)}
-        {cell('教育', st.edu)}
-        {cell('借入', fmt(st.loan), 'sp-loan')}
-        {cell('現金', fmt(cashNow(st)), undefined, true)}
-        {cell('製造能力', c.mfgCap)}
-        {cell('販売能力', c.salesCap)}
-        {st.period > 1 ? cell('借入枠', fmt(loanCap(st))) : cell('借入枠', '—')}
-      </div>
+    <div className="flex gap-2">
+      <select
+        data-testid="event-select"
+        value={key}
+        disabled={disabled}
+        onChange={(e) => setKey(e.target.value)}
+        className="flex-1 h-11 border border-line rounded-lg px-2 text-sm bg-white disabled:opacity-40"
+      >
+        <option value="">イベントを選択…</option>
+        {cats.map((cat) => (
+          <optgroup key={cat} label={cat}>
+            {EVENTS.filter((e) => e.cat === cat).map((e) => (
+              <option key={e.key} value={e.key}>
+                {e.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <button
+        data-testid="event-go"
+        disabled={disabled || !key}
+        onClick={() => onPick(key)}
+        className="h-11 px-4 rounded-xl bg-ink text-white font-bold text-sm disabled:opacity-40"
+      >
+        記帳
+      </button>
     </div>
   )
 }

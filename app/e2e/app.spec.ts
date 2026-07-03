@@ -13,16 +13,13 @@ async function setField(page: Page, testid: string, val: string | number) {
 }
 
 // 記帳タブは ルールA / ルールB / イベントカード / 会社版 のサブタブ構造。
-// キーに応じて正しいサブタブへ切り替えてからボタンを押す。
+// ルールA/B はキーに応じたサブタブへ切り替えてからボタンを押す。
 const A_KEYS = ['shiire', 'seizo', 'hanbai', 'kikai', 'saiyo', 'koukoku', 'kaihatsu']
 const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai']
-async function openSubFor(page: Page, key: string) {
-  const sub = A_KEYS.includes(key) ? 'A' : B_KEYS.includes(key) ? 'B' : 'X'
-  await page.getByTestId(`sub-${sub}`).click()
-}
 
 async function act(page: Page, key: string, fields: Record<string, string | number> = {}) {
-  await openSubFor(page, key)
+  const sub = B_KEYS.includes(key) ? 'B' : 'A'
+  await page.getByTestId(`sub-${sub}`).click()
   await page.getByTestId(`act-${key}`).click()
   await expect(page.getByTestId('modal-ok')).toBeVisible()
   for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
@@ -30,9 +27,24 @@ async function act(page: Page, key: string, fields: Record<string, string | numb
   await expect(page.getByTestId('modal-ok')).toBeHidden()
 }
 
-// イベントカードもボタン（act-<key>）化されたので act() と同じ経路
+// イベントカードはプルダウン（イベントを選択→記帳）
 async function event(page: Page, key: string, fields: Record<string, string | number> = {}) {
-  await act(page, key, fields)
+  await page.getByTestId('sub-X').click()
+  await page.getByTestId('event-select').selectOption(key)
+  await page.getByTestId('event-go').click()
+  await expect(page.getByTestId('modal-ok')).toBeVisible()
+  for (const [name, val] of Object.entries(fields)) await setField(page, `field-${name}`, val)
+  await page.getByTestId('modal-ok').click()
+  await expect(page.getByTestId('modal-ok')).toBeHidden()
+}
+
+// 期末処理→決算の2段階ボタン（play tab）。決算後は期末処理タブへ遷移する。
+async function closeAndSettle(page: Page) {
+  await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+  await expect(page.getByTestId('undo-closing')).toBeVisible()
+  await page.getByTestId('closing').click() // 2段目：決算 → 期末処理タブへ
+  await expect(page.getByTestId('to-statement')).toBeVisible()
+  await page.getByTestId('to-statement').click() // 決算書へ
 }
 
 // 講師が組織コードを発行（登録）＝参加者がそのURLで開始できるようにする
@@ -84,11 +96,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await event(page, 'kansen') // 手番のみ（効果なし）
     await event(page, 'claim') // 費用トラブル
 
-    // 盤面の状態が反映されている（会社版サブタブ）
+    // 盤面（会社盤）が反映されている：製造能力/販売能力の数値・製品0で店舗は空
     await page.getByTestId('sub-company').click()
-    await expect(page.getByTestId('sp-mfg')).toHaveText('2')
-    await expect(page.getByTestId('sp-machines')).toHaveText('1')
-    await expect(page.getByTestId('sp-prod')).toHaveText('0') // 販売で製品0
+    await expect(page.getByTestId('board-fig')).toBeVisible()
+    await expect(page.getByTestId('bd-mfgcap')).toHaveText('6') // 製造ｽﾀｯﾌ2×機械1×教育3
+    await expect(page.getByTestId('bd-salescap')).toHaveText('4') // 販売ｽﾀｯﾌ1×2＋広告
+    await expect(page.getByTestId('board-fig')).toContainText('空') // 販売後・店舗は空
 
     // バリデーション：販売能力超過はエラー
     await page.getByTestId('sub-A').click()
@@ -102,10 +115,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 記帳の削除ボタン（1件消して戻す確認だけ）: claim 行を消す代わりにここでは存在確認
     await expect(page.getByTestId('ledger')).toBeVisible()
 
-    // --- 期末処理 → 決算 ---
-    await page.getByTestId('closing').click() // 期末処理タブへ遷移
-    await expect(page.getByTestId('settle')).toBeVisible()
-    await page.getByTestId('settle').click()
+    // --- 期末処理（2段階）→ 決算 → 決算書 ---
+    await closeAndSettle(page)
 
     // --- 決算書：貸借一致 ---
     await expect(page.getByTestId('statement')).toBeVisible()
@@ -129,14 +140,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // --- 第2期：借入を含む ---
     await page.getByTestId('tab-play').click()
     await act(page, 'kariire', { a: 50 }) // 第2期は借入可
-    await page.getByTestId('sub-company').click()
-    await expect(page.getByTestId('sp-loan')).toHaveText('50')
+    await expect(page.getByTestId('ledger')).toContainText('借入') // 借入行が記帳された
     await act(page, 'koukoku', { n: 1 })
     await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
     await act(page, 'seizo', { qty: 4 })
     await act(page, 'hanbai', { 'qty-0': 4, 'unit-0': 50 })
-    await page.getByTestId('closing').click()
-    await page.getByTestId('settle').click()
+    await closeAndSettle(page)
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
 
     // --- 履歴：2期分 ---
@@ -212,12 +221,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId(/^del-/).last().click()
     await expect(page.getByTestId('ledger').locator('tbody tr')).toHaveCount(before - 1)
 
-    // 期末処理→記帳に戻る→期末処理→決算
-    await page.getByTestId('closing').click()
-    await page.getByTestId('undo-closing').click()
+    // 期末処理（1段目）→記帳に戻る→期末処理→決算（2段目）
+    await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+    await expect(page.getByTestId('undo-closing')).toBeVisible()
+    await page.getByTestId('undo-closing').click() // 記帳に戻る（play tabのまま）
+    await page.getByTestId('sub-A').click()
     await expect(page.getByTestId('act-shiire')).toBeVisible() // 記帳に戻った
-    await page.getByTestId('closing').click()
-    await page.getByTestId('settle').click()
+    await closeAndSettle(page)
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
 
     expect((page as any)._mgErrors).toEqual([])
@@ -239,9 +249,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('ledger').locator('tbody tr').first()).toBeVisible()
     await expect(page.getByTestId('stat-sales')).not.toHaveText('0')
 
-    // 決算まで通る（貸借一致）
-    await page.getByTestId('closing').click()
-    await page.getByTestId('settle').click()
+    // 決算まで通る（2段階→貸借一致）
+    await closeAndSettle(page)
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
 
     expect((page as any)._mgErrors).toEqual([])
