@@ -22,12 +22,12 @@ export function stracHTML(r: Result): string {
   const bep = r.mPQ ? Math.round((r.F / r.mPQ) * 100) : 0
 
   const PQv = Math.max(r.PQ, 1)
-  const MAXH = 140
+  const MAXH = 240
   const maxVal = Math.max(PQv, r.vPQ + r.F, 1)
   const sc = MAXH / maxVal
   const hpx = (v: number) => Math.max(2, Math.round(Math.abs(v) * sc))
   const loss = r.G < 0
-  const pqH = Math.max(34, Math.round(PQv * sc))
+  const pqH = Math.max(36, Math.round(PQv * sc))
   const vH = hpx(r.vPQ)
   const mH = Math.max(2, pqH - vH)
   let fH = 0
