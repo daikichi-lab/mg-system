@@ -13,7 +13,6 @@ import {
   equityNow,
   fmRatio,
   IN_COLS,
-  SALARY_TABLE,
   type St,
   type Result,
   type Fvals,
@@ -26,7 +25,6 @@ import {
   inventoryValueHTML,
   equipHTML,
   loanHTML,
-  taxTableHTML,
   inflowOutflowHTML,
 } from '../lib/figures-account'
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, multiLineHTML, ORG_COLORS } from '../lib/figures-review'
@@ -145,7 +143,7 @@ export default function Participant() {
         {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} />}
         {tab === 'play' && <PlayTab game={game} onOpen={setModalKey} onSettleTab={() => go('closing')} />}
         {tab === 'closing' && (
-          <ClosingTab game={game} onStatement={() => go('statement')} onBackToPlay={() => go('play')} />
+          <ClosingTab game={game} onStatement={() => go('statement')} />
         )}
         {tab === 'statement' && (
           <StatementTab st={st} view={stmtView} onNext={() => game.next()} onBack={() => go('history')} />
@@ -925,80 +923,87 @@ function Ledger({ st, onDelete }: { st: St; onDelete: (id: number) => void }) {
 }
 
 // ------- 期末処理 -------
-function ClosingTab({
-  game,
-  onStatement,
-  onBackToPlay,
-}: {
-  game: ReturnType<typeof useGame>
-  onStatement: () => void
-  onBackToPlay: () => void
-}) {
+function ClosingTab({ game, onStatement }: { game: ReturnType<typeof useGame>; onStatement: () => void }) {
   const st = game.st
-  if (st.settled && st.result) {
-    const r = st.result
+  const r = st.settled ? st.result : null
+  const heading = (
+    <div>
+      <h1 className="text-xl sm:text-2xl font-black tracking-tight">期末処理</h1>
+      <p className="text-ink-400 text-sm mt-1">
+        記帳を終えたら決算を実行。期末処理（給料・家賃・棚卸・減価償却・法人税）を自動で行います。確定後「次の期へ進む」で繰越されます。
+      </p>
+    </div>
+  )
+  // まだ決算していない：決算を実行するボタン
+  if (!r) {
     return (
       <div className="space-y-4">
-        <div className="bg-white rounded-2xl shadow-card border border-line p-4 flex items-center justify-between flex-wrap gap-2">
-          <p className="text-sm font-bold">第{r.period}期 決算済み・勘定の図解</p>
-          <button data-testid="to-statement" onClick={onStatement} className="h-11 px-6 rounded-xl bg-ink text-white font-bold">
-            決算書をみる →
+        {heading}
+        <div className="bg-white rounded-2xl shadow-card border border-line p-8 text-center">
+          <p className="text-ink-400 text-sm">まだ決算していません。</p>
+          <button
+            data-testid="closing-run"
+            onClick={() => game.settleNow()}
+            className="mt-4 h-12 px-6 rounded-xl bg-emerald-600 text-white font-bold"
+          >
+            決算を実行する
           </button>
-        </div>
-        <Figure html={inflowOutflowHTML(r)} />
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Figure html={cashAccountHTML(r)} />
-          <Figure html={inventoryCountHTML(r)} />
-          <Figure html={inventoryValueHTML(r)} />
-          <Figure html={equipHTML(r)} />
-          <Figure html={loanHTML(r)} />
-          <Figure html={taxTableHTML(r)} />
         </div>
       </div>
     )
   }
-  const SAL = SALARY_TABLE[st.period] || 28
-  const head = st.staffMfg + st.staffSales
+  const clRow = (l: string, v: string) => (
+    <div className="flex justify-between border-b border-line pb-2">
+      <span className="text-ink-600">{l}</span>
+      <b className="num">{v}</b>
+    </div>
+  )
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-5 space-y-2 text-sm">
-        <h2 className="font-bold">期末処理（第{st.period}期）</h2>
-        <div className="flex justify-between border-b border-line/70 py-1.5">
-          <span>給料（人数 {head} × 給料表 {SAL}）</span>
-          <span className="num font-bold">計上済み</span>
+      {heading}
+      {/* 期末処理（自動）：棚卸・給料・家賃・減価償却・法人税の確定値 */}
+      <div className="bg-white rounded-2xl shadow-card border border-line p-5">
+        <h2 className="font-bold mb-1">期末処理（自動）</h2>
+        <p className="text-ink-400 text-xs mb-3">記帳のあと ① 棚卸 ② 給料 ③ 家賃 ④ 減価償却 を計算し、法人税を確定します。</p>
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
+          {clRow('① 棚卸 平均単価', fmt(r.avg))}
+          {clRow('① 売上原価 vPQ', fmt(r.vPQ))}
+          {clRow('② 給料（人数 × 給料表）', fmt(r.salary))}
+          {clRow('③ 家賃', fmt(r.rent))}
+          {clRow('④ 減価償却（什器 × 10）', fmt(r.dep))}
+          <div className="flex justify-between border-b border-line pb-2">
+            <span className="text-ink-600">法人税等（30%・最低5）</span>
+            <b className="num text-accent-ink" data-testid="cl-tax">
+              ▲{fmt(r.tax)}
+            </b>
+          </div>
         </div>
-        <div className="flex justify-between border-b border-line/70 py-1.5">
-          <span>家賃</span>
-          <span className="num font-bold">25</span>
-        </div>
-        <p className="text-ink-400 text-xs">
-          {st.closingPrep
-            ? '給与・家賃（と期末返済）を記帳に計上しました。決算にするか、記帳に戻れます。'
-            : '記帳タブの「期末処理を行う」で計上します。'}
-        </p>
       </div>
-      <div className="flex gap-2">
-        {st.closingPrep && (
-          <button
-            data-testid="undo-closing"
-            onClick={() => {
-              game.undoClose()
-              onBackToPlay()
-            }}
-            className="h-11 px-4 rounded-xl border border-line font-bold text-ink-600"
-          >
-            記帳に戻る
-          </button>
-        )}
-        <button
-          data-testid="settle"
-          onClick={() => {
-            game.settleNow()
-            onStatement()
-          }}
-          className="h-11 px-6 rounded-xl bg-accent text-white font-bold ml-auto"
-        >
-          この期を決算にする →
+      {/* 勘定の図解（入門編MG決算書の補助勘定を再現） */}
+      <div>
+        <h2 className="font-bold mb-1 px-1">勘定の図解</h2>
+        <p className="text-ink-400 text-xs mb-3 px-1">
+          前期繰越 ＋ 当期増加 ＝ 合計、合計 − 当期減少 ＝ 次期繰越。
+          <span className="text-ink-300">（入門編MG決算書の補助勘定）</span>
+        </p>
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4 items-start">
+            <Figure html={inflowOutflowHTML(r)} />
+            <Figure html={cashAccountHTML(r)} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 items-start">
+            <Figure html={inventoryCountHTML(r)} />
+            <Figure html={inventoryValueHTML(r)} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 items-start">
+            <Figure html={loanHTML(r)} />
+            <Figure html={equipHTML(r)} />
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <button data-testid="to-statement" onClick={onStatement} className="h-11 px-5 rounded-xl bg-ink text-white font-bold">
+          決算書をみる →
         </button>
       </div>
     </div>
