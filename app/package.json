@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
@@ -12,14 +15,17 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:calc": "node --test test/calc.test.ts",
+    "test:db": "node --test test/db.pg.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
     "express": "^5.2.1",
+    "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^24.13.2",

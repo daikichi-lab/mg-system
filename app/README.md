@@ -3,7 +3,7 @@
 `mock/` のプロトタイプを本番構成で実装したフルスタックアプリ。
 
 - **フロント**: React 19 + Vite + TypeScript + Tailwind v4
-- **バックエンド**: Node(Express) + **node:sqlite（実SQLite・ファイル永続）** の REST API
+- **バックエンド**: Node(Express) の REST API。DBは**二刀流**＝既定 **node:sqlite（実SQLite・ファイル永続）**／`DATABASE_URL` 設定時は **PostgreSQL（pg・Supabase等）**。同一のクエリ層で切替。
 - **計算エンジン**: `src/lib/calc.ts`（純関数）。mock と**数値が厳密一致**（golden-master 検証済み）
 - **参加者はログイン不要**（組織コード付きURLで参加）／**講師のみログイン**（デモPW `mg`）
 - 状態はサーバ（DB）保存 → **リロード・再訪でも復元**。表示値はすべて DB 由来。
@@ -35,6 +35,7 @@ npm start       # Express が dist と API を :3001 で配信
 ## テスト
 ```bash
 npm run test:calc   # 計算エンジンの golden-master（実mockと数値一致）7シナリオ
+npm run test:db     # Postgres 方言の検証（pglite=WASM版Postgresで round-trip）
 npm run test:e2e    # Playwright E2E（実DBでlocalhost起動→全ボタン/全処理を検証）
 ```
 E2E は `node server/index.js` を自動起動し、実ブラウザで

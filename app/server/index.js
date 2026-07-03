@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
+  initDb,
   joinCompany,
   getCompanyRow,
   fullState,
@@ -18,6 +19,8 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.disable('x-powered-by')
+// リバースプロキシ（Render/nginx等）配下で req.ip を正しく判定（レート制限用）
+app.set('trust proxy', 1)
 
 // 基本セキュリティヘッダ
 app.use((_req, res, next) => {
@@ -44,9 +47,9 @@ function requireAdmin(req, res, next) {
   res.status(401).json({ error: 'unauthorized' })
 }
 
-const wrap = (fn) => (req, res) => {
+const wrap = (fn) => async (req, res) => {
   try {
-    fn(req, res)
+    await fn(req, res)
   } catch (e) {
     // 内部エラーの詳細はサーバログのみ。クライアントには汎用メッセージ（情報漏洩防止）
     console.error(e)
@@ -71,43 +74,43 @@ function loginRateLimited(ip) {
 // ---- 参加者（ログイン不要）----
 app.post(
   '/api/company/join',
-  wrap((req, res) => {
+  wrap(async (req, res) => {
     const { org, name, president } = req.body || {}
     if (!org || !name) return res.status(400).json({ error: 'org と name は必須です' })
-    res.json(joinCompany(String(org).trim(), String(name).trim(), String(president || '').trim()))
+    res.json(await joinCompany(String(org).trim(), String(name).trim(), String(president || '').trim()))
   }),
 )
 
 app.get(
   '/api/company',
-  wrap((req, res) => {
+  wrap(async (req, res) => {
     const { org, name } = req.query
     if (!org || !name) return res.status(400).json({ error: 'org と name は必須です' })
-    const row = getCompanyRow(String(org).trim(), String(name).trim())
+    const row = await getCompanyRow(String(org).trim(), String(name).trim())
     if (!row) return res.status(404).json({ error: 'not found' })
-    res.json(fullState(row.id))
+    res.json(await fullState(Number(row.id)))
   }),
 )
 
 app.put(
   '/api/company/:id/state',
-  wrap((req, res) => {
+  wrap(async (req, res) => {
     const id = Number(req.params.id)
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid id' })
-    const row = fullState(id)
+    const row = await fullState(id)
     if (!row) return res.status(404).json({ error: 'not found' })
     const body = req.body || {}
     if (Array.isArray(body.entries) && body.entries.length > 5000)
       return res.status(413).json({ error: 'データが大きすぎます' })
-    res.json(saveState(id, body))
+    res.json(await saveState(id, body))
   }),
 )
 
 // 組織比較（参加者の「組織」タブ・管理者の両方が使用）
 app.get(
   '/api/org/:code',
-  wrap((req, res) => {
-    res.json({ org: req.params.code, companies: listOrg(req.params.code) })
+  wrap(async (req, res) => {
+    res.json({ org: req.params.code, companies: await listOrg(req.params.code) })
   }),
 )
 
@@ -128,16 +131,16 @@ app.post(
 app.get(
   '/api/admin/orgs',
   requireAdmin,
-  wrap((_req, res) => {
-    res.json({ orgs: listOrgs() })
+  wrap(async (_req, res) => {
+    res.json({ orgs: await listOrgs() })
   }),
 )
 
 app.delete(
   '/api/admin/company/:id',
   requireAdmin,
-  wrap((req, res) => {
-    deleteCompany(Number(req.params.id))
+  wrap(async (req, res) => {
+    await deleteCompany(Number(req.params.id))
     res.json({ ok: true })
   }),
 )
@@ -145,8 +148,8 @@ app.delete(
 app.delete(
   '/api/admin/org/:code',
   requireAdmin,
-  wrap((req, res) => {
-    deleteOrg(req.params.code)
+  wrap(async (req, res) => {
+    await deleteOrg(req.params.code)
     res.json({ ok: true })
   }),
 )
@@ -165,6 +168,7 @@ if (existsSync(dist)) {
 }
 
 const PORT = Number(process.env.PORT || 3001)
+await initDb() // DB初期化（sqlite or DATABASE_URL の Postgres）完了後に待受
 app.listen(PORT, () => {
-  console.log(`MG server on http://localhost:${PORT}`)
+  console.log(`MG server on http://localhost:${PORT} (${process.env.DATABASE_URL ? 'postgres' : 'sqlite'})`)
 })
