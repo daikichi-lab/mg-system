@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type ApiOrgCompany } from '../lib/api'
 import { fmt, fmtA, fmRatio } from '../lib/calc'
+import { useToast, Toaster } from './Toast'
 
 const TOKEN_KEY = 'mgAdminToken'
 
 export default function Admin() {
+  const { toasts, push: toast } = useToast()
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(TOKEN_KEY))
   const [pw, setPw] = useState('')
   const [err, setErr] = useState('')
@@ -146,6 +148,8 @@ export default function Admin() {
   companies.forEach((c) => (c.results || []).slice().sort((a: any, b: any) => a.period - b.period).forEach((r: any) => rows.push({ c, r })))
 
   const newUrl = newCode.trim() ? new URL(`/?org=${encodeURIComponent(newCode.trim())}`, location.href).href : ''
+  // 選択中の組織コードの参加用URL（いつでもコピーできるようヘッダーに置く）
+  const orgUrl = org ? new URL(`/?org=${encodeURIComponent(org)}`, location.href).href : ''
   const frameSrc = curCo ? `/?vorg=${encodeURIComponent(org)}&vco=${encodeURIComponent(curCo.name)}` : ''
   const status = (c: ApiOrgCompany) =>
     c.settled ? { label: '決算済み', color: '#9a7d10' } : c.started ? { label: 'プレイ中', color: '#0f766e' } : { label: '記録のみ', color: '#9aa3b2' }
@@ -179,8 +183,25 @@ export default function Admin() {
             )}
           </select>
           <button
+            data-testid="admin-copy-url"
+            onClick={() => {
+              if (!orgUrl) return
+              void copyText(orgUrl)
+              toast('参加用URLをコピーしました')
+            }}
+            disabled={!org}
+            title={orgUrl}
+            className="h-10 px-3 rounded-lg border border-line text-ink-600 text-sm font-bold hover:bg-canvas disabled:opacity-40"
+          >
+            URLコピー
+          </button>
+          <button
             data-testid="admin-refresh"
-            onClick={() => org && loadCompanies(org)}
+            onClick={async () => {
+              if (!org) return
+              await loadCompanies(org)
+              toast('更新しました')
+            }}
             className="h-10 px-3 rounded-lg border border-line text-ink-600 text-sm font-bold hover:bg-canvas"
           >
             更新
@@ -247,7 +268,10 @@ export default function Admin() {
                 <input data-testid="new-url" readOnly value={newUrl} className="w-full h-9 border border-line rounded-lg px-2 text-[11px] bg-white num" />
                 <button
                   data-testid="copy-url"
-                  onClick={() => copyText(newUrl)}
+                  onClick={() => {
+                    void copyText(newUrl)
+                    toast('URLをコピーしました')
+                  }}
                   className="mt-1 w-full h-8 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-white"
                 >
                   URLをコピー
@@ -423,6 +447,7 @@ export default function Admin() {
           )}
         </main>
       </div>
+      <Toaster toasts={toasts} />
     </div>
   )
 }

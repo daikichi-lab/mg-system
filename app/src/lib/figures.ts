@@ -196,7 +196,6 @@ export function cfWaterfallHTML(r: Result): string {
 // B/S 図：資産カラム（現金/在庫/什器） vs 負債・純資産カラム（未払税/借入/資本/剰余）
 // ============================================================
 export function bsFigureHTML(r: Result, h?: number): string {
-  const tot = Math.max(1, r.assets, r.liabEq)
   const ht = h || 180
   // 淡色の背景＋濃色の文字（[背景,文字]）
   const PAL: Record<string, [string, string]> = {
@@ -208,9 +207,12 @@ export function bsFigureHTML(r: Result, h?: number): string {
     cap: ['#fbe0ea', '#a83567'],
     ret: ['#fdeacf', '#a85a10'],
   }
+  // flex 比率でセグメント高さを配分する。左右いずれの列も、含まれる正の値の合計に対して
+  // 常にちょうど列いっぱい(ht)を満たすため、資産合計と負債・純資産合計の列高さが必ず揃う
+  // （%指定＋負の値/丸めで生じていた列高さのズレ・はみ出しを解消）。
   const seg = (v: number, p: [string, string], label: string) =>
     v > 0
-      ? `<div style="height:${((v / tot) * 100).toFixed(2)}%;background:${p[0]};color:${p[1]};border-bottom:1px solid rgba(255,255,255,.85);display:grid;place-items:center;overflow:hidden"><span style="font-size:10px;font-weight:700;line-height:1.15;padding:0 4px;text-align:center">${label}<br><span style="${NUM}">${fmt(v)}</span></span></div>`
+      ? `<div style="flex:${v};min-height:0;background:${p[0]};color:${p[1]};border-bottom:1px solid rgba(255,255,255,.85);display:grid;place-items:center;overflow:hidden"><span style="font-size:10px;font-weight:700;line-height:1.15;padding:0 4px;text-align:center">${label}<br><span style="${NUM}">${fmt(v)}</span></span></div>`
       : ''
   const assetCol = seg(r.cashEnd, PAL.cash, '現金') + seg(r.endInvVal, PAL.inv, '在庫') + seg(r.equipEnd, PAL.eq, '什器')
   let liabCol = seg(r.tax, PAL.tax, '未払税') + seg(r.loanEnd, PAL.loan, '借入金')

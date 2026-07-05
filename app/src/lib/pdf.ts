@@ -203,8 +203,8 @@ const SHEET_CSS = `<style>
   #pdf-inner .hd .t1{ font-weight:900; font-size:17px; }
   #pdf-inner .hd .t2{ font-size:10px; color:#5b6472; }
   #pdf-inner .hd .co b{ font-size:15px; }
-  #pdf-inner .wrap{ flex:1; display:grid; grid-template-columns:43% 57%; gap:7px; align-items:stretch; }
-  #pdf-inner .ledcol{ display:flex; flex-direction:column; gap:6px; }
+  #pdf-inner .wrap{ flex:1; display:grid; grid-template-columns:43% 57%; gap:6px; align-items:stretch; }
+  #pdf-inner .ledcol{ display:flex; flex-direction:column; gap:5px; }
   #pdf-inner .ledcol .ledbox{ flex:1; display:flex; flex-direction:column; }
   #pdf-inner .ledcol .ledbox .bb{ flex:1; display:flex; padding:2px; }
   #pdf-inner table.led{ width:100%; height:100%; border-collapse:collapse; font-size:8.5px; }
@@ -217,18 +217,18 @@ const SHEET_CSS = `<style>
   #pdf-inner table.led .nt{ color:#9aa3b2; font-size:7px; }
   #pdf-inner table.led td.bal{ font-family:"Roboto Mono",monospace; font-weight:700; width:13mm; }
   #pdf-inner table.led tfoot td{ background:#eef0f2; font-weight:700; border-top:1.3px solid #5b6472; }
-  #pdf-inner .right{ display:flex; flex-direction:column; gap:6px; }
-  #pdf-inner .col2{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  #pdf-inner .col3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  #pdf-inner .right{ display:flex; flex-direction:column; gap:5px; }
+  #pdf-inner .col2{ display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  #pdf-inner .col3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
   #pdf-inner .box{ border:1.2px solid #5b6472; border-radius:5px; overflow:hidden; }
-  #pdf-inner .box .bt{ color:#fff; font-weight:700; padding:2.5px 7px; font-size:11px; }
+  #pdf-inner .box .bt{ color:#fff; font-weight:700; padding:2px 7px; font-size:11px; }
   #pdf-inner .box .mkn{ display:inline-block; margin-right:5px; }
-  #pdf-inner .box .bb{ padding:3px 3px; }
-  #pdf-inner .kv{ display:flex; justify-content:space-between; gap:8px; padding:1px 6px; border-bottom:0.5px dotted #dfe2e6; font-size:10px; }
+  #pdf-inner .box .bb{ padding:2px 3px; }
+  #pdf-inner .kv{ display:flex; justify-content:space-between; gap:8px; padding:0.5px 6px; border-bottom:0.5px dotted #dfe2e6; font-size:10px; line-height:1.25; }
   #pdf-inner .kv:last-child{ border-bottom:0; }
   #pdf-inner .kv span{ color:#46505f; }
-  #pdf-inner .kv b{ font-size:11px; }
-  #pdf-inner .sub{ font-weight:700; padding:2px 6px 0; color:#2f5f93; font-size:10.5px; }
+  #pdf-inner .kv b{ font-size:10.5px; }
+  #pdf-inner .sub{ font-weight:700; padding:1px 6px 0; color:#2f5f93; font-size:10.5px; }
   #pdf-inner .bs{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
   #pdf-inner .kv.st{ border-top:0.5px dashed #9aa3b2; border-bottom:0; font-weight:700; }
   #pdf-inner .kv.tt{ border-top:1.2px solid #5b6472; border-bottom:0; font-weight:800; }
@@ -238,24 +238,26 @@ const SHEET_CSS = `<style>
 
 // ============================================================
 // 決算書シート（A3縦・1枚）全体を HTML 文字列で返す。
-// 左：現金出納帳 ＋ 6補助勘定図（現金勘定/什器/借入金/在庫金額/棚卸個数/税金計算）
-// 右：STRAC図 / P/Lウォーターフォール / 貸借対照図 / CF図 / 損益数値表・貸借数値表 / CF数値表
+// 左：現金出納帳 ＋ 6補助勘定図（現金勘定/什器 ／ 借入金/棚卸個数 ／ 在庫金額/税金計算）
+// 右：STRAC図 / P/Lウォーターフォール / 貸借対照図 / 損益数値表・貸借数値表 / CF図 / CF数値表
 // ============================================================
 export function buildPdfSheet(r: Result): string {
   const ledger = `<div class="box ledbox" style="border-color:#5b6472"><div class="bt" style="background:#5b6472"><span class="mkn">📒</span>現金出納帳</div><div class="bb">${ledgerHTML(r)}</div></div>`
 
-  // 左カラムの補助勘定図（既存の figures-account.ts を再利用）
-  const cashAcc = figWrap('❿', '現金勘定', cashAccountHTML(r), '#c2685c')
-  const equipAcc = figWrap('⓭', '什器', equipHTML(r), '#6b4fa0')
-  const loanAcc = figWrap('⓮', '借入金', loanHTML(r), '#9a7d10')
-  const invBox = figWrap('⓬', '在庫（棚卸資産）・原価計算', inventoryValueHTML(r), '#3f7a3f')
-  const countBox = figWrap('❺', '棚卸（個数計算）', inventoryCountHTML(r), '#3f7a3f')
-  const taxBox = figWrap('⓱', '法人税・利益剰余金の計算', taxTableHTML(r), '#b85c7e')
+  // 左カラムの補助勘定図（既存の figures-account.ts を再利用）。
+  // これらは自前で色つきヘッダ＋カード枠を持つため、PDF側の外枠(figWrap)で二重に囲まない。
+  // 外枠を外した分だけ現金出納帳（記帳欄）を縦に伸ばせる。手順番号(❺〜⓲)はタイトルへ付与。
+  const cashAcc = cashAccountHTML(r, '❿')
+  const equipAcc = equipHTML(r, '⓭')
+  const loanAcc = loanHTML(r, '⓮')
+  const invBox = inventoryValueHTML(r, '⓬')
+  const countBox = inventoryCountHTML(r, '❺')
+  const taxBox = taxTableHTML(r, '⓱')
 
   // 右カラムの図（既存の figures.ts を再利用）
   const plFig = figWrap('⓯', 'STRAC 図（変動損益）', stracHTML(r), '#2f5f93')
   const wfPL = figWrap('', 'P/L ウォーターフォール図', `<div style="overflow-x:auto">${plWaterfallHTML(r)}</div>`, '#7b93d0')
-  const bsFig = figWrap('⓲', '貸借対照表 図', bsFigureHTML(r, 120), '#2f5f93')
+  const bsFig = figWrap('⓲', '貸借対照表 図', bsFigureHTML(r, 104), '#2f5f93')
   const cfFig = figWrap('', 'キャッシュフロー図（現金の増減）', `<div style="overflow-x:auto">${cfWaterfallHTML(r)}</div>`, '#5b8fc9')
 
   const name = escapeHtml(r.name) || '—'
@@ -271,15 +273,15 @@ export function buildPdfSheet(r: Result): string {
         <div class="ledcol">
           ${ledger}
           <div class="col2">${cashAcc}${equipAcc}</div>
-          <div class="col2">${loanAcc}${invBox}</div>
-          <div class="col2">${countBox}${taxBox}</div>
+          <div class="col2">${loanAcc}${countBox}</div>
+          <div class="col2">${invBox}${taxBox}</div>
         </div>
         <div class="right">
           ${plFig}
           ${wfPL}
           ${bsFig}
-          ${cfFig}
           <div class="col2">${plTable(r)}${bsTable(r)}</div>
+          ${cfFig}
           ${cfTable(r)}
         </div>
       </div>`

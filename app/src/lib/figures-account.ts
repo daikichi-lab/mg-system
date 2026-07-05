@@ -72,6 +72,11 @@ function headBar(t: string, c: string): string {
   return `<div style="padding:8px 16px;font-size:14px;font-weight:700;color:#fff;background:${c}">${t}</div>`
 }
 
+// タイトルに丸数字などの接頭辞を付ける（PDFの手順番号用。既定は無印＝画面表示は従来通り）
+function withMk(mk: string, title: string): string {
+  return mk ? `${mk} ${title}` : title
+}
+
 // ---- 3列ボックス（色つきヘッダ＋白カード）----
 // mock: bg-white rounded-2xl shadow-card border border-line overflow-hidden > head + p-3 > flex gap-1.5 items-stretch
 function box(title: string, bar: string, c1: string[], c2: string[], c3: string[]): string {
@@ -86,9 +91,9 @@ function box(title: string, bar: string, c1: string[], c2: string[], c3: string[
 // ============================================================
 // ❿ 現金勘定（期首現金 ＋ 入金 − 出金 ＝ 期末現金）
 // ============================================================
-export function cashAccountHTML(r: Result): string {
+export function cashAccountHTML(r: Result, mk = ''): string {
   return box(
-    '現金勘定',
+    withMk(mk, '現金勘定'),
     '#c2685c',
     [cell(WT, '① 前期繰越', r.openCash, ''), cell(SM, `② 入金合計 <span style="color:${INK400}">⑧</span>`, r.inSum, '')],
     [cell(WT, '③ 合計', r.openCash + r.inSum, '', '(① ＋ ②)')],
@@ -100,9 +105,9 @@ export function cashAccountHTML(r: Result): string {
 // ❺ 棚卸（個数計算）
 // ① 前期繰越 ② 材料仕入 ③ 合計 ④ 売上 ⑤ 廃棄等 ⑥ 会社盤在庫 ⑦ 差異数
 // ============================================================
-export function inventoryCountHTML(r: Result): string {
+export function inventoryCountHTML(r: Result, mk = ''): string {
   return box(
-    '棚卸（個数計算）',
+    withMk(mk, '棚卸（個数計算）'),
     '#3f7a3f',
     [
       cell(WT, '① 前期繰越', r.openMatQty, '個'),
@@ -122,9 +127,9 @@ export function inventoryCountHTML(r: Result): string {
 // ⓬ 在庫（棚卸資産）・原価計算（個数＋金額。金額を大きく表示）
 // ① 前期繰越 ② 材料仕入 ③ 合計 ④ 平均単価 ⑦ 売上原価 ⑥ 廃棄等 ⑤ 次期繰越
 // ============================================================
-export function inventoryValueHTML(r: Result): string {
+export function inventoryValueHTML(r: Result, mk = ''): string {
   return box(
-    '在庫（棚卸資産）・原価計算',
+    withMk(mk, '在庫（棚卸資産）・原価計算'),
     '#3f7a3f',
     [
       cell2(WT, '① 前期繰越', r.openMatQty, r.openMatVal),
@@ -142,9 +147,9 @@ export function inventoryValueHTML(r: Result): string {
 // ============================================================
 // ⓭ 什器（前期繰越 ＋ 購入 − 減価償却 ＝ 次期繰越）
 // ============================================================
-export function equipHTML(r: Result): string {
+export function equipHTML(r: Result, mk = ''): string {
   return box(
-    '什器',
+    withMk(mk, '什器'),
     '#6b4fa0',
     [cell(WT, '① 前期繰越', r.eq0, ''), cell(PP, `② 什器 <span style="color:${INK400}">(エ)</span>`, r.equipBought, '')],
     [cell(WT, '③ 合計', r.eq0 + r.equipBought, '', '(① ＋ ②)')],
@@ -155,9 +160,9 @@ export function equipHTML(r: Result): string {
 // ============================================================
 // ⓮ 借入金（前期繰越 ＋ 借入 − 返済 ＝ 次期繰越）
 // ============================================================
-export function loanHTML(r: Result): string {
+export function loanHTML(r: Result, mk = ''): string {
   return box(
-    '借入金',
+    withMk(mk, '借入金'),
     '#9a7d10',
     [cell(WT, '① 前期繰越', r.loan0, ''), cell(YL, `② 借入金 <span style="color:${INK400}">(イ)</span>`, r.loanBorrow, '')],
     [cell(WT, '③ 合計', r.loan0 + r.loanBorrow, '', '(① ＋ ②)')],
@@ -174,7 +179,7 @@ export function loanHTML(r: Result): string {
 // ⑤ 法人税等（来期期首納税・最低5） ⑥ 当期純利益(②−⑤) ⑦ 次期繰越利益剰余金(⑥＋③)
 // 3分岐：②か④が▲なら5／合計が+なら30%（前期繰越が▲のときは合計×30%）
 // ============================================================
-export function taxTableHTML(r: Result): string {
+export function taxTableHTML(r: Result, mk = ''): string {
   // 1行（label / 値）— mock: flex justify-between
   const row = (label: string, valHTML: string, extra = ''): string =>
     `<div style="display:flex;justify-content:space-between;align-items:baseline${extra ? ';' + extra : ''}"><span style="color:${INK600}">${label}</span>${valHTML}</div>`
@@ -183,7 +188,7 @@ export function taxTableHTML(r: Result): string {
 
   return (
     `<div style="${CARDBOX.replace('overflow:hidden', 'padding:20px')}">` +
-    `<h2 style="font-weight:700;margin:0 0 12px;font-size:16px;color:${INK}">法人税・利益剰余金の計算</h2>` +
+    `<h2 style="font-weight:700;margin:0 0 12px;font-size:16px;color:${INK}">${withMk(mk, '法人税・利益剰余金の計算')}</h2>` +
     `<div style="display:flex;flex-direction:column;gap:8px;font-size:14px">` +
     row('① 特別損益', num(fmtA(r.special))) +
     row('② 税引前当期純利益（G ＋ ①）', num(fmtA(r.pretax))) +

@@ -78,7 +78,7 @@ function cap(label: string, val: number, color: string, id: string): string {
 
 export function boardHTML(st: St): string {
   const { mfgCap, salesCap, priceComp } = caps(st)
-  return `<div style="border:2px solid ${GREEN};border-radius:18px;background:radial-gradient(130% 90% at 50% -10%,#ffffff 0%,#eef6ec 65%,#e4f0e1 100%);padding:16px">
+  return `<div style="border:2px solid ${GREEN};border-radius:18px;padding:16px">
     <div style="display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px">
       <div style="letter-spacing:.4em;color:#a3bda3;font-weight:700;font-size:13px">会 社 盤</div>
       <div style="position:absolute;right:0;font-size:11px;color:${INK400}">第${st.period}期</div>

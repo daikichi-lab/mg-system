@@ -79,7 +79,11 @@ export function applyApiState(st: St, data: ApiState): Result[] {
   )
   recompute(st)
   st.closingPrep = st.tx.some((t) => t.isClosing) && !st.settled
-  return (data.results || []) as Result[]
+  const results = (data.results || []) as Result[]
+  // 決算済みで再読み込みした場合、当期の決算結果(st.result)を履歴から復元する。
+  // これが無いと期末処理タブが「決算を実行する」に戻り、決算書も表示できなくなる。
+  st.result = st.settled ? results.find((h) => h.period === st.period) || null : null
+  return results
 }
 
 export function startCompany(
@@ -112,105 +116,127 @@ function ruleBBlocked(st: St): boolean {
 
 const rowsOf = (f: Fvals): Fvals[] => (f && f.items && f.items.length ? f.items : [{ qty: f?.qty, unit: f?.unit }])
 
-// 記帳前バリデーション（calc-spec §12）。OK なら null、NG ならエラーメッセージ。
-function validate(st: St, key: string, f: Fvals): string | null {
+// 記帳前バリデーション（calc-spec §12）。該当するエラーを全件返す（OK なら空配列）。
+function validate(st: St, key: string, f: Fvals): string[] {
   const c = caps(st)
+  const errs: string[] = []
   switch (key) {
     case 'shiire': {
       const items = rowsOf(f)
       let q = 0
+      let bad = false
       for (const it of items) {
-        if (!Number.isInteger(it.qty) || it.qty < 1) return '仕入個数は1以上の整数で入力してください'
-        if (!Number.isInteger(it.unit) || it.unit < 0) return '単価は0以上の整数で入力してください'
-        q += it.qty
+        if (!Number.isInteger(it.qty) || it.qty < 1) {
+          errs.push('仕入個数は1以上の整数で入力してください')
+          bad = true
+        }
+        if (!Number.isInteger(it.unit) || it.unit < 0) {
+          errs.push('単価は0以上の整数で入力してください')
+          bad = true
+        }
+        q += it.qty || 0
       }
-      if (st.rawCubes + q > MAT_CAP) return `材料在庫の上限${MAT_CAP}を超えます（現在 ${st.rawCubes}・追加 ${q}）`
-      return null
+      if (!bad && st.rawCubes + q > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます（現在 ${st.rawCubes}・追加 ${q}）`)
+      break
     }
     case 'seizo': {
-      if (st.machines <= 0) return '機械がありません（製造できません）'
-      if (st.staffMfg <= 0) return '製造スタッフがいません'
-      if (!Number.isInteger(f.qty) || f.qty < 1) return '製造個数は1以上で入力してください'
-      if (f.qty > c.mfgCap) return `製造能力 ${c.mfgCap} を超えています`
-      if (f.qty > st.rawCubes) return `材料が足りません（在庫 ${st.rawCubes}）`
-      if (st.products + f.qty > PROD_CAP) return `店舗陳列の上限${PROD_CAP}を超えます`
-      return null
+      if (st.machines <= 0) errs.push('機械がありません（製造できません）')
+      if (st.staffMfg <= 0) errs.push('製造スタッフがいません')
+      if (!Number.isInteger(f.qty) || f.qty < 1) {
+        errs.push('製造個数は1以上で入力してください')
+      } else {
+        if (f.qty > c.mfgCap) errs.push(`製造能力 ${c.mfgCap} を超えています`)
+        if (f.qty > st.rawCubes) errs.push(`材料が足りません（在庫 ${st.rawCubes}）`)
+        if (st.products + f.qty > PROD_CAP) errs.push(`店舗陳列の上限${PROD_CAP}を超えます`)
+      }
+      break
     }
     case 'hanbai': {
       const items = rowsOf(f)
       let q = 0
+      let bad = false
       for (const it of items) {
-        if (!Number.isInteger(it.qty) || it.qty < 1) return '販売個数は1以上で入力してください'
-        if (!Number.isInteger(it.unit) || it.unit < 0) return '売価は0以上で入力してください'
-        q += it.qty
+        if (!Number.isInteger(it.qty) || it.qty < 1) {
+          errs.push('販売個数は1以上で入力してください')
+          bad = true
+        }
+        if (!Number.isInteger(it.unit) || it.unit < 0) {
+          errs.push('売価は0以上で入力してください')
+          bad = true
+        }
+        q += it.qty || 0
       }
-      if (q > c.salesCap) return `販売能力 ${c.salesCap} を超えています（合計 ${q}）`
-      if (q > st.products) return `製品が足りません（在庫 ${st.products}）`
-      return null
+      if (!bad) {
+        if (q > c.salesCap) errs.push(`販売能力 ${c.salesCap} を超えています（合計 ${q}）`)
+        if (q > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
+      }
+      break
     }
     case 'kikai':
-      if (!Number.isInteger(f.n) || f.n < 1) return '台数は1以上で入力してください'
-      return null
+      if (!Number.isInteger(f.n) || f.n < 1) errs.push('台数は1以上で入力してください')
+      break
     case 'saiyo':
-      if ((f.mfg || 0) + (f.sales || 0) + (f.fail || 0) < 1) return '採用人数を入力してください'
-      return null
+      if ((f.mfg || 0) + (f.sales || 0) + (f.fail || 0) < 1) errs.push('採用人数を入力してください')
+      break
     case 'koukoku':
     case 'kaihatsu':
-      if (!Number.isInteger(f.n) || f.n < 1) return '枚数は1以上で入力してください'
-      return null
+      if (!Number.isInteger(f.n) || f.n < 1) errs.push('枚数は1以上で入力してください')
+      break
     case 'hoken':
-      if (!Number.isInteger(f.n) || f.n < 1) return '枚数は1以上で入力してください'
-      return null
+      if (!Number.isInteger(f.n) || f.n < 1) errs.push('枚数は1以上で入力してください')
+      break
     case 'kyoiku':
-      if (st.edu + (f.n || 0) > 1) return '教育チップは最大1枚までです'
-      return null
+      if (st.edu + (f.n || 0) > 1) errs.push('教育チップは最大1枚までです')
+      break
     case 'haichi': {
       const n = f.n || 0
-      if (n < 1) return '人数を入力してください'
-      if (f.dir === 'sales->mfg' && n > st.staffSales) return '販売スタッフが足りません'
-      if (f.dir !== 'sales->mfg' && n > st.staffMfg) return '製造スタッフが足りません'
-      return null
+      if (n < 1) errs.push('人数を入力してください')
+      else {
+        if (f.dir === 'sales->mfg' && n > st.staffSales) errs.push('販売スタッフが足りません')
+        if (f.dir !== 'sales->mfg' && n > st.staffMfg) errs.push('製造スタッフが足りません')
+      }
+      break
     }
     case 'kariire':
-      if (st.period <= 1) return '第1期は借入できません'
-      if (!Number.isInteger(f.a) || f.a < 1) return '借入額を入力してください'
-      if (f.a > loanRoom(st)) return `借入可能額（${loanRoom(st)}）を超えています`
-      return null
+      if (st.period <= 1) errs.push('第1期は借入できません')
+      if (!Number.isInteger(f.a) || f.a < 1) errs.push('借入額を入力してください')
+      else if (f.a > loanRoom(st)) errs.push(`借入可能額（${loanRoom(st)}）を超えています`)
+      break
     case 'hensai':
-      if (!Number.isInteger(f.a) || f.a < 0) return '返済額は0以上で入力してください'
-      if (f.a > st.loan) return `借入残高（${st.loan}）以上は返済できません`
-      return null
+      if (!Number.isInteger(f.a) || f.a < 0) errs.push('返済額は0以上で入力してください')
+      else if (f.a > st.loan) errs.push(`借入残高（${st.loan}）以上は返済できません`)
+      break
     case 'kaihatsu_win':
       if ((f.qty || 0) > 0) {
-        if (f.qty > 2 * st.dev) return `商品開発チップ1枚につき2個までです（枠 ${2 * st.dev}）`
-        if (f.qty > c.salesCap) return `販売能力 ${c.salesCap} を超えています`
-        if (f.qty > st.products) return `製品が足りません（在庫 ${st.products}）`
+        if (f.qty > 2 * st.dev) errs.push(`商品開発チップ1枚につき2個までです（枠 ${2 * st.dev}）`)
+        if (f.qty > c.salesCap) errs.push(`販売能力 ${c.salesCap} を超えています`)
+        if (f.qty > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
       }
-      return null
+      break
     case 'dokusen':
       if ((f.qty || 0) > 0) {
-        if (f.qty > 2 * st.staffSales) return `販売スタッフ1人につき2個までです`
-        if (f.qty > st.products) return `製品が足りません（在庫 ${st.products}）`
+        if (f.qty > 2 * st.staffSales) errs.push('販売スタッフ1人につき2個までです')
+        if (f.qty > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
       }
-      return null
+      break
     case 'tokubai':
-      if ((f.qty || 0) < 0) return '個数を確認してください'
-      if (f.qty > 5) return '特別サービスは最大5個までです'
-      if (st.rawCubes + (f.qty || 0) > MAT_CAP) return `材料在庫の上限${MAT_CAP}を超えます`
-      return null
+      if ((f.qty || 0) < 0) errs.push('個数を確認してください')
+      if (f.qty > 5) errs.push('特別サービスは最大5個までです')
+      if (st.rawCubes + (f.qty || 0) > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます`)
+      break
     case 'keiki':
-      if (f.qty > 3) return '景気上昇は最大3個までです'
-      if (st.rawCubes + (f.qty || 0) > MAT_CAP) return `材料在庫の上限${MAT_CAP}を超えます`
-      return null
+      if (f.qty > 3) errs.push('景気上昇は最大3個までです')
+      if (st.rawCubes + (f.qty || 0) > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます`)
+      break
     case 'taishoku_mfg':
-      if (st.staffMfg <= 0) return '退職できる製造スタッフがいません'
-      return null
+      if (st.staffMfg <= 0) errs.push('退職できる製造スタッフがいません')
+      break
     case 'taishoku_sales':
-      if (st.staffSales <= 0) return '退職できる販売スタッフがいません'
-      return null
-    default:
-      return null
+      if (st.staffSales <= 0) errs.push('退職できる販売スタッフがいません')
+      break
   }
+  // 複数行で同一メッセージが出た場合は重複を除去
+  return [...new Set(errs)]
 }
 
 function rownote(key: string, f: Fvals): string {
@@ -219,6 +245,15 @@ function rownote(key: string, f: Fvals): string {
   if (key === 'saiyo') return `製造${f.mfg || 0}・販売${f.sales || 0}${f.fail ? '・失敗' + f.fail : ''}`
   if (key === 'seizo') return `製品+${f.qty}`
   if (key === 'kaihatsu') return f.result === '失敗' ? '開発 失敗' : `開発+${f.n}`
+  // イベント：メモ枠に個数×単価を記載
+  if (key === 'tokubai') return `${f.qty || 0}×10`
+  if (key === 'keiki') return `${f.qty || 0}×12`
+  if (key === 'kaihatsu_win') return `${f.qty || 0}×32`
+  if (key === 'dokusen') return `${f.qty || 0}×${f.unit || 0}`
+  if (key === 'suigai' || key === 'ibutsu') {
+    const d = f.discard || 0
+    return f.payout ? `${d}×10` : `破棄${d}個`
+  }
   if (a && a.cat) return a.label
   return ''
 }
@@ -238,15 +273,15 @@ export function eventFvals(st: St, key: string): Fvals {
   return {}
 }
 
-// 記帳（成功で tx 追加＋recompute）。戻り値: エラーメッセージ or null。
-export function recordAction(st: St, key: string, fvals: Fvals): string | null {
+// 記帳（成功で tx 追加＋recompute）。戻り値: エラーメッセージ配列（成功は空配列）。
+export function recordAction(st: St, key: string, fvals: Fvals): string[] {
   const a = ACTIONS[key]
-  if (!a) return '不明なアクションです'
-  if (st.settled) return 'この期は決算済みです。決算書から次の期へ進んでください。'
-  if (st.closingPrep) return '期末処理を計上済みです。「記帳に戻る」を押してください。'
-  if (a.rule === 'B' && ruleBBlocked(st)) return 'ルールBは1ターンに1度までです（ルールA/イベントを挟んでください）。'
-  const err = validate(st, key, fvals)
-  if (err) return err
+  if (!a) return ['不明なアクションです']
+  if (st.settled) return ['この期は決算済みです。決算書から次の期へ進んでください。']
+  if (st.closingPrep) return ['期末処理を計上済みです。「記帳に戻る」を押してください。']
+  if (a.rule === 'B' && ruleBBlocked(st)) return ['ルールBは1ターンに1度までです（ルールA/イベントを挟んでください）。']
+  const errs = validate(st, key, fvals)
+  if (errs.length) return errs
   st.tx.push({
     id: st.seq++,
     key,
@@ -257,7 +292,7 @@ export function recordAction(st: St, key: string, fvals: Fvals): string | null {
     noCash: a.noCash,
   })
   recompute(st)
-  return null
+  return []
 }
 
 export function deleteRow(st: St, id: number) {
@@ -269,30 +304,30 @@ export function deleteRow(st: St, id: number) {
 }
 
 // アクション行の編集：数量など fvals を差し替えて再検証（対象行を除いた盤面で検証）
-export function editActionRow(st: St, id: number, fvals: Fvals): string | null {
-  if (st.settled) return 'この期は決算済みです。決算書から次の期へ進んでください。'
-  if (st.closingPrep) return '期末処理を計上済みです。「記帳に戻る」を押してください。'
+export function editActionRow(st: St, id: number, fvals: Fvals): string[] {
+  if (st.settled) return ['この期は決算済みです。決算書から次の期へ進んでください。']
+  if (st.closingPrep) return ['期末処理を計上済みです。「記帳に戻る」を押してください。']
   const idx = st.tx.findIndex((x) => x.id === id)
-  if (idx < 0) return '対象の記帳が見つかりません。'
+  if (idx < 0) return ['対象の記帳が見つかりません。']
   const t = st.tx[idx]
   const key = t.key
-  if (!key || !ACTIONS[key]) return 'この行は編集できません。'
+  if (!key || !ACTIONS[key]) return ['この行は編集できません。']
   const a = ACTIONS[key]
   const original = st.tx
   // 対象行を除いた状態で検証（自分自身の在庫/能力消費を二重計上しない）
   st.tx = original.filter((x) => x.id !== id)
   recompute(st)
-  const err = validate(st, key, fvals)
-  if (err) {
+  const errs = validate(st, key, fvals)
+  if (errs.length) {
     st.tx = original
     recompute(st)
-    return err
+    return errs
   }
   st.tx = original.map((x) =>
     x.id === id ? { ...x, fvals, col: a.col, amount: a.amount(fvals) || 0, note: rownote(key, fvals), noCash: a.noCash } : x,
   )
   recompute(st)
-  return null
+  return []
 }
 
 // 金額のみ変更（キーレス行：資本金・増資・給料/家賃(期末)・その他）

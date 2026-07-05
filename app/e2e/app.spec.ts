@@ -103,14 +103,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('bd-salescap')).toHaveText('4') // 販売ｽﾀｯﾌ1×2＋広告
     await expect(page.getByTestId('board-fig')).toContainText('空') // 販売後・店舗は空
 
-    // バリデーション：販売能力超過はエラー
+    // バリデーション：販売能力超過はモーダル内にエラー表示（複数可）
     await page.getByTestId('sub-A').click()
     await page.getByTestId('act-hanbai').click()
     await setField(page, 'field-qty-0', 99)
     await page.getByTestId('modal-ok').click()
-    await expect(page.getByTestId('error')).toBeVisible()
+    await expect(page.getByTestId('modal-errors')).toBeVisible()
     await page.getByRole('button', { name: 'やめる' }).click()
-    await page.getByTestId('error').getByText('閉じる').click()
+    await expect(page.getByTestId('modal-ok')).toBeHidden()
 
     // 記帳の削除ボタン（1件消して戻す確認だけ）: claim 行を消す代わりにここでは存在確認
     await expect(page.getByTestId('ledger')).toBeVisible()
@@ -260,6 +260,17 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 決算まで通る（2段階→貸借一致）
     await closeAndSettle(page)
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+
+    // リロードしても決算内容（期末処理・決算書）が保持される（st.result 復元の回帰防止）
+    await page.reload()
+    await expect(page.getByTestId('hd-name')).toHaveText('水害製菓')
+    await page.getByTestId('tab-closing').click()
+    await expect(page.getByTestId('closing-run')).toHaveCount(0) // 「決算を実行する」に戻らない
+    await expect(page.getByTestId('to-statement')).toBeVisible() // 期末処理の内容が読める
+    await page.getByTestId('tab-statement').click()
+    await expect(page.getByTestId('statement')).toBeVisible()
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+    await expect(page.getByTestId('next-period')).toBeVisible() // 次の期へも進める
 
     expect((page as any)._mgErrors).toEqual([])
   })
