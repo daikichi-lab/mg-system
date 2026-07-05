@@ -32,10 +32,10 @@ export interface Game {
   setError: (e: string | null) => void
   joinOrg: string
   start: (name: string, president: string, org: string, capital: number) => Promise<void>
-  act: (key: string, fvals: Record<string, any>) => string | null
-  actEvent: (key: string, extra?: Record<string, any>) => string | null
+  act: (key: string, fvals: Record<string, any>) => string[]
+  actEvent: (key: string, extra?: Record<string, any>) => string[]
   del: (id: number) => void
-  editAction: (id: number, fvals: Record<string, any>) => string | null
+  editAction: (id: number, fvals: Record<string, any>) => string[]
   editAmount: (id: number, amount: number) => string | null
   clear: () => void
   seedFlood: () => string | null
@@ -186,19 +186,33 @@ export function useGame(): Game {
     [bump, sync],
   )
 
+  // 記帳系はバリデーションエラーを全件返す（モーダル内に表示する）。エラー時は保存しない。
+  const runMutErrs = useCallback(
+    (fn: () => string[]): string[] => {
+      if (spectatorRef.current) return []
+      const errs = fn()
+      if (errs.length) return errs
+      setError(null)
+      bump()
+      void sync()
+      return []
+    },
+    [bump, sync],
+  )
+
   const act = useCallback(
-    (key: string, fvals: Record<string, any>) => runMut(() => recordAction(stRef.current, key, fvals)),
-    [runMut],
+    (key: string, fvals: Record<string, any>) => runMutErrs(() => recordAction(stRef.current, key, fvals)),
+    [runMutErrs],
   )
   const actEvent = useCallback(
     (key: string, extra: Record<string, any> = {}) =>
-      runMut(() => recordAction(stRef.current, key, { ...eventFvals(stRef.current, key), ...extra })),
-    [runMut],
+      runMutErrs(() => recordAction(stRef.current, key, { ...eventFvals(stRef.current, key), ...extra })),
+    [runMutErrs],
   )
   const del = useCallback((id: number) => runMut(() => deleteRow(stRef.current, id)), [runMut])
   const editAction = useCallback(
-    (id: number, fvals: Record<string, any>) => runMut(() => editActionRow(stRef.current, id, fvals)),
-    [runMut],
+    (id: number, fvals: Record<string, any>) => runMutErrs(() => editActionRow(stRef.current, id, fvals)),
+    [runMutErrs],
   )
   const editAmount = useCallback(
     (id: number, amount: number) => runMut(() => editAmountRow(stRef.current, id, amount)),

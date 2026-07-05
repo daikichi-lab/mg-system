@@ -33,6 +33,7 @@ import { boardHTML } from '../lib/figures-board'
 import { savePdf } from '../lib/pdf'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
+import { useToast, Toaster } from './Toast'
 
 // 数値データから生成した図解HTML（ユーザ入力を含まない）を描画
 function Figure({ html, testid }: { html: string; testid?: string }) {
@@ -53,6 +54,7 @@ type TabKey = (typeof TABS)[number][0]
 
 export default function Participant() {
   const game = useGame()
+  const { toasts, push: toast } = useToast()
   const [tab, setTab] = useState<TabKey>('company')
   const [modalKey, setModalKey] = useState<string | null>(null)
   const [editTx, setEditTx] = useState<TxRow | null>(null) // 編集対象のアクション行
@@ -140,7 +142,7 @@ export default function Participant() {
         {tab === 'company' && (
           <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
         )}
-        {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} />}
+        {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} toast={toast} />}
         {tab === 'play' && (
           <PlayTab
             game={game}
@@ -174,7 +176,7 @@ export default function Participant() {
           />
         )}
         {tab === 'review' && <ReviewTab history={game.history} />}
-        {tab === 'org' && <OrgTab game={game} />}
+        {tab === 'org' && <OrgTab game={game} toast={toast} />}
       </main>
 
       {modalKey && (
@@ -183,14 +185,8 @@ export default function Participant() {
           keyName={modalKey}
           editTx={editTx}
           onClose={closeModal}
-          onAct={(k, f) => {
-            const err = editTx ? game.editAction(editTx.id, f) : game.act(k, f)
-            if (!err) closeModal()
-          }}
-          onEvent={(k) => {
-            const err = game.actEvent(k)
-            if (!err) closeModal()
-          }}
+          onAct={(k, f) => (editTx ? game.editAction(editTx.id, f) : game.act(k, f))}
+          onEvent={(k) => game.actEvent(k)}
         />
       )}
       {amountTx && (
@@ -203,6 +199,7 @@ export default function Participant() {
           }}
         />
       )}
+      <Toaster toasts={toasts} />
     </div>
   )
 }
@@ -403,7 +400,15 @@ function BoardEditForm({ st, onSave, onCancel }: { st: St; onSave: (b: BoardVals
   )
 }
 
-function OpeningTab({ game, onToPlay }: { game: ReturnType<typeof useGame>; onToPlay: () => void }) {
+function OpeningTab({
+  game,
+  onToPlay,
+  toast,
+}: {
+  game: ReturnType<typeof useGame>
+  onToPlay: () => void
+  toast: (msg: string) => void
+}) {
   const st = game.st
   const first = st.period <= 1
   const openTax = st.tx.find((t) => t.isOpeningTax)?.amount || 0
@@ -553,7 +558,10 @@ function OpeningTab({ game, onToPlay }: { game: ReturnType<typeof useGame>; onTo
             />
             <button
               data-testid="op-addcap-btn"
-              onClick={() => game.raiseCapital(addCap)}
+              onClick={() => {
+                const err = game.raiseCapital(addCap)
+                if (!err) toast('増資しました')
+              }}
               className="px-4 rounded-xl bg-p-base text-white font-bold whitespace-nowrap"
             >
               ＋ 増資する
@@ -880,7 +888,7 @@ function Ledger({
   const th = (i: number) => (
     <th
       key={i}
-      className="px-1 py-1 text-center align-bottom whitespace-nowrap font-semibold"
+      className={`px-1 py-1 text-center align-bottom whitespace-nowrap font-semibold ${i === 4 ? 'border-l-2 border-ink/25' : ''}`}
       style={{ background: LCOL[i].h, color: LCOL[i].t }}
     >
       <div className="text-[9px] opacity-70 leading-none">{LHEAD[i].s}</div>
@@ -896,7 +904,7 @@ function Ledger({
             <th colSpan={4} className="text-cin-ink bg-cin-bg font-bold px-2 py-1.5 rounded-t-md">
               入金
             </th>
-            <th colSpan={7} className="text-cout-ink bg-cout-bg font-bold px-2 py-1.5 rounded-t-md">
+            <th colSpan={7} className="text-cout-ink bg-cout-bg font-bold px-2 py-1.5 rounded-t-md border-l-2 border-ink/25">
               出金
             </th>
             <th className="px-1 py-1"></th>
@@ -931,7 +939,7 @@ function Ledger({
                 {LHEAD.map((_, i) => (
                   <td
                     key={i}
-                    className="px-1 py-1 text-right num"
+                    className={`px-1 py-1 text-right num ${i === 4 ? 'border-l-2 border-ink/25' : ''}`}
                     style={t.col === i ? { background: LCOL[i].c, color: LCOL[i].t } : undefined}
                   >
                     {t.col === i ? fmt(t.amount) : ''}
@@ -970,7 +978,7 @@ function Ledger({
           <tr className="border-t-2 border-line font-bold bg-canvas">
             <td className="sticky left-0 z-10 bg-canvas px-2 py-1.5">合計</td>
             {LHEAD.map((_, i) => (
-              <td key={i} className="px-1 py-1.5 text-right num" style={{ color: LCOL[i].t }}>
+              <td key={i} className={`px-1 py-1.5 text-right num ${i === 4 ? 'border-l-2 border-ink/25' : ''}`} style={{ color: LCOL[i].t }}>
                 {tot[i] ? fmt(tot[i]) : ''}
               </td>
             ))}
@@ -1592,11 +1600,16 @@ const METRICS = [
   { k: 'PQ', label: '売上PQ', get: (h: any) => h.PQ, good: 'desc', f: (v: number) => fmt(v) },
 ] as const
 
-function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
+function OrgTab({ game, toast }: { game: ReturnType<typeof useGame>; toast: (msg: string) => void }) {
   const [companies, setCompanies] = useState<any[] | null>(null)
   const [orgView, setOrgView] = useState<'charts' | 'table'>('charts')
   const st = game.st
   const load = async () => setCompanies(await game.refreshOrg())
+  // 更新ボタン用：取得後にトースト表示
+  const reload = async () => {
+    await load()
+    toast('更新しました')
+  }
   useEffect(() => {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1604,7 +1617,7 @@ function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
   if (!companies)
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-line p-6 text-center">
-        <button data-testid="org-refresh" onClick={load} className="h-10 px-4 rounded-lg bg-ink text-white font-bold text-sm">
+        <button data-testid="org-refresh" onClick={reload} className="h-10 px-4 rounded-lg bg-ink text-white font-bold text-sm">
           最新を取得
         </button>
       </div>
@@ -1649,7 +1662,7 @@ function OrgTab({ game }: { game: ReturnType<typeof useGame> }) {
             {tabBtn('charts', 'チャート')}
             {tabBtn('table', '数値（順位）')}
           </div>
-          <button data-testid="org-refresh" onClick={load} className="h-9 px-3 rounded-lg border border-line text-sm font-bold">
+          <button data-testid="org-refresh" onClick={reload} className="h-9 px-3 rounded-lg border border-line text-sm font-bold">
             更新
           </button>
         </div>
@@ -1711,12 +1724,13 @@ function ActionModal({
   keyName: string
   editTx?: TxRow | null
   onClose: () => void
-  onAct: (k: string, f: Fvals) => void
-  onEvent: (k: string) => void
+  onAct: (k: string, f: Fvals) => string[]
+  onEvent: (k: string) => string[]
 }) {
   const a = ACTIONS[keyName]
   const form = FORMS[keyName]
   const isCustomEvent = keyName === 'ibutsu' || keyName === 'suigai'
+  const [errors, setErrors] = useState<string[]>([])
   const [single, setSingle] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {}
     form?.fields.forEach((fl) => (o[fl.name] = String(editTx?.fvals?.[fl.name] ?? fl.default)))
@@ -1768,6 +1782,13 @@ function ActionModal({
     }
   })()
 
+  // 記帳（バリデーションNGならエラーを全件モーダル内に表示、OKなら閉じる）
+  const submit = () => {
+    const errs = isCustomEvent ? onEvent(keyName) : onAct(keyName, buildFvals())
+    if (errs.length) setErrors(errs)
+    else onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
@@ -1777,6 +1798,15 @@ function ActionModal({
           {editTx ? <span className="text-ink-400 font-normal text-sm ml-1">の編集</span> : null}
         </h3>
         {form?.note && <p className="text-ink-400 text-xs mb-3">{form.note}</p>}
+        {keyName === 'kariire' && (
+          <div
+            data-testid="loan-room"
+            className="mb-3 flex items-center justify-between rounded-lg bg-f-bg text-f-ink px-3 py-2 text-sm font-bold"
+          >
+            <span>借入可能額</span>
+            <span className="num">{fmt(loanRoom(st))}</span>
+          </div>
+        )}
         {isCustomEvent && <p className="text-ink-500 text-sm mb-3">この盤面で記帳します。</p>}
 
         {form?.multi ? (
@@ -1790,9 +1820,10 @@ function ActionModal({
                       fl={fl}
                       value={row[fl.name]}
                       testid={`field-${fl.name}-${i}`}
-                      onChange={(v) =>
+                      onChange={(v) => {
+                        setErrors([])
                         setItems((arr) => arr.map((r, j) => (j === i ? { ...r, [fl.name]: v } : r)))
-                      }
+                      }}
                     />
                   </label>
                 ))}
@@ -1823,7 +1854,10 @@ function ActionModal({
                   fl={fl}
                   value={single[fl.name]}
                   testid={`field-${fl.name}`}
-                  onChange={(v) => setSingle((o) => ({ ...o, [fl.name]: v }))}
+                  onChange={(v) => {
+                    setErrors([])
+                    setSingle((o) => ({ ...o, [fl.name]: v }))
+                  }}
                 />
               </label>
             ))}
@@ -1833,13 +1867,26 @@ function ActionModal({
         <div className="text-ink-500 text-sm mb-3" data-testid="modal-preview">
           {preview}
         </div>
+        {errors.length > 0 && (
+          <div
+            data-testid="modal-errors"
+            className="mb-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 space-y-1"
+          >
+            {errors.map((e, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-accent-ink text-xs">
+                <span className="leading-none mt-px">⚠</span>
+                <span>{e}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
           <button onClick={onClose} className="h-11 flex-1 rounded-xl border border-line font-bold text-ink-600">
             やめる
           </button>
           <button
             data-testid="modal-ok"
-            onClick={() => (isCustomEvent ? onEvent(keyName) : onAct(keyName, buildFvals()))}
+            onClick={submit}
             className="h-11 flex-1 rounded-xl bg-ink text-white font-bold"
           >
             {editTx ? '変更を保存' : '決定して記帳'}
