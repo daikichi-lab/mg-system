@@ -96,7 +96,7 @@ export const FORMS: Record<string, FormDef> = {
       { name: 'qty', label: '個数', type: 'int', default: 0, min: 0 },
       { name: 'unit', label: '売価', type: 'int', default: 30, min: 0 },
     ],
-    note: '販売スタッフ1人2個・空いた市場で独占',
+    note: '販売スタッフ1人につき2個・空いた市場で独占',
   },
   tokubai: { fields: [{ name: 'qty', label: '個数', type: 'int', default: 0, min: 0 }], note: '1個10で最大5個' },
   keiki: { fields: [{ name: 'qty', label: '個数', type: 'int', default: 0, min: 0 }], note: '1個12で最大3個' },

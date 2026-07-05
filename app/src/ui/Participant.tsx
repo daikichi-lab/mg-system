@@ -891,8 +891,18 @@ function Ledger({
     <div className="bg-white rounded-2xl shadow-card border border-line overflow-x-auto">
       <table className="text-[11px] min-w-[920px] w-full" data-testid="ledger">
         <thead>
+           <tr className="border-b border-line">
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold"></th>
+            <th colSpan={4} className="text-cin-ink bg-cin-bg font-bold px-2 py-1.5 rounded-t-md">
+              入金
+            </th>
+            <th colSpan={7} className="text-cout-ink bg-cout-bg font-bold px-2 py-1.5 rounded-t-md">
+              出金
+            </th>
+            <th className="px-1 py-1"></th>
+          </tr>
           <tr className="border-b border-line">
-            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">摘要</th>
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">勘定科目</th>
             {LHEAD.map((_, i) => th(i))}
             <th className="px-2 py-1 text-right align-bottom font-semibold">残高</th>
             <th className="px-1 py-1"></th>
@@ -969,15 +979,11 @@ function Ledger({
             </td>
             <td></td>
           </tr>
-          <tr className="text-ink-400 border-t border-line">
-            <td className="sticky left-0 z-10 bg-white px-2 py-1 text-left">勘定科目</td>
-            {LHEAD.map((h, i) => (
-              <td key={i} className="px-1 py-1 text-center whitespace-nowrap" style={{ color: LCOL[i].t }}>
-                <span className="text-[9px] opacity-70">{h.s}</span> {h.n}
-              </td>
-            ))}
-            <td></td>
-            <td></td>
+          <tr className="border-b border-line">
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">勘定科目</th>
+            {LHEAD.map((_, i) => th(i))}
+            <th className="px-2 py-1 text-right align-bottom font-semibold">残高</th>
+            <th className="px-1 py-1"></th>
           </tr>
         </tfoot>
       </table>
@@ -1756,7 +1762,7 @@ function ActionModal({
         const f = eventFvals(st, keyName)
         return `破棄 ${f.discard} 個${f.payout ? ` ・ 受取保険金 ${f.payout}` : '（保険なし）'}`
       }
-      return '金額 ' + fmt(a.amount(buildFvals()) || 0)
+      return `${a.account}` + fmt(a.amount(buildFvals()) || 0)
     } catch {
       return ''
     }

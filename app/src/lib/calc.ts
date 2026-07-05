@@ -176,6 +176,7 @@ export interface ActionDef {
   noCash?: boolean
   custom?: boolean
   fixed?: boolean
+  account: string
   amount: (f: Fvals) => number
   apply?: (st: St, f: Fvals) => void
 }
@@ -188,6 +189,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: 5,
     side: 'out',
     multi: true,
+    account: '材料仕入',
     amount: (f) => rows(f).reduce((s, x) => s + (x.qty || 0) * (x.unit || 0), 0),
     apply: (st, f) =>
       rows(f).forEach((x) => {
@@ -202,6 +204,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: null,
     side: null,
     noCash: true,
+    account: '金額',
     amount: () => 0,
     apply: (st, f) => {
       const n = Math.min(f.qty || 0, st.rawCubes)
@@ -215,6 +218,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: 2,
     side: 'in',
     multi: true,
+    account: '売上',
     amount: (f) => rows(f).reduce((s, x) => s + (x.qty || 0) * (x.unit || 0), 0),
     apply: (st, f) =>
       rows(f).forEach((x) => {
@@ -229,6 +233,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'A',
     col: 4,
     side: 'out',
+     account: '什器',
     amount: (f) => (f.n || 0) * MACHINE_PRICE,
     apply: (st, f) => {
       st.machines += f.n || 0
@@ -240,6 +245,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'A',
     col: 6,
     side: 'out',
+     account: '人件費',
     amount: (f) => ((f.mfg || 0) + (f.sales || 0) + (f.fail || 0)) * 5,
     apply: (st, f) => {
       st.staffMfg += f.mfg || 0
@@ -251,6 +257,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'A',
     col: 7,
     side: 'out',
+    account: '販売費',
     amount: (f) => (f.n || 0) * 10,
     apply: (st, f) => {
       st.ads += f.n || 0
@@ -261,6 +268,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'A',
     col: 7,
     side: 'out',
+    account: '販売費',
     amount: (f) => (f.n || 0) * 20,
     apply: (st, f) => {
       if (f.result !== '失敗') st.dev += f.n || 0
@@ -272,6 +280,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'B',
     col: 8,
     side: 'out',
+    account: '管理費',
     amount: (f) => (f.n || 0) * 5,
     apply: (st, f) => {
       st.insurance += f.n || 0
@@ -282,6 +291,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'B',
     col: 8,
     side: 'out',
+    account: '管理費',
     amount: (f) => (f.n || 0) * 20,
     apply: (st, f) => {
       st.edu += f.n || 0
@@ -292,6 +302,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'B',
     col: 8,
     side: 'out',
+    account: '管理費',
     amount: (f) => (f.n || 0) * 5,
     apply: (st, f) => {
       const n = f.n || 0
@@ -311,6 +322,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'B',
     col: 1,
     side: 'in',
+    account: '借入金',
     amount: (f) => f.a || 0,
     apply: (st, f) => {
       st.loan += f.a || 0
@@ -321,6 +333,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     rule: 'B',
     col: 9,
     side: 'out',
+    account: '返済',
     amount: (f) => f.a || 0,
     apply: (st, f) => {
       st.loan = Math.max(0, st.loan - (f.a || 0))
@@ -333,6 +346,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '販売機会',
     col: 2,
     side: 'in',
+    account: '売上',
     amount: (f) => (f.qty || 0) * 32,
     apply: (st, f) => {
       const n = Math.min(f.qty || 0, st.products)
@@ -347,6 +361,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '販売機会',
     col: 2,
     side: 'in',
+    account: '売上',
     amount: (f) => (f.qty || 0) * (f.unit || 0),
     apply: (st, f) => {
       const n = Math.min(f.qty || 0, st.products)
@@ -361,6 +376,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '仕入機会',
     col: 5,
     side: 'out',
+    account: '材料仕入',
     amount: (f) => (f.qty || 0) * 10,
     apply: (st, f) => {
       st.rawCubes += f.qty || 0
@@ -374,6 +390,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '仕入機会',
     col: 5,
     side: 'out',
+    account: '材料仕入',
     amount: (f) => (f.qty || 0) * 12,
     apply: (st, f) => {
       st.rawCubes += f.qty || 0
@@ -388,6 +405,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: 3,
     side: 'in',
     custom: true,
+    account: '保険金',
     amount: (f) => f.payout || 0,
     apply: (st, f) => {
       const d = Math.min(f.discard || 0, st.products)
@@ -403,6 +421,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: 3,
     side: 'in',
     custom: true,
+    account: '保険金',
     amount: (f) => f.payout || 0,
     apply: (st, f) => {
       const d = Math.min(f.discard || 0, st.rawCubes)
@@ -417,6 +436,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '退職',
     col: 6,
     side: 'out',
+    account: '人件費',
     amount: () => 5,
     apply: (st) => {
       if (st.staffMfg > 0) st.staffMfg--
@@ -428,29 +448,31 @@ export const ACTIONS: Record<string, ActionDef> = {
     cat: '退職',
     col: 6,
     side: 'out',
+    account: '人件費',
     amount: () => 5,
     apply: (st) => {
       if (st.staffSales > 0) st.staffSales--
     },
   },
-  claim: { label: 'クレーム発生', rule: 'X', cat: '費用・トラブル', col: 7, side: 'out', amount: () => 5 },
-  kitchen: { label: '厨房機器故障', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', amount: () => 5 },
-  rousai: { label: '労災発生', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', amount: () => 5 },
+  claim: { label: 'クレーム発生', rule: 'X', cat: '費用・トラブル', col: 7, side: 'out', account: '販売費', amount: () => 5 },
+  kitchen: { label: '厨房機器故障', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', account: '管理費', amount: () => 5 },
+  rousai: { label: '労災発生', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', account: '管理費', amount: () => 5 },
   kaihatsu_fail: {
     label: '商品開発失敗',
     rule: 'X',
     cat: '手番のみ',
     col: null,
     noCash: true,
+    account: '金額',
     amount: () => 0,
     apply: (st) => {
       if (st.dev > 0) st.dev--
     },
   },
-  kansen: { label: '感染症の流行', rule: 'X', cat: '手番のみ', col: null, noCash: true, amount: () => 0 },
-  chiiki: { label: '地域行事参加', rule: 'X', cat: '手番のみ', col: null, noCash: true, amount: () => 0 },
-  fuhyo: { label: '風評被害発生', rule: 'X', cat: '手番のみ', col: null, noCash: true, amount: () => 0 },
-  gyaku: { label: '逆回り', rule: 'X', cat: '手番のみ', col: null, noCash: true, amount: () => 0 },
+  kansen: { label: '感染症の流行', rule: 'X', cat: '手番のみ', col: null, noCash: true, account: '金額', amount: () => 0 },
+  chiiki: { label: '地域行事参加', rule: 'X', cat: '手番のみ', col: null, noCash: true, account: '金額', amount: () => 0 },
+  fuhyo: { label: '風評被害発生', rule: 'X', cat: '手番のみ', col: null, noCash: true, account: '金額', amount: () => 0 },
+  gyaku: { label: '逆回り', rule: 'X', cat: '手番のみ', col: null, noCash: true, account: '金額', amount: () => 0 },
 }
 
 // ---- 初期状態 ----
