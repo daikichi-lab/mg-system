@@ -796,7 +796,7 @@ function PlayTab({
               }}
               className={`h-11 px-6 rounded-xl font-bold text-white ${st.closingPrep ? 'bg-accent' : 'bg-ink'}`}
             >
-              {st.closingPrep ? 'この期を決算にする →' : '期末処理を行う（給与・家賃を計上）'}
+              {st.closingPrep ? '当期の決算を行う →' : '期末処理を行う（給与・家賃を計上）'}
             </button>
           </div>
         )}
