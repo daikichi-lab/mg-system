@@ -19,7 +19,8 @@ const ACCENT_INK = '#a02620'
 const G_INK = '#876a10'
 const CARD_SHADOW = '0 1px 2px rgba(27,34,48,.04), 0 8px 24px -16px rgba(27,34,48,.20)'
 
-// 組織パレット（mock ORG_COLORS を厳密一致で公開）
+// 組織パレット（先頭8色は mock ORG_COLORS と厳密一致。9色目以降は大人数組織
+// （〜16社）でも色が重複しないよう app 側で追加）
 export const ORG_COLORS = [
   '#0f766e',
   '#c8322b',
@@ -29,6 +30,14 @@ export const ORG_COLORS = [
   '#6b4fa0',
   '#ca9a06',
   '#1f7a8c',
+  '#4d7c0f',
+  '#7c2d12',
+  '#0e7490',
+  '#a21caf',
+  '#57534e',
+  '#15803d',
+  '#b45309',
+  '#334155',
 ]
 
 // ---- 派生指標（mock と同一式）----
@@ -98,81 +107,8 @@ export function lineChartHTML(points: { x: number; y: number }[], opts?: LineCha
   return s
 }
 
-// ============================================================================
-// multiLineHTML — 複数系列の折れ線グラフ（組織比較）。凡例つき。
-// mock: multiLine(el, members, names, getVal, opts)
-// 「あなた」の系列は me:true で太線＋大点＋凡例太字。
-// ============================================================================
-export interface MultiLineSeries {
-  name: string
-  color: string
-  me?: boolean
-  pts: { x: number; y: number }[]
-}
-export interface MultiLineOpts {
-  signed?: boolean
-  pct?: boolean
-}
-export function multiLineHTML(series: MultiLineSeries[], opts?: MultiLineOpts): string {
-  const o = opts || {}
-  const allY = series.flatMap((se) => se.pts.map((p) => p.y))
-  if (!allY.length) {
-    return `<div style="color:${INK300};font-size:12px;padding:24px 0;text-align:center">データなし</div>`
-  }
-  const maxP = Math.max(5, ...series.flatMap((se) => se.pts.map((p) => p.x)))
-  let mx = Math.max(...allY),
-    mn = Math.min(...allY)
-  if (o.signed) {
-    mx = Math.max(mx, 0)
-    mn = Math.min(mn, 0)
-  } else {
-    mn = Math.min(mn, 0)
-    if (mx <= 0) mx = 1
-  }
-  if (mx === mn) mx = mn + 1
-  const W = 340,
-    H = 150,
-    padL = 14,
-    padR = 12,
-    padT = 14,
-    padB = 22,
-    span = mx - mn
-  const X = (p: number): number =>
-    maxP <= 1 ? padL + (W - padL - padR) / 2 : padL + ((p - 1) * (W - padL - padR)) / (maxP - 1)
-  const Y = (v: number): number => padT + ((mx - v) / span) * (H - padT - padB)
-  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" preserveAspectRatio="xMidYMid meet">`
-  if (mn < 0) {
-    const zy = Y(0).toFixed(1)
-    s += `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="#cbd2da" stroke-width="1" stroke-dasharray="3 3"/>`
-  }
-  for (let p = 1; p <= maxP; p++) {
-    const x = X(p).toFixed(1)
-    s += `<text x="${x}" y="${H - 6}" text-anchor="middle" font-size="8.5" fill="#9aa3b2">第${p}期</text>`
-  }
-  series.forEach((se) => {
-    if (!se.pts.length) return
-    const sp = [...se.pts].sort((a, b) => a.x - b.x)
-    if (sp.length > 1) {
-      const pts = sp.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ')
-      s += `<polyline points="${pts}" fill="none" stroke="${se.color}" stroke-width="${se.me ? 3 : 2}" stroke-linejoin="round" stroke-linecap="round" ${se.me ? '' : 'opacity="0.85"'}/>`
-    }
-    sp.forEach((p) => {
-      s += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${se.me ? 3.6 : 2.8}" fill="#fff" stroke="${se.color}" stroke-width="2"/>`
-    })
-  })
-  s += '</svg>'
-  // 凡例
-  const lg =
-    '<div style="display:flex;flex-wrap:wrap;column-gap:12px;row-gap:4px;margin-top:4px;font-size:11px">' +
-    series
-      .map(
-        (se) =>
-          `<span style="display:inline-flex;align-items:center;gap:4px${se.me ? ';font-weight:700' : ''}"><span style="width:10px;height:10px;border-radius:9999px;background:${se.color};display:inline-block"></span>${se.name}${se.me ? '（あなた）' : ''}</span>`,
-      )
-      .join('') +
-    '</div>'
-  return s + lg
-}
+// multiLineHTML（複数系列の折れ線・組織比較）は、ホバー表示・縦軸目盛り対応の
+// インタラクティブ版 ui/OrgLineChart.tsx へ移行した。
 
 // ============================================================================
 // structureHTML — 利益構造(STRAC)の推移。期ごとに積み上げ横バー
