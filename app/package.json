@@ -14,6 +14,7 @@
     "start": "node server/index.js",
     "lint": "oxlint",
     "preview": "vite preview",
+    "seed:15": "node test/seed-15.mjs",
     "test:calc": "node --test test/calc.test.ts",
     "test:db": "node --test test/db.pg.test.ts",
     "test:e2e": "playwright test"

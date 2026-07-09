@@ -28,7 +28,8 @@ import {
   loanHTML,
   inflowOutflowHTML,
 } from '../lib/figures-account'
-import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, multiLineHTML, ORG_COLORS } from '../lib/figures-review'
+import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS } from '../lib/figures-review'
+import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
 import { savePdf } from '../lib/pdf'
 import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
@@ -1670,7 +1671,12 @@ function OrgTab({ game, toast }: { game: ReturnType<typeof useGame>; toast: (msg
       {orgView === 'charts' && (
         <div className="grid sm:grid-cols-2 gap-4" data-testid="org-charts">
           {names.length ? (
-            ORG_CHARTS.map((ch) => <ChartCard key={ch.title} title={ch.title} html={multiLineHTML(series(ch.get), ch.opt)} />)
+            ORG_CHARTS.map((ch) => (
+              <div key={ch.title} className="bg-white rounded-2xl shadow-card border border-line p-4">
+                <h3 className="font-bold text-sm mb-2">{ch.title}</h3>
+                <OrgLineChart series={series(ch.get)} signed={ch.opt.signed} pct={ch.opt.pct} />
+              </div>
+            ))
           ) : (
             <p className="text-ink-300 text-sm p-4">まだ成績がありません。</p>
           )}
