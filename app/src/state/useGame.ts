@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { newState, recompute, type St, type Result } from '../lib/calc'
+import { newState, recompute, settleBlockReason, type St, type Result } from '../lib/calc'
 import { api, type ApiOrgCompany } from '../lib/api'
 import {
   applyApiState,
@@ -10,10 +10,12 @@ import {
   deleteRow,
   editActionRow,
   editAmountRow,
+  revalidateLedger,
   clearLedger,
   doClosing,
   undoClosing,
   doSettle,
+  undoSettle,
   goNext,
   seedFlood,
 } from '../lib/game'
@@ -42,6 +44,7 @@ export interface Game {
   closing: () => void
   undoClose: () => void
   settleNow: () => Result | null
+  unsettle: () => string | null
   next: () => void
   raiseCapital: (amount: number) => string | null
   setInstr: (loanMult: number, repayRate: number) => string | null
@@ -49,6 +52,7 @@ export interface Game {
   refreshOrg: () => Promise<ApiOrgCompany[]>
   resetAll: () => void
   spectator: boolean
+  instructorEdit: boolean
 }
 
 export function useGame(): Game {
@@ -61,6 +65,7 @@ export function useGame(): Game {
   const [error, setError] = useState<string | null>(null)
   const [orgError, setOrgError] = useState<string | null>(null)
   const [spectator, setSpectator] = useState(false)
+  const [instructorEdit, setInstructorEdit] = useState(false)
   const spectatorRef = useRef(false)
   const joinOrgRef = useRef('')
   const bump = useCallback(() => setVersion((v) => v + 1), [])
@@ -79,17 +84,20 @@ export function useGame(): Game {
     let alive = true
     ;(async () => {
       const q = new URLSearchParams(location.search)
-      // 講師の閲覧専用ビュー（?vorg=&vco=）：その会社の状態をDBから読み込み、操作は不可
+      // 講師ビュー（?vorg=&vco=）：その会社の状態をDBから読み込む。
+      // 既定は閲覧専用、&vedit=1 なら講師編集モード（操作・保存を許可し、参加者のデータを直接修正できる）
       const vorg = (q.get('vorg') || '').trim()
       const vco = (q.get('vco') || '').trim()
       if (vorg && vco) {
+        const vedit = q.get('vedit') === '1'
         try {
           const data = await api.get(vorg, vco)
           if (!alive) return
           idRef.current = data.company.id
           histRef.current = applyApiState(stRef.current, data)
-          spectatorRef.current = true
-          setSpectator(true)
+          spectatorRef.current = !vedit
+          setSpectator(!vedit)
+          setInstructorEdit(vedit)
         } catch {
           if (alive) setOrgError('この参加者のデータが見つかりません。')
         }
@@ -233,12 +241,24 @@ export function useGame(): Game {
   const undoClose = useCallback(() => runMut(() => undoClosing(stRef.current)), [runMut])
   const settleNow = useCallback((): Result | null => {
     if (spectatorRef.current) return null
+    // 在庫の個数がマイナス／盤面と不一致のまま決算するとB/Sが壊れるため、決算前にブロックする
+    const reason = settleBlockReason(stRef.current)
+    if (reason) {
+      setError(reason)
+      bump()
+      return null
+    }
     const r = doSettle(stRef.current, histRef.current)
     setError(null)
     bump()
     void sync()
     return r
   }, [bump, sync])
+  // 決算の取り消し（次の期へ進む前のみ）：決算書・当期成績を破棄して記帳へ戻す
+  const unsettle = useCallback(
+    (): string | null => runMut(() => undoSettle(stRef.current, histRef.current)),
+    [runMut],
+  )
   const next = useCallback(() => runMut(() => goNext(stRef.current)), [runMut])
 
   // 増資（第2期以降・任意）：資本金(ア col0)として記帳→現金と純資産が増える
@@ -253,23 +273,43 @@ export function useGame(): Game {
       }),
     [runMut],
   )
-  // 講師設定：借入倍率・期末返済率
+  // 講師設定：借入倍率・期末返済率（倍率を下げると既存の借入が枠を超えることがあるため再検証）
   const setInstr = useCallback(
     (loanMult: number, repayRate: number) =>
       runMut(() => {
         const st = stRef.current
+        const prev = { loanMult: st.loanMult, repayRate: st.repayRate }
         st.loanMult = Math.max(0, Math.round(loanMult) || 0)
         st.repayRate = Math.min(100, Math.max(0, Math.round(repayRate) || 0))
-        recompute(st)
+        const errs = revalidateLedger(st)
+        if (errs.length) {
+          st.loanMult = prev.loanMult
+          st.repayRate = prev.repayRate
+          recompute(st)
+          return `この設定に変更すると既存の記帳が成立しません。（${errs[0]}）`
+        }
       }),
     [runMut],
   )
-  // 盤面セットアップの変更：資産価値の増減は利益剰余金で吸収しB/S均衡を保つ
+  // 盤面セットアップの変更：資産価値の増減は利益剰余金で吸収しB/S均衡を保つ。
+  // 期首在庫を減らす等で既存の記帳（販売・製造）が成立しなくなる場合は取り消す。
   const setBoard = useCallback(
     (b: { mfg: number; sales: number; mat: number; prod: number; dev: number; ads: number; mach: number }): string | null =>
       runMut(() => {
         const st = stRef.current
         if (st.settled) return 'この期は決算済みです。次の期へ進んでから変更してください。'
+        const prev = {
+          retained: st.retained,
+          staffMfg: st.openingStaffMfg,
+          staffSales: st.openingStaffSales,
+          dev: st.openingDev,
+          ads: st.openingAds,
+          machines: st.openingMachines,
+          equipVal: st.openingEquipVal,
+          products: st.openingProducts,
+          matQty: st.openingMatQty,
+          matVal: st.openingMatVal,
+        }
         const unit = st.openingMatQty > 0 ? st.openingMatVal / st.openingMatQty : 12
         const perMach = st.openingMachines > 0 ? st.openingEquipVal / st.openingMachines : 100
         const newMatQty = b.mat + b.prod
@@ -285,7 +325,21 @@ export function useGame(): Game {
         st.openingProducts = b.prod
         st.openingMatQty = newMatQty
         st.openingMatVal = newMatVal
-        recompute(st)
+        const errs = revalidateLedger(st)
+        if (errs.length) {
+          st.retained = prev.retained
+          st.openingStaffMfg = prev.staffMfg
+          st.openingStaffSales = prev.staffSales
+          st.openingDev = prev.dev
+          st.openingAds = prev.ads
+          st.openingMachines = prev.machines
+          st.openingEquipVal = prev.equipVal
+          st.openingProducts = prev.products
+          st.openingMatQty = prev.matQty
+          st.openingMatVal = prev.matVal
+          recompute(st)
+          return `この盤面に変更すると既存の記帳が成立しません。（${errs[0]}）`
+        }
       }),
     [runMut],
   )
@@ -330,6 +384,7 @@ export function useGame(): Game {
     closing,
     undoClose,
     settleNow,
+    unsettle,
     next,
     raiseCapital,
     setInstr,
@@ -337,5 +392,6 @@ export function useGame(): Game {
     refreshOrg,
     resetAll,
     spectator,
+    instructorEdit,
   }
 }

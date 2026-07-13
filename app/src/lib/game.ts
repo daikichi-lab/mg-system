@@ -13,8 +13,8 @@ import {
   type Result,
   type Fvals,
   type TxRow,
-} from './calc'
-import type { ApiState } from './api'
+} from './calc.ts'
+import type { ApiState } from './api.ts'
 
 const OPENING_KEYS = [
   'openingCash',
@@ -234,6 +234,23 @@ function validate(st: St, key: string, f: Fvals): string[] {
     case 'taishoku_sales':
       if (st.staffSales <= 0) errs.push('退職できる販売スタッフがいません')
       break
+    // 水害・異物混入：記帳時は盤面から自動算出するため常に成立するが、
+    // 後から前方の行を削除・編集すると破棄数や保険金の根拠が消える（幽霊保険金）ため再検証で捕まえる
+    case 'suigai': {
+      const d = f.discard || 0
+      if (d > st.rawCubes) errs.push(`破棄数が材料在庫を超えています（在庫 ${st.rawCubes}・破棄 ${d}）`)
+      if ((f.payout || 0) > 0 && st.insurance <= 0) errs.push('保険に未加入のため保険金は受け取れません')
+      if ((f.payout || 0) > d * 10) errs.push(`保険金は破棄数×10（最大 ${d * 10}）までです`)
+      break
+    }
+    case 'ibutsu': {
+      const d = f.discard || 0
+      if (d > 2) errs.push('異物混入で破棄できる製品は最大2個です')
+      if (d > st.products) errs.push(`破棄数が製品在庫を超えています（在庫 ${st.products}・破棄 ${d}）`)
+      if ((f.payout || 0) > 0 && st.insurance <= 0) errs.push('保険に未加入のため保険金は受け取れません')
+      if ((f.payout || 0) > d * 10) errs.push(`保険金は破棄数×10（最大 ${d * 10}）までです`)
+      break
+    }
   }
   // 複数行で同一メッセージが出た場合は重複を除去
   return [...new Set(errs)]
@@ -273,6 +290,27 @@ export function eventFvals(st: St, key: string): Fvals {
   return {}
 }
 
+// 台帳全体の再検証：各アクション行を「その行より前の行だけを適用した状態」で検証し直す。
+// 行の削除・編集や期首処理の変更は、記帳時に成立していた在庫・能力などの前提を
+// さかのぼって崩すことがあるため、そうした操作の後に呼んで矛盾を検出する。
+export function revalidateLedger(st: St): string[] {
+  const original = st.tx
+  const errs: string[] = []
+  original.forEach((t, i) => {
+    const key = t.key
+    if (!key || !ACTIONS[key]) return
+    if (t.isClosing || t.isAutoRepay || t.isBorrowInterest) return
+    st.tx = original.slice(0, i)
+    recompute(st)
+    for (const e of validate(st, key, t.fvals || {})) {
+      errs.push(`「${ACTIONS[key].label}${t.note ? ' ' + t.note : ''}」：${e}`)
+    }
+  })
+  st.tx = original
+  recompute(st)
+  return [...new Set(errs)]
+}
+
 // 記帳（成功で tx 追加＋recompute）。戻り値: エラーメッセージ配列（成功は空配列）。
 export function recordAction(st: St, key: string, fvals: Fvals): string[] {
   const a = ACTIONS[key]
@@ -295,15 +333,24 @@ export function recordAction(st: St, key: string, fvals: Fvals): string[] {
   return []
 }
 
-export function deleteRow(st: St, id: number) {
+// 行削除。削除で後続の記帳が成立しなくなる場合（例：この仕入で売った販売が残る）は取り消してエラーを返す。
+export function deleteRow(st: St, id: number): string | null {
   const t = st.tx.find((x) => x.id === id)
-  if (!t) return
-  if (t.isClosing || t.isCapital || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest || t.isAutoRepay) return
-  st.tx = st.tx.filter((x) => x.id !== id)
-  recompute(st)
+  if (!t) return null
+  if (t.isClosing || t.isCapital || t.isOpeningTax || t.isOpeningInterest || t.isBorrowInterest || t.isAutoRepay) return null
+  const original = st.tx
+  st.tx = original.filter((x) => x.id !== id)
+  const errs = revalidateLedger(st)
+  if (errs.length) {
+    st.tx = original
+    recompute(st)
+    return `この行を削除すると後続の記帳が成立しません。先に後続の行を修正してください。（${errs[0]}）`
+  }
+  return null
 }
 
-// アクション行の編集：数量など fvals を差し替えて再検証（対象行を除いた盤面で検証）
+// アクション行の編集：fvals を差し替えたうえで台帳全体を再検証。
+// 編集した行自身は「その行より前の状態」で検証され、後続行への影響（在庫不足など）も検出する。
 export function editActionRow(st: St, id: number, fvals: Fvals): string[] {
   if (st.settled) return ['この期は決算済みです。決算書から次の期へ進んでください。']
   if (st.closingPrep) return ['期末処理を計上済みです。「記帳に戻る」を押してください。']
@@ -314,23 +361,20 @@ export function editActionRow(st: St, id: number, fvals: Fvals): string[] {
   if (!key || !ACTIONS[key]) return ['この行は編集できません。']
   const a = ACTIONS[key]
   const original = st.tx
-  // 対象行を除いた状態で検証（自分自身の在庫/能力消費を二重計上しない）
-  st.tx = original.filter((x) => x.id !== id)
-  recompute(st)
-  const errs = validate(st, key, fvals)
+  st.tx = original.map((x) =>
+    x.id === id ? { ...x, fvals, col: a.col, amount: a.amount(fvals) || 0, note: rownote(key, fvals), noCash: a.noCash } : x,
+  )
+  const errs = revalidateLedger(st)
   if (errs.length) {
     st.tx = original
     recompute(st)
     return errs
   }
-  st.tx = original.map((x) =>
-    x.id === id ? { ...x, fvals, col: a.col, amount: a.amount(fvals) || 0, note: rownote(key, fvals), noCash: a.noCash } : x,
-  )
-  recompute(st)
   return []
 }
 
 // 金額のみ変更（キーレス行：資本金・増資・給料/家賃(期末)・その他）
+// 増資などは借入可能枠に影響するため、変更後に台帳全体を再検証する。
 export function editAmountRow(st: St, id: number, amount: number): string | null {
   if (st.settled) return 'この期は決算済みです。決算書から次の期へ進んでください。'
   const t = st.tx.find((x) => x.id === id)
@@ -338,8 +382,14 @@ export function editAmountRow(st: St, id: number, amount: number): string | null
   if (t.key || t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest)
     return 'この行は自動計算のため金額を変更できません。'
   if (!(amount >= 0)) return '金額を正しく入力してください。'
+  const old = t.amount
   t.amount = amount
-  recompute(st)
+  const errs = revalidateLedger(st)
+  if (errs.length) {
+    t.amount = old
+    recompute(st)
+    return `この金額に変更すると他の記帳が成立しません。（${errs[0]}）`
+  }
   return null
 }
 
@@ -392,6 +442,19 @@ export function doSettle(st: St, history: Result[]): Result | null {
     else history.push(r)
   }
   return r
+}
+// 決算の取り消し：当期の決算書・成績を破棄し、期末の自動行も外して記帳可能な状態に戻す。
+// 「次の期へ進む」後は繰越済み（settled=false）のため対象外＝過去の期は取り消せない。
+export function undoSettle(st: St, history: Result[]): string | null {
+  if (!st.settled) return '決算していません。'
+  st.settled = false
+  st.result = null
+  const idx = history.findIndex((h) => h.period === st.period)
+  if (idx >= 0) history.splice(idx, 1)
+  st.tx = st.tx.filter((t) => !t.isClosing)
+  st.closingPrep = false
+  recompute(st)
+  return null
 }
 export function goNext(st: St) {
   nextPeriod(st)

@@ -41,8 +41,10 @@ async function event(page: Page, key: string, fields: Record<string, string | nu
 // 期末処理→決算の2段階ボタン（play tab）。決算後は期末処理タブへ遷移する。
 async function closeAndSettle(page: Page) {
   await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+  await page.getByTestId('confirm-ok').click() // 確認モーダル
   await expect(page.getByTestId('undo-closing')).toBeVisible()
   await page.getByTestId('closing').click() // 2段目：決算 → 期末処理タブへ
+  await page.getByTestId('confirm-ok').click() // 確認モーダル
   await expect(page.getByTestId('to-statement')).toBeVisible()
   await page.getByTestId('to-statement').click() // 決算書へ
 }
@@ -231,6 +233,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     // 期末処理（1段目）→記帳に戻る→期末処理→決算（2段目）
     await page.getByTestId('closing').click() // 1段目：期末処理の記帳
+    await page.getByTestId('confirm-ok').click() // 確認モーダル
     await expect(page.getByTestId('undo-closing')).toBeVisible()
     await page.getByTestId('undo-closing').click() // 記帳に戻る（play tabのまま）
     await page.getByTestId('sub-A').click()
@@ -299,6 +302,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     // 期末処理（1段目）で給料/家賃を計上
     await page.getByTestId('closing').click()
+    await page.getByTestId('confirm-ok').click() // 確認モーダル
 
     // 家賃(期末)：✎ 編集はあるが ✕ 削除は無い → 金額を 25→30 に変更
     const rentRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '家賃(期末)' })
@@ -313,6 +317,96 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 給料(期末)も削除不可
     const salaryRow = page.getByTestId('ledger').locator('tbody tr', { hasText: '給料(期末)' })
     await expect(salaryRow.getByTestId(/^del-/)).toHaveCount(0)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('決算の取り消し：決算後に記帳へ戻って修正→再決算（リロード復元も含む）', async ({ page }) => {
+    await registerOrg(page, 'E2E5')
+    await page.goto(`/?org=E2E5`)
+    await page.getByTestId('c-name').fill('取消製菓')
+    await page.getByTestId('c-pres').fill('取消太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+
+    await act(page, 'kikai', { n: 1 })
+    await act(page, 'saiyo', { mfg: 2, sales: 1 })
+    await act(page, 'shiire', { 'qty-0': 6, 'unit-0': 13 })
+    await act(page, 'seizo', { qty: 4 })
+    await act(page, 'hanbai', { 'qty-0': 2, 'unit-0': 50 })
+    await closeAndSettle(page)
+    await expect(page.getByTestId('statement')).toBeVisible()
+
+    // 決算書から「記帳を修正する」→ 確認モーダル → 記帳タブに戻る（期末自動行も消える）
+    await page.getByTestId('unsettle').click()
+    await expect(page.getByTestId('confirm-title')).toContainText('決算を取り消しますか')
+    await page.getByTestId('confirm-ok').click()
+    await expect(page.getByTestId('closing')).toBeVisible() // 記帳タブ・未決算状態
+    await expect(page.getByTestId('ledger').locator('tbody tr', { hasText: '給料(期末)' })).toHaveCount(0)
+
+    // リロードしても未決算のまま復元される（成績もDBから消えている）
+    await page.reload()
+    await page.getByTestId('tab-play').click()
+    await expect(page.getByTestId('closing')).toBeVisible()
+    await page.getByTestId('tab-history').click()
+    await expect(page.getByTestId('history')).toHaveCount(0)
+
+    // 修正（追加販売）して再決算 → 売上が増えた決算書に置き換わる
+    await page.getByTestId('tab-play').click()
+    await act(page, 'hanbai', { 'qty-0': 2, 'unit-0': 40 })
+    await expect(page.getByTestId('stat-sales')).toHaveText('180')
+    await closeAndSettle(page)
+    await expect(page.getByTestId('statement')).toBeVisible()
+    await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+    await page.getByTestId('tab-history').click()
+    await expect(page.getByTestId('history').locator('tbody tr')).toHaveCount(1)
+    await expect(page.getByTestId('history')).toContainText('180')
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('管理者：編集モードで参加者の数値を修正→参加者側に反映される', async ({ page }) => {
+    // 参加者を作成して記帳（資本金300＋機械購入）
+    await registerOrg(page, 'E2E6')
+    await page.goto(`/?org=E2E6`)
+    await page.getByTestId('c-name').fill('修正製菓')
+    await page.getByTestId('c-pres').fill('修正太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+    await act(page, 'kikai', { n: 1 })
+
+    // 管理者ビュー → 参加者を選択 → 編集モードに切替
+    await page.goto('/admin')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+    await page.getByTestId('admin-org').selectOption('E2E6')
+    await page.locator('text=修正製菓').first().click()
+    await page.getByTestId('frame-edit').click()
+
+    const frame = page.frameLocator('[data-testid="spectator-frame"]')
+    await expect(frame.getByTestId('instructor-banner')).toBeVisible()
+
+    // iframe 内で資本金 300→400 に修正（キーレス行の金額編集）
+    await frame.getByTestId('tab-play').click()
+    const capRow = frame.getByTestId('ledger').locator('tbody tr', { hasText: '資本金' })
+    await capRow.getByTestId(/^edit-/).click()
+    await expect(frame.getByTestId('amount-input')).toHaveValue('300')
+    await frame.getByTestId('amount-input').fill('400')
+    await frame.getByTestId('amount-ok').click()
+    await expect(capRow).toContainText('400')
+
+    // 閲覧専用モードでは編集ボタンが出ない
+    await page.getByTestId('frame-view').click()
+    const vframe = page.frameLocator('[data-testid="spectator-frame"]')
+    await vframe.getByTestId('tab-play').click()
+    await expect(vframe.getByTestId('ledger')).toBeVisible()
+    await expect(vframe.getByTestId('ledger').locator('tbody tr', { hasText: '資本金' }).getByTestId(/^edit-/)).toHaveCount(0)
+
+    // 参加者側で開き直すと修正が反映されている
+    await page.goto(`/?org=E2E6`)
+    await page.getByTestId('tab-play').click()
+    await expect(page.getByTestId('ledger').locator('tbody tr', { hasText: '資本金' })).toContainText('400')
+    await expect(page.getByTestId('stat-cash')).toHaveText('300') // 400 − 機械100
 
     expect((page as any)._mgErrors).toEqual([])
   })

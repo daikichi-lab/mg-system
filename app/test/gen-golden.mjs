@@ -1,14 +1,15 @@
 // 実 mock(index.html) をヘッドレスで走らせ、各シナリオ・各期の st.result を golden.json に保存。
 // これを TS エンジンの出力と突き合わせて数値一致（golden-master）を検証する。
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdtempSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { scenarios } from './scenarios.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const MOCK = '/home/fugashiojiri/mg-system/mock/index.html'
-const SCRATCH = '/tmp/claude-1000/-home-fugashiojiri-mg-system/5cef9729-1a80-446d-826c-c21d67a5c5df/scratchpad'
+const MOCK = join(__dirname, '../../mock/index.html')
+const SCRATCH = mkdtempSync(join(tmpdir(), 'mg-golden-'))
 const CHROME = [
   join(process.env.HOME, '.cache/ms-playwright/chromium-1228/chrome-linux64/chrome'),
   join(process.env.HOME, '.cache/ms-playwright/chromium-1140/chrome-linux/chrome'),

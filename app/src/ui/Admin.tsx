@@ -17,6 +17,8 @@ export default function Admin() {
   const [issuedMsg, setIssuedMsg] = useState('')
   const [curCo, setCurCo] = useState<ApiOrgCompany | null>(null) // 参加者ビューで表示中の会社
   const [mainView, setMainView] = useState<'frame' | 'rank'>('frame') // 参加者ビュー / 成績一覧
+  const [frameMode, setFrameMode] = useState<'view' | 'edit'>('view') // 閲覧専用 / 編集モード
+  const [frameKey, setFrameKey] = useState(0) // 参加者ビューの再読み込み用
 
   const loadOrgs = useCallback(async (tk: string) => {
     try {
@@ -150,7 +152,9 @@ export default function Admin() {
   const newUrl = newCode.trim() ? new URL(`/?org=${encodeURIComponent(newCode.trim())}`, location.href).href : ''
   // 選択中の組織コードの参加用URL（いつでもコピーできるようヘッダーに置く）
   const orgUrl = org ? new URL(`/?org=${encodeURIComponent(org)}`, location.href).href : ''
-  const frameSrc = curCo ? `/?vorg=${encodeURIComponent(org)}&vco=${encodeURIComponent(curCo.name)}` : ''
+  const frameSrc = curCo
+    ? `/?vorg=${encodeURIComponent(org)}&vco=${encodeURIComponent(curCo.name)}${frameMode === 'edit' ? '&vedit=1' : ''}`
+    : ''
   const status = (c: ApiOrgCompany) =>
     c.settled ? { label: '決算済み', color: '#9a7d10' } : c.started ? { label: 'プレイ中', color: '#0f766e' } : { label: '記録のみ', color: '#9aa3b2' }
 
@@ -304,6 +308,8 @@ export default function Admin() {
                     <div
                       className="cursor-pointer"
                       onClick={() => {
+                        // 誤編集防止のため、参加者を切り替えたら閲覧専用に戻す
+                        if (curCo?.id !== c.id) setFrameMode('view')
                         setCurCo(c)
                         setMainView('frame')
                       }}
@@ -364,28 +370,59 @@ export default function Admin() {
               </button>
             </div>
             <div className="font-bold text-sm">{mainView === 'rank' ? '成績一覧' : curCo ? curCo.name : '参加者を選択してください'}</div>
+            {mainView === 'frame' && curCo && (
+              <>
+                <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold shrink-0">
+                  <button
+                    data-testid="frame-view"
+                    onClick={() => setFrameMode('view')}
+                    className={`px-3 py-1 rounded-md transition ${frameMode === 'view' ? 'bg-white shadow-sm text-ink' : 'text-ink-400'}`}
+                  >
+                    閲覧専用
+                  </button>
+                  <button
+                    data-testid="frame-edit"
+                    onClick={() => setFrameMode('edit')}
+                    className={`px-3 py-1 rounded-md transition ${frameMode === 'edit' ? 'bg-amber-500 text-white shadow-sm' : 'text-ink-400'}`}
+                  >
+                    ✏️ 編集モード
+                  </button>
+                </div>
+                <button
+                  data-testid="frame-reload"
+                  onClick={() => setFrameKey((k) => k + 1)}
+                  className="h-7 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas shrink-0"
+                >
+                  再読み込み
+                </button>
+              </>
+            )}
             <span className="ml-auto text-ink-300 text-[11px]">
               {mainView === 'rank'
                 ? '現在の組織の各社・各期の成績。CSVでダウンロードできます。'
-                : '参加者が見ている画面（閲覧専用）。'}
+                : frameMode === 'edit' && curCo
+                  ? '編集モード：この画面での修正は参加者のデータに即保存されます。参加者が同時に操作中の場合は上書きにご注意ください。'
+                  : '参加者が見ている画面（閲覧専用）。'}
             </span>
           </div>
 
-          {mainView === 'frame' ? (
-            curCo ? (
-              <iframe
-                data-testid="spectator-frame"
-                title="参加者ビュー"
-                src={frameSrc}
-                className="flex-1 w-full rounded-xl border border-line bg-white"
-                style={{ minHeight: 600 }}
-              />
-            ) : (
-              <div className="flex-1 grid place-items-center text-ink-300 text-sm bg-white rounded-xl border border-line" style={{ minHeight: 300 }}>
-                左の一覧から参加者を選ぶと、その人が見ている画面（閲覧専用）が表示されます。
-              </div>
-            )
-          ) : (
+          {/* 参加者ビューの iframe は成績一覧に切り替えても残す（アンマウントすると閲覧中の期・タブがリセットされるため hidden で隠すだけ） */}
+          {curCo && (
+            <iframe
+              key={frameKey}
+              data-testid="spectator-frame"
+              title="参加者ビュー"
+              src={frameSrc}
+              className={`flex-1 w-full rounded-xl border ${frameMode === 'edit' ? 'border-amber-400 ring-2 ring-amber-200' : 'border-line'} bg-white ${mainView === 'frame' ? '' : 'hidden'}`}
+              style={{ minHeight: mainView === 'frame' ? 600 : undefined }}
+            />
+          )}
+          {mainView === 'frame' && !curCo && (
+            <div className="flex-1 grid place-items-center text-ink-300 text-sm bg-white rounded-xl border border-line" style={{ minHeight: 300 }}>
+              左の一覧から参加者を選ぶと、その人が見ている画面（閲覧専用）が表示されます。
+            </div>
+          )}
+          {mainView === 'rank' && (
             <div className="flex-1 min-h-0 flex flex-col bg-white rounded-xl border border-line p-4">
               <div className="flex items-center justify-between gap-2 mb-3 flex-wrap shrink-0">
                 <div className="font-bold text-sm">

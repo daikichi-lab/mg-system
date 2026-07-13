@@ -61,7 +61,10 @@ export default function Participant() {
   const [editTx, setEditTx] = useState<TxRow | null>(null) // 編集対象のアクション行
   const [amountTx, setAmountTx] = useState<TxRow | null>(null) // 金額のみ編集する行（資本金/給料/家賃 等）
   const [stmtView, setStmtView] = useState<Result | null>(null)
+  const [askUnsettle, setAskUnsettle] = useState(false) // 決算取り消しの確認モーダル
   const st = game.st
+  // 決算取り消し → 記帳タブへ（閲覧専用では出さない）
+  const onUnsettle = game.spectator ? undefined : () => setAskUnsettle(true)
 
   // 記帳行の ✎ 編集：アクション行→モーダル再表示、キーレス行→金額編集
   const openEditRow = (t: TxRow) => {
@@ -107,6 +110,11 @@ export default function Participant() {
           👁 閲覧専用（講師ビュー）— {st.name || '参加者'}の画面
         </div>
       )}
+      {game.instructorEdit && (
+        <div data-testid="instructor-banner" className="bg-amber-600 text-white text-center text-xs font-bold py-1.5 px-4">
+          ✏️ 講師編集モード — {st.name || '参加者'}のデータを直接修正しています（変更は自動保存されます）
+        </div>
+      )}
       <Header st={st} />
       <nav className="max-w-5xl mx-auto px-3 sm:px-6 pb-2 pt-3">
         <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 bg-canvas border border-line rounded-xl p-1">
@@ -150,11 +158,12 @@ export default function Participant() {
             onOpen={setModalKey}
             onEditRow={openEditRow}
             onSettleTab={() => go('closing')}
+            onUnsettle={onUnsettle}
             readOnly={game.spectator}
           />
         )}
         {tab === 'closing' && (
-          <ClosingTab game={game} onStatement={() => go('statement')} />
+          <ClosingTab game={game} onStatement={() => go('statement')} onUnsettle={onUnsettle} />
         )}
         {tab === 'statement' && (
           <StatementTab
@@ -165,6 +174,7 @@ export default function Participant() {
               go('opening')
             }}
             onBack={() => go('history')}
+            onUnsettle={onUnsettle}
           />
         )}
         {tab === 'history' && (
@@ -200,7 +210,61 @@ export default function Participant() {
           }}
         />
       )}
+      {askUnsettle && (
+        <ConfirmModal
+          title="決算を取り消しますか？"
+          body={`当期の決算書と成績（履歴・成績一覧）を取り消し、期末処理の自動行（給料・家賃・返済）も外して記帳に戻ります。\n修正が終わったら、もう一度「期末処理 → 決算」を行ってください。`}
+          okLabel="決算を取り消して記帳に戻る"
+          onOk={() => {
+            game.unsettle()
+            setTab('play')
+          }}
+          onClose={() => setAskUnsettle(false)}
+        />
+      )}
       <Toaster toasts={toasts} />
+    </div>
+  )
+}
+
+// ------- 確認モーダル（期末処理・決算・決算取り消し）-------
+function ConfirmModal({
+  title,
+  body,
+  okLabel,
+  onOk,
+  onClose,
+}: {
+  title: string
+  body: string
+  okLabel: string
+  onOk: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5">
+        <h3 className="font-bold text-lg mb-2" data-testid="confirm-title">
+          {title}
+        </h3>
+        <p className="text-ink-500 text-sm mb-4 whitespace-pre-line">{body}</p>
+        <div className="flex gap-2">
+          <button data-testid="confirm-cancel" onClick={onClose} className="h-11 px-4 rounded-xl border border-line text-ink-600 font-bold flex-1">
+            やめる
+          </button>
+          <button
+            data-testid="confirm-ok"
+            onClick={() => {
+              onOk()
+              onClose()
+            }}
+            className="h-11 px-4 rounded-xl bg-ink text-white font-bold flex-1"
+          >
+            {okLabel}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -659,18 +723,21 @@ function PlayTab({
   onOpen,
   onEditRow,
   onSettleTab,
+  onUnsettle,
   readOnly = false,
 }: {
   game: ReturnType<typeof useGame>
   onOpen: (k: string) => void
   onEditRow: (t: TxRow) => void
   onSettleTab: () => void
+  onUnsettle?: () => void
   readOnly?: boolean
 }) {
   const st = game.st
   const c = caps(st)
   const disabled = st.settled || st.closingPrep || readOnly
   const [sub, setSub] = useState<'A' | 'B' | 'X' | 'company'>('A')
+  const [confirmStage, setConfirmStage] = useState<'prep' | 'settle' | null>(null) // 期末処理/決算の確認モーダル
   const tot = colTotals(st)
 
   const statCard = (label: string, value: string, id?: string) => (
@@ -784,19 +851,22 @@ function PlayTab({
             )}
             <button
               data-testid="closing"
-              onClick={() => {
-                if (!st.closingPrep) {
-                  // 1段目：給与・家賃（と期末返済）を記帳に計上（このタブに留まる）
-                  game.closing()
-                } else {
-                  // 2段目：決算を確定し、期末処理タブへ遷移
-                  game.settleNow()
-                  onSettleTab()
-                }
-              }}
+              onClick={() => setConfirmStage(st.closingPrep ? 'settle' : 'prep')}
               className={`h-11 px-6 rounded-xl font-bold text-white ${st.closingPrep ? 'bg-accent' : 'bg-ink'}`}
             >
               {st.closingPrep ? '当期の決算を行う →' : '期末処理を行う（給与・家賃を計上）'}
+            </button>
+          </div>
+        )}
+        {st.settled && !readOnly && onUnsettle && (
+          <div className="flex gap-3 flex-wrap items-center ml-auto">
+            <span className="text-ink-400 text-sm">この期は決算済みです。</span>
+            <button
+              data-testid="unsettle-play"
+              onClick={onUnsettle}
+              className="h-11 px-4 rounded-xl border border-accent/50 text-accent-ink font-bold text-sm hover:bg-accent/5"
+            >
+              記帳を修正する（決算を取り消す）
             </button>
           </div>
         )}
@@ -805,6 +875,26 @@ function PlayTab({
         <p className="text-ink-400 text-xs text-right">
           給与・家賃（と期末返済）を記帳に計上しました。決算にするか、記帳に戻れます。
         </p>
+      )}
+      {confirmStage === 'prep' && (
+        <ConfirmModal
+          title="期末処理を行いますか？"
+          body={`給料・家賃（第2期以降は期末返済も）を自動で記帳に計上します。\n計上後も「記帳に戻る」で取り消せます。`}
+          okLabel="期末処理を行う"
+          onOk={() => game.closing()}
+          onClose={() => setConfirmStage(null)}
+        />
+      )}
+      {confirmStage === 'settle' && (
+        <ConfirmModal
+          title="当期の決算を行いますか？"
+          body={`決算を確定して決算書を作成します。\n決算後も「記帳を修正する（決算を取り消す）」で記帳に戻れます。`}
+          okLabel="決算を行う"
+          onOk={() => {
+            if (game.settleNow()) onSettleTab()
+          }}
+          onClose={() => setConfirmStage(null)}
+        />
       )}
     </div>
   )
@@ -1001,9 +1091,18 @@ function Ledger({
 }
 
 // ------- 期末処理 -------
-function ClosingTab({ game, onStatement }: { game: ReturnType<typeof useGame>; onStatement: () => void }) {
+function ClosingTab({
+  game,
+  onStatement,
+  onUnsettle,
+}: {
+  game: ReturnType<typeof useGame>
+  onStatement: () => void
+  onUnsettle?: () => void
+}) {
   const st = game.st
   const r = st.settled ? st.result : null
+  const [askSettle, setAskSettle] = useState(false)
   const heading = (
     <div>
       <h1 className="text-xl sm:text-2xl font-black tracking-tight">期末処理</h1>
@@ -1021,12 +1120,21 @@ function ClosingTab({ game, onStatement }: { game: ReturnType<typeof useGame>; o
           <p className="text-ink-400 text-sm">まだ決算していません。</p>
           <button
             data-testid="closing-run"
-            onClick={() => game.settleNow()}
+            onClick={() => setAskSettle(true)}
             className="mt-4 h-12 px-6 rounded-xl bg-emerald-600 text-white font-bold"
           >
             決算を実行する
           </button>
         </div>
+        {askSettle && (
+          <ConfirmModal
+            title="当期の決算を行いますか？"
+            body={`期末処理（給料・家賃・返済）と決算を確定して決算書を作成します。\n決算後も「記帳を修正する（決算を取り消す）」で記帳に戻れます。`}
+            okLabel="決算を行う"
+            onOk={() => game.settleNow()}
+            onClose={() => setAskSettle(false)}
+          />
+        )}
       </div>
     )
   }
@@ -1080,6 +1188,15 @@ function ClosingTab({ game, onStatement }: { game: ReturnType<typeof useGame>; o
         </div>
       </div>
       <div className="flex flex-wrap justify-end gap-3">
+        {onUnsettle && (
+          <button
+            data-testid="unsettle-closing"
+            onClick={onUnsettle}
+            className="h-11 px-5 rounded-xl border border-accent/50 text-accent-ink font-bold hover:bg-accent/5"
+          >
+            記帳を修正する（決算を取り消す）
+          </button>
+        )}
         <button data-testid="to-statement" onClick={onStatement} className="h-11 px-5 rounded-xl bg-ink text-white font-bold">
           決算書をみる →
         </button>
@@ -1094,11 +1211,13 @@ function StatementTab({
   view,
   onNext,
   onBack,
+  onUnsettle,
 }: {
   st: St
   view: Result | null
   onNext: () => void
   onBack: () => void
+  onUnsettle?: () => void
 }) {
   const [plView, setPlView] = useState<'strac' | 'wf'>('strac')
   const r = view || st.result
@@ -1482,7 +1601,16 @@ function StatementTab({
       </div>
 
       {!view && (
-        <div className="flex">
+        <div className="flex flex-wrap items-center gap-3">
+          {st.settled && onUnsettle && (
+            <button
+              data-testid="unsettle"
+              onClick={onUnsettle}
+              className="h-12 px-5 rounded-xl border border-accent/50 text-accent-ink font-bold hover:bg-accent/5"
+            >
+              ← 記帳を修正する（決算を取り消す）
+            </button>
+          )}
           {r.period < 5 ? (
             <button
               data-testid="next-period"

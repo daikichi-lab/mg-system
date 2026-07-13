@@ -222,10 +222,12 @@ export const ACTIONS: Record<string, ActionDef> = {
     amount: (f) => rows(f).reduce((s, x) => s + (x.qty || 0) * (x.unit || 0), 0),
     apply: (st, f) =>
       rows(f).forEach((x) => {
+        // 盤面に無い製品は売れない：会計側（salesQty/salesAmt）も実売数でカウントする。
+        // 入力数のまま加算すると、行の削除・編集後などに期末在庫がマイナスになりB/Sが壊れる
         const n = Math.min(x.qty || 0, st.products)
         st.products -= n
-        st.salesQty += x.qty || 0
-        st.salesAmt += (x.qty || 0) * (x.unit || 0)
+        st.salesQty += n
+        st.salesAmt += n * (x.unit || 0)
       }),
   },
   kikai: {
@@ -351,8 +353,8 @@ export const ACTIONS: Record<string, ActionDef> = {
     apply: (st, f) => {
       const n = Math.min(f.qty || 0, st.products)
       st.products -= n
-      st.salesQty += f.qty || 0
-      st.salesAmt += (f.qty || 0) * 32
+      st.salesQty += n
+      st.salesAmt += n * 32
     },
   },
   dokusen: {
@@ -366,8 +368,8 @@ export const ACTIONS: Record<string, ActionDef> = {
     apply: (st, f) => {
       const n = Math.min(f.qty || 0, st.products)
       st.products -= n
-      st.salesQty += f.qty || 0
-      st.salesAmt += (f.qty || 0) * (f.unit || 0)
+      st.salesQty += n
+      st.salesAmt += n * (f.unit || 0)
     },
   },
   tokubai: {
@@ -641,6 +643,21 @@ export function doClosingPrep(st: St) {
     })
   st.closingPrep = true
   recompute(st)
+}
+
+// ---- 決算前の在庫整合性チェック ----
+// 期末在庫の個数がマイナス、または盤面と帳簿の個数が食い違う状態では決算させない。
+// 正常な台帳では常に null（過去データの破損や想定外の経路への安全網）。
+export function settleBlockReason(st: St): string | null {
+  recompute(st)
+  const scrapQ = st.scrapQty || 0
+  const endQty = st.matQty - st.salesQty - scrapQ
+  const board = st.rawCubes + st.products
+  if (endQty < 0)
+    return `期末在庫が ${endQty} 個とマイナスのため決算できません。累計販売 ${st.salesQty} 個が期首在庫＋仕入 ${st.matQty} 個（うち廃棄 ${scrapQ} 個）を超えています。販売・仕入・製造の記帳を見直してください。`
+  if (endQty !== board)
+    return `在庫の個数が合わないため決算できません（帳簿 ${endQty} 個 / 盤面 ${board} 個）。販売・製造・廃棄の記帳を見直してください。`
+  return null
 }
 
 // ---- 決算 ----

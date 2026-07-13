@@ -125,7 +125,7 @@ function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty: f
 |---|---|---|---|---|---|---|---|---|---|---|
 | `shiire` | 仕入れ | A | 5(オ材料) | out | オ 材料仕入 | ✔ | qty(d0,個), unit(choice[10..16] d10) | `Σ qty*unit` | 各行: `rawCubes+=qty; matQty+=qty; matVal+=qty*unit` | `qty×unit ＋ …` |
 | `seizo` | 製造 | A | null | null | 製造（現金移動なし） noCash | | qty(d1,個) | `0` | `n=min(qty,rawCubes); rawCubes-=n; products+=n` | `製品+qty` |
-| `hanbai` | 販売 | A | 2(ウ売上) | in | ウ 売上 | ✔ | qty(d1,個), unit(売価P d30) | `Σ qty*unit` | 各行: `n=min(qty,products); products-=n; salesQty+=qty; salesAmt+=qty*unit` | `qty×unit ＋ …` |
+| `hanbai` | 販売 | A | 2(ウ売上) | in | ウ 売上 | ✔ | qty(d1,個), unit(売価P d30) | `Σ qty*unit` | 各行: `n=min(qty,products); products-=n; salesQty+=n; salesAmt+=n*unit`（会計側も実売数n。幽霊販売で期末在庫が負になるのを防ぐ） | `qty×unit ＋ …` |
 | `kikai` | 機械購入 | A | 4(エ什器) | out | エ 什器 | | n(d1,台) | `n*100` | `machines+=n; equipVal+=n*100` | — |
 | `saiyo` | スタッフ採用 | A | 6(カ人件費) | out | カ 人件費 | | mfg(d0),sales(d0),fail(d0) | `(mfg+sales+fail)*5` | `staffMfg+=mfg; staffSales+=sales`（failは受け取れず加算しない） | `製造mfg・販売sales[・失敗fail]` |
 | `koukoku` | 広告 | A | 7(キ販売費) | out | キ 販売費 | | n(d1,枚) | `n*10` | `ads+=n` | — |
@@ -154,8 +154,8 @@ function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty: f
 
 | key | label | cat | col | side | fields | amount | apply | rownote |
 |---|---|---|---|---|---|---|---|---|
-| `kaihatsu_win` | 商品開発成功！ | 販売機会 | 2(ウ売上) | in | qty(d0,個,min0) | `qty*32` | `n=min(qty,products); products-=n; salesQty+=qty; salesAmt+=qty*32` | `qty×32` or `効果なし`(qty=0) |
-| `dokusen` | 独占販売！ | 販売機会 | 2(ウ売上) | in | qty(d0,個,min0), unit(d30,min0) | `qty*unit` | `n=min(qty,products); products-=n; salesQty+=qty; salesAmt+=qty*unit` | `独占 qty×unit` or `効果なし` |
+| `kaihatsu_win` | 商品開発成功！ | 販売機会 | 2(ウ売上) | in | qty(d0,個,min0) | `qty*32` | `n=min(qty,products); products-=n; salesQty+=n; salesAmt+=n*32` | `qty×32` or `効果なし`(qty=0) |
+| `dokusen` | 独占販売！ | 販売機会 | 2(ウ売上) | in | qty(d0,個,min0), unit(d30,min0) | `qty*unit` | `n=min(qty,products); products-=n; salesQty+=n; salesAmt+=n*unit` | `独占 qty×unit` or `効果なし` |
 
 - `kaihatsu_win` 上限: `2*st.dev`（開発チップ×2）かつ `salesCap`・`products`。qty=0は記帳可。
 - `dokusen` 上限: `2*staffSales`（販売×2）かつ `products`。qty=0は記帳可。
@@ -692,6 +692,20 @@ loss = max(0, −G)                    (損失)
   - `dokusen`（qty>0時）: `qty ≤ 2*staffSales` かつ `≤ products`
   - `tokubai`: `qty ≤ 5` かつ（qty>0時）`rawCubes+qty ≤ 15`
   - `keiki`: `qty ≤ 3` かつ（qty>0時）`rawCubes+qty ≤ 15`
+
+### 12.1 台帳の再検証と決算前チェック（app実装 game.ts / calc.ts）
+
+記帳の新規追加時だけでなく、**過去にさかのぼって前提を崩す操作**の後にも台帳全体を検証する。
+
+- **`revalidateLedger(st)`**（game.ts）: 各アクション行を「その行より前の行だけを適用した状態」で `validate` し直す。エラーがあれば行ラベル付きで全件返す。
+- 呼び出し箇所（いずれもエラー時は**操作を取り消して**エラーを返す）:
+  - `deleteRow` … 行削除（例：販売済みの仕入・製造行の削除を拒否）
+  - `editActionRow` … アクション行の編集（編集行自身も前置状態で検証）
+  - `editAmountRow` … キーレス行の金額変更（増資は借入枠に影響）
+  - `setBoard`（期首処理の盤面変更）・`setInstr`（借入倍率変更）
+- **イベント行の再検証**: `kaihatsu_win`/`dokusen`/`tokubai`/`keiki`/`taishoku_*` は §12 の各チェックがそのまま適用される。`suigai`/`ibutsu` は記帳時に盤面から fvals（discard/payout/insuredUsed）を自動算出・固定するため記帳時チェックは不要だが、前方の行を消すと根拠が消える（幽霊保険金）ため、再検証用のチェックを追加: `discard ≤ 在庫（rawCubes/products）`・ibutsu は `discard ≤ 2`・`payout>0 → insurance>0`・`payout ≤ discard×10`。
+- **`undoSettle(st, history)`**（game.ts）: 決算の取り消し。当期の `result`・履歴エントリを破棄し、期末の自動行（`isClosing`）を外して `closingPrep=false` に戻す。「次の期へ進む」前のみ（進んだ後は `settled=false` のため対象外）。サーバー `saveState` はクライアントが送る全履歴に無い期の `period_results` を削除するため、取り消しはリロード後・成績一覧にも反映される。UI では期末処理・決算・決算取り消しの各ボタンに確認モーダル（ConfirmModal）を挟む。
+- **`settleBlockReason(st)`**（calc.ts）: 決算実行前に `期末在庫個数 = matQty − salesQty − scrapQty` が負、または盤面個数 `rawCubes+products` と不一致なら理由文字列を返し、決算をブロックする（正常な台帳では常に null。旧データ破損への安全網）。
 
 ---
 

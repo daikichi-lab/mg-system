@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "seed:15": "node test/seed-15.mjs",
     "test:calc": "node --test test/calc.test.ts",
+    "test:game": "node --test test/game.test.ts",
     "test:db": "node --test test/db.pg.test.ts",
     "test:e2e": "playwright test"
   },

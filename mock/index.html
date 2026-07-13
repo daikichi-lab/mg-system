@@ -689,7 +689,7 @@
     hanbai:  {label:'販売', rule:'A', col:2, side:'in', badge:'ウ 売上', multi:true,
       fields:[{k:'qty',l:'個数',d:1,s:'個'},{k:'unit',l:'売価P',d:30,s:'/個'}],
       amount:f=>rowsOf(f).reduce((s,r)=>s+r.qty*r.unit,0), note:'入札競争で販売。＋で複数売価を1記帳に',
-      apply:f=>{ rowsOf(f).forEach(r=>{ const n=Math.min(r.qty, st.products); st.products-=n; st.salesQty+=r.qty; st.salesAmt+=r.qty*r.unit; }); }, rownote:f=>rowsOf(f).map(r=>`${r.qty}×${r.unit}`).join(' ＋ ')},
+      apply:f=>{ rowsOf(f).forEach(r=>{ const n=Math.min(r.qty, st.products); st.products-=n; st.salesQty+=n; st.salesAmt+=n*r.unit; }); }, rownote:f=>rowsOf(f).map(r=>`${r.qty}×${r.unit}`).join(' ＋ ')},
     kikai:   {label:'機械購入', rule:'A', col:4, side:'out', badge:'エ 什器',
       fields:[{k:'n',l:'台数',d:1,s:'台'}],
       amount:f=>f.n*100, note:'1台100・製造スタッフ2人稼働・減価償却10/台',
@@ -726,10 +726,10 @@
     // 販売機会
     kaihatsu_win:{label:'商品開発成功！', rule:'X', cat:'販売機会', col:2, side:'in', badge:'ウ 売上',
       fields:[{k:'qty',l:'個数',d:0,s:'個',min:0}], amount:f=>f.qty*32, note:'商品開発チップ1枚につき2個まで・1個32で販売（販売能力の範囲内）。0個でも記帳可',
-      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=f.qty; st.salesAmt+=f.qty*32; }, rownote:f=>f.qty?`${f.qty}×32`:'効果なし'},
+      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=n; st.salesAmt+=n*32; }, rownote:f=>f.qty?`${f.qty}×32`:'効果なし'},
     dokusen:{label:'独占販売！', rule:'X', cat:'販売機会', col:2, side:'in', badge:'ウ 売上',
       fields:[{k:'qty',l:'個数',d:0,s:'個',min:0},{k:'unit',l:'売価',d:30,s:'/個',min:0}], amount:f=>f.qty*f.unit, note:'販売スタッフ1人につき2個まで・空いた市場で独占販売（販売能力の範囲内）。0個でも記帳可',
-      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=f.qty; st.salesAmt+=f.qty*f.unit; }, rownote:f=>f.qty?`独占 ${f.qty}×${f.unit}`:'効果なし'},
+      apply:f=>{ const n=Math.min(f.qty,st.products); st.products-=n; st.salesQty+=n; st.salesAmt+=n*f.unit; }, rownote:f=>f.qty?`独占 ${f.qty}×${f.unit}`:'効果なし'},
     // 仕入機会
     tokubai:{label:'特別サービス！', rule:'X', cat:'仕入機会', col:5, side:'out', badge:'オ 材料仕入',
       fields:[{k:'qty',l:'個数',d:0,s:'個',min:0}], amount:f=>f.qty*10, note:'1個10で5個まで仕入（ストッカーから）。0個でも記帳可',

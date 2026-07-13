@@ -280,6 +280,16 @@ export async function saveState(companyId, payload) {
         ],
       )
     }
+    // 決算の取り消しで履歴から消えた期の成績を DB からも消す（クライアントは常に全履歴を送る）
+    const resultPeriods = (payload.results || []).map((r) => Math.trunc(r.period)).filter((p) => Number.isFinite(p))
+    if (resultPeriods.length) {
+      await q.run(
+        `DELETE FROM period_results WHERE company_id = ? AND period NOT IN (${resultPeriods.map(() => '?').join(',')})`,
+        [companyId, ...resultPeriods],
+      )
+    } else {
+      await q.run('DELETE FROM period_results WHERE company_id = ?', [companyId])
+    }
     for (const r of payload.results || []) {
       await q.run(
         `INSERT INTO period_results (company_id, period, pq, mpq, f, g, net, cap_end, ret_end, cash_end, turns, decisions, result_json)
