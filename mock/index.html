@@ -68,7 +68,7 @@
 
 <!-- ===================== Header ===================== -->
 <header class="bg-white/95 backdrop-blur border-b border-line sticky top-0 z-40">
-  <div class="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
     <span class="mk bg-accent text-white shadow-sm" style="width:36px;height:36px;border-radius:9px;font-size:13px">MG</span>
     <div class="leading-tight mr-auto min-w-0">
       <div class="text-[10px] font-bold text-accent">戦略MG 自動決算</div>
@@ -139,7 +139,7 @@
         <h2 class="font-bold mb-1">開業資本金</h2>
         <p class="text-ink-400 text-xs mb-3">出資した自己資金。第1期の最初の「ア 資本金」として記帳されます。</p>
         <div class="flex items-end gap-2 bg-p-bg rounded-xl px-4 py-3">
-          <input id="c-capital" type="number" value="300" class="num font-bold text-3xl w-32 bg-transparent outline-none text-p-ink">
+          <input id="c-capital" type="number" inputmode="numeric" pattern="[0-9]*" value="300" class="num font-bold text-3xl w-32 bg-transparent outline-none text-p-ink">
         </div>
         <button id="c-apply" class="mt-3 w-full h-11 rounded-xl bg-ink text-white font-bold hover:bg-ink-600 transition">この内容で開始（資本金を記帳）</button>
         <p id="c-applied" class="text-emerald-700 text-xs mt-2 hidden">✓ 開始しました。各タブが使えます。「期首処理」で内容を確認し「記帳」へ進みましょう。</p>
@@ -182,9 +182,9 @@
 
   <!-- スコアボード（行動の結果が常に見える） -->
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-    <div class="bg-white rounded-xl border border-line px-3 py-2.5">
-      <div class="text-ink-400 text-[10px]">現金残高</div>
-      <div class="num font-bold text-lg sm:text-xl leading-tight"><span id="sc-cash">0</span></div>
+    <div class="bg-ink rounded-xl border border-ink px-3 py-2.5 shadow-card">
+      <div class="text-white/60 text-[10px] font-bold">現金残高</div>
+      <div class="num font-black text-2xl sm:text-2xl leading-tight text-white"><span id="sc-cash">0</span></div>
     </div>
     <div class="bg-white rounded-xl border border-line px-3 py-2.5">
       <div class="text-ink-400 text-[10px]">材料・原料</div>
@@ -204,7 +204,7 @@
   <div class="grid grid-cols-4 gap-1 bg-canvas border border-line rounded-xl p-1 mb-3">
     <button data-sub="A"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">ルールA</button>
     <button data-sub="B"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">ルールB</button>
-    <button data-sub="X"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">イベントカード</button>
+    <button data-sub="X"     class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition"><span class="sm:hidden">イベント</span><span class="hidden sm:inline">イベントカード</span></button>
     <button data-sub="board" class="sub-btn rounded-lg py-2 text-[13px] sm:text-sm font-bold transition">会社版</button>
   </div>
 
@@ -224,19 +224,20 @@
   </div>
 
   <!-- 現金出納帳 -->
-  <div class="bg-white rounded-2xl shadow-card border border-line p-4 mb-4">
-    <div class="flex items-center justify-between mb-3">
+  <div class="bg-white rounded-2xl shadow-card border border-line p-3 sm:p-4 mb-4">
+    <div class="flex items-center justify-between gap-x-3 gap-y-1 flex-wrap mb-3">
       <h2 class="font-bold">現金出納帳 <span class="text-ink-300 text-xs font-normal">自動記帳</span></h2>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-x-3 gap-y-1 flex-wrap justify-end">
         <div class="num text-sm text-ink-400">現金残高 <b id="ledger-balance" class="text-ink text-base">0</b></div>
-        <button id="ledger-seed" class="text-xs font-bold text-cin-ink hover:opacity-70">テスト（黒字）</button>
-        <button id="ledger-seed-loss" class="text-xs font-bold text-accent-ink hover:opacity-70">テスト（赤字）</button>
-        <button id="ledger-seed-flood" class="text-xs font-bold text-sky-600 hover:opacity-70">テスト（水害）</button>
-        <button id="ledger-clear" class="text-xs font-medium text-ink-400 hover:text-accent">全消去</button>
+        <button id="ledger-seed" class="text-[11px] sm:text-xs font-bold text-cin-ink hover:opacity-70">テスト（黒字）</button>
+        <button id="ledger-seed-loss" class="text-[11px] sm:text-xs font-bold text-accent-ink hover:opacity-70">テスト（赤字）</button>
+        <button id="ledger-seed-flood" class="text-[11px] sm:text-xs font-bold text-sky-600 hover:opacity-70">テスト（水害）</button>
+        <button id="ledger-clear" class="text-[11px] sm:text-xs font-medium text-ink-400 hover:text-accent">全消去</button>
       </div>
     </div>
-    <p class="text-ink-400 text-xs mb-2 sm:hidden">← 横にスクロールできます →</p>
-    <div class="overflow-x-auto scroll-x -mr-1 pr-1">
+    <!-- モバイル：仕訳カードリスト（ア〜コの列は色チップで表現・横スクロールなし） -->
+    <div id="ledger-cards" class="sm:hidden"></div>
+    <div class="hidden sm:block overflow-x-auto scroll-x -mr-1 pr-1">
       <table class="w-full text-[13px] border-separate min-w-[680px] lg:min-w-0" style="border-spacing:0">
         <thead>
           <tr class="text-ink-400">
@@ -494,16 +495,20 @@
     <p class="text-ink-400 text-sm mt-1">決算した期ごとの主要数値。「次の期へ進む」で蓄積されます。</p>
   </div>
   <div id="history-empty" class="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400 text-sm">まだ決算履歴がありません。</div>
-  <div id="history-body" class="hidden bg-white rounded-2xl shadow-card border border-line p-4 overflow-x-auto scroll-x">
-    <table class="w-full text-[13px] num text-right min-w-[720px]">
-      <thead><tr class="text-ink-400 border-b border-line">
-        <th class="text-left font-semibold px-2 py-2">期</th>
-        <th class="px-2 py-2">売上PQ</th><th class="px-2 py-2">変動費vPQ</th><th class="px-2 py-2">粗利mPQ</th>
-        <th class="px-2 py-2">固定費F</th><th class="px-2 py-2">経常利益G</th><th class="px-2 py-2">当期利益</th>
-        <th class="px-2 py-2">自己資本</th><th class="px-2 py-2">現金</th><th class="px-2 py-2 text-center">決算書</th>
-      </tr></thead>
-      <tbody id="history-rows"></tbody>
-    </table>
+  <div id="history-body" class="hidden">
+    <!-- モバイル：期ごとのカード（横スクロールなし） -->
+    <div id="history-cards" class="sm:hidden space-y-3"></div>
+    <div class="hidden sm:block bg-white rounded-2xl shadow-card border border-line p-4 overflow-x-auto scroll-x">
+      <table class="w-full text-[13px] num text-right min-w-[720px]">
+        <thead><tr class="text-ink-400 border-b border-line">
+          <th class="text-left font-semibold px-2 py-2">期</th>
+          <th class="px-2 py-2">売上PQ</th><th class="px-2 py-2">変動費vPQ</th><th class="px-2 py-2">粗利mPQ</th>
+          <th class="px-2 py-2">固定費F</th><th class="px-2 py-2">経常利益G</th><th class="px-2 py-2">当期利益</th>
+          <th class="px-2 py-2">自己資本</th><th class="px-2 py-2">現金</th><th class="px-2 py-2 text-center">決算書</th>
+        </tr></thead>
+        <tbody id="history-rows"></tbody>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -533,14 +538,14 @@
 
     <!-- KPI推移（組織タブと同じ6指標） -->
     <div class="grid sm:grid-cols-2 gap-4">
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">売上 PQ の推移</h2><div id="rv-PQ"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">経常利益 G の推移</h2><div id="rv-G"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">当期純利益の推移</h2><div id="rv-NET"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">FM比率（損益分岐点比率）の推移</h2><div id="rv-FM"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">純資産の推移</h2><div id="rv-EQ"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">粗利率の推移</h2><div id="rv-MR"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="rv-TURN"></div></div>
-      <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="rv-DEC"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">売上 PQ の推移</h2><div id="rv-PQ"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">経常利益 G の推移</h2><div id="rv-G"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">当期純利益の推移</h2><div id="rv-NET"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">FM比率（損益分岐点比率）の推移</h2><div id="rv-FM"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">純資産の推移</h2><div id="rv-EQ"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">粗利率の推移</h2><div id="rv-MR"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="rv-TURN"></div></div>
+      <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="rv-DEC"></div></div>
     </div>
 
     <!-- 自動の気づき -->
@@ -591,8 +596,8 @@
         <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">FM比率（損益分岐点比率）の推移</h2><div id="org-FM"></div></div>
         <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">純資産の推移</h2><div id="org-EQ"></div></div>
         <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">粗利率の推移</h2><div id="org-MR"></div></div>
-        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="org-TURN"></div></div>
-        <div class="bg-white rounded-2xl shadow-card border border-line p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="org-DEC"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">ターン数の推移 <span class="text-ink-300 text-xs font-normal">ルールA＋イベント</span></h2><div id="org-TURN"></div></div>
+        <div class="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5"><h2 class="font-bold mb-2">意思決定回数の推移 <span class="text-ink-300 text-xs font-normal">ルールA</span></h2><div id="org-DEC"></div></div>
       </div>
       <div id="org-table" class="hidden grid sm:grid-cols-2 gap-4"></div>
     </div>
@@ -604,7 +609,7 @@
 <!-- ===================== 記帳モーダル ===================== -->
 <div id="modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center">
   <div id="modal-bg" class="absolute inset-0 bg-ink/40"></div>
-  <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto">
+  <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto" style="padding-bottom:max(20px, env(safe-area-inset-bottom))">
     <div class="flex items-center gap-2 mb-1">
       <span id="m-badge" class="text-xs font-semibold px-2 py-0.5 rounded-md bg-v-bg text-v-ink">badge</span>
       <span id="m-side" class="text-xs text-ink-400">出金</span>
@@ -633,6 +638,9 @@
   const $ = id => document.getElementById(id);
   const fmt = n => Math.round(n).toLocaleString('ja-JP');   // 千円は整数・四捨五入
   const SALARY_TABLE = {1:25,2:28,3:31,4:34,5:37};
+  // モバイル判定（図表をスマホ幅に合わせて描き分ける）。ブレークポイントは Tailwind sm=640px と揃える
+  const mqMobile = window.matchMedia('(max-width: 639px)');
+  const isM = () => mqMobile.matches;
 
   // ====================== 状態 ======================
   const COLS = 11;                 // ア イ ウ A / エ オ カ キ ク ケ コ
@@ -881,13 +889,18 @@
         let maxA = f.max;
         if(f.dynMax==='loanRoom'){ maxA=curMaxA; def=Math.min(def,curMaxA); }
         const lim = (f.min!=null?` min="${f.min}"`:'')+(maxA!=null&&isFinite(maxA)?` max="${maxA}"`:'');
+        const step = f.k==='a' ? 10 : 1;   // 金額（借入・返済）は10刻み、個数・枚数は1刻み
         lab.innerHTML=`<span class="text-sm font-medium">${f.l}</span>
-          <span class="flex items-center gap-1.5">
-            <input id="mf-${f.k}" type="number" value="${def}"${lim} class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none"></span>`;
+          <span class="flex items-stretch rounded-lg border border-line overflow-hidden">
+            <button type="button" data-stp="-1" data-step="${step}" data-for="mf-${f.k}" class="w-11 grid place-items-center text-xl leading-none text-ink-400 active:bg-canvas select-none" aria-label="減らす">−</button>
+            <input id="mf-${f.k}" type="number" inputmode="numeric" pattern="[0-9]*" value="${def}"${lim} class="h-11 w-20 border-x border-line px-1 text-center num text-base outline-none focus:bg-canvas/70">
+            <button type="button" data-stp="1" data-step="${step}" data-for="mf-${f.k}" class="w-11 grid place-items-center text-xl leading-none text-ink-400 active:bg-canvas select-none" aria-label="増やす">＋</button>
+          </span>`;
       }
       body.appendChild(lab);
     });
     body.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',preview));
+    wireSteppers(body);
     }
     preview();
     modal.classList.remove('hidden');
@@ -903,17 +916,37 @@
     }
     const def = val!=null ? val : f.d;
     const lim = (f.min!=null?` min="${f.min}"`:'');
-    return `<input id="mf-${f.k}-${ri}" type="number" value="${def}"${lim} class="h-10 w-16 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10">`;
+    if(f.k==='qty'){   // 個数は±ステッパー付き（タップだけで入力完了）
+      return `<span class="flex items-stretch rounded-lg border border-line overflow-hidden">
+        <button type="button" data-stp="-1" data-for="mf-${f.k}-${ri}" class="w-9 grid place-items-center text-lg leading-none text-ink-400 active:bg-canvas select-none" aria-label="減らす">−</button>
+        <input id="mf-${f.k}-${ri}" type="number" inputmode="numeric" pattern="[0-9]*" value="${def}"${lim} class="h-10 w-11 border-x border-line px-0.5 text-center num text-base outline-none focus:bg-canvas/70">
+        <button type="button" data-stp="1" data-for="mf-${f.k}-${ri}" class="w-9 grid place-items-center text-lg leading-none text-ink-400 active:bg-canvas select-none" aria-label="増やす">＋</button>
+      </span>`;
+    }
+    return `<input id="mf-${f.k}-${ri}" type="number" inputmode="numeric" pattern="[0-9]*" value="${def}"${lim} class="h-10 w-16 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10">`;
+  }
+  // ±ステッパー：入力欄の値を増減して input イベントを発火（プレビュー/検証と連動）
+  function wireSteppers(root){
+    root.querySelectorAll('[data-stp]').forEach(b=>b.addEventListener('click',()=>{
+      const el=$(b.dataset.for); if(!el||el.disabled) return;
+      const d=(+b.dataset.stp)*(+(b.dataset.step||1));
+      let v=parseFloat(el.value); if(isNaN(v)) v=0;
+      v+=d;
+      const mn=el.min!==''?parseFloat(el.min):null, mx=el.max!==''?parseFloat(el.max):null;
+      if(mn!=null&&v<mn) v=mn; if(mx!=null&&v>mx) v=mx;
+      el.value=v;
+      el.dispatchEvent(new Event('input'));
+    }));
   }
   function syncMRows(){ const a=ACTIONS[curKey]; mRows = mRows.map((_,ri)=>{ const o={}; a.fields.forEach(f=>{ const el=$('mf-'+f.k+'-'+ri); if(!el){ o[f.k]=undefined; return; } o[f.k]= f.choice ? (f.num?parseFloat(el.value):el.value) : (el.value===''?NaN:parseFloat(el.value)); }); return o; }); }
   function renderMultiRows(){
     const a=ACTIONS[curKey], body=$('m-fields'); body.innerHTML='';
     const wrap=document.createElement('div'); wrap.className='space-y-2';
     mRows.forEach((row,ri)=>{
-      const r=document.createElement('div'); r.className='flex items-center gap-2 flex-wrap'; r.dataset.row=ri;
+      const r=document.createElement('div'); r.className='flex items-center gap-1.5 sm:gap-2 flex-wrap'; r.dataset.row=ri;
       let inner=`<span class="text-xs text-ink-400 w-4 text-right shrink-0">${ri+1}</span>`;
       a.fields.forEach(f=>{ inner+=`<span class="flex items-center gap-1"><span class="text-xs text-ink-500">${f.l}</span>${rowFieldHtml(f,ri,row[f.k])}${f.s?`<span class="text-xs text-ink-400">${f.s}</span>`:''}</span>`; });
-      inner+=`<button type="button" data-del="${ri}" class="ml-auto h-8 w-8 rounded-lg border border-line text-ink-400 hover:text-accent hover:border-accent/40 ${mRows.length<=1?'invisible':''}">×</button>`;
+      inner+=`<button type="button" data-del="${ri}" class="ml-auto h-8 w-8 rounded-lg border border-line text-ink-400 hover:text-accent hover:border-accent/40 ${mRows.length<=1?'hidden':''}">×</button>`;
       r.innerHTML=inner; wrap.appendChild(r);
     });
     body.appendChild(wrap);
@@ -922,6 +955,7 @@
     add.textContent='＋ 行を追加';
     body.appendChild(add);
     body.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',()=>{ syncMRows(); preview(); }));
+    wireSteppers(body);
     body.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{ syncMRows(); mRows.splice(+b.dataset.del,1); renderMultiRows(); preview(); }));
     add.addEventListener('click',()=>{ syncMRows(); mRows.push(defaultRow(a)); renderMultiRows(); preview(); });
   }
@@ -1076,7 +1110,7 @@
     $('m-ok').textContent='保存';
     const body=$('m-fields');
     body.innerHTML=`<label class="flex items-center justify-between gap-3"><span class="text-sm font-medium">金額</span>
-      <span class="flex items-center gap-1.5"><input id="mf-amt" type="number" min="0" value="${t.amount}" class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none"></span></label>`;
+      <span class="flex items-center gap-1.5"><input id="mf-amt" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${t.amount}" class="h-11 w-32 border border-line rounded-lg px-3 text-right num text-base focus:border-ink/40 focus:ring-2 focus:ring-ink/10 outline-none"></span></label>`;
     const upd=()=>{
       const raw=$('mf-amt').value, v=raw===''?NaN:parseFloat(raw);
       const err = isNaN(v)?'金額を入力してください' : !Number.isInteger(v)?'金額は整数で入力してください' : v<0?'金額は0以上で入力してください' : '';
@@ -1194,6 +1228,46 @@
     const headRow=`<tr class="text-ink-600 text-xs"><th class="sticky left-0 z-10 bg-white text-left font-semibold pr-2 py-2 border-t border-line align-bottom">勘定科目</th>${headCells}<th class="text-right font-semibold px-2 py-2 border-t border-line align-bottom">現金残高</th></tr>`;
     $('ledger-foot').innerHTML=`<tr class="font-bold bg-canvas"><td class="sticky left-0 z-10 bg-canvas border-l-4 border-ink text-left px-2 py-2.5 rounded-l-md">合計</td>${cells}<td class="px-2 py-2.5 num text-right rounded-r-md text-base"${bal<0?' style="color:#c8322b"':''}>${fmt(bal)}</td></tr>${headRow}`;
     const lb=$('ledger-balance'); lb.textContent=fmt(bal); lb.style.color=bal<0?'#c8322b':'';
+    renderLedgerCards(flash);
+  }
+  // モバイル用：仕訳カードリスト。11列マトリクスの代わりに、各行を
+  // 「科目｜列チップ（ア〜コ）｜金額｜残高」の1行カードで表示（横スクロールなし）
+  function renderLedgerCards(flash){
+    const el=$('ledger-cards'); if(!el) return;
+    const lock=st.settled;
+    let bal=st.openingCash;
+    const line=(name,t,balV,last)=>{
+      const dir = !t ? 'open' : (t.col==null?'none':(IN_COLS.includes(t.col)?'in':'out'));
+      const bar = dir==='open'?'#1b2230':dir==='in'?'#0f766e':dir==='out'?'#5b6472':'#e4e7ec';
+      const canEdit = t && !lock && !t.isBorrowInterest && !t.isAutoRepay;
+      const pen = canEdit?`<button data-cedit="${t.id}" class="shrink-0 h-8 w-8 -ml-1 grid place-items-center rounded-lg text-ink-300 active:bg-canvas" title="編集">✎</button>`:'<span class="w-1"></span>';
+      const chip = t && t.col!=null
+        ? `<span class="shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold" style="background:${LCOL[t.col].h};color:${LCOL[t.col].t}"><span class="opacity-70">${LHEAD[t.col].s}</span>${LHEAD[t.col].n}</span>`
+        : (t ? '<span class="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-canvas text-ink-300">記録のみ</span>' : '');
+      const amt = t && t.col!=null && t.amount
+        ? `<span class="num font-bold text-[15px] whitespace-nowrap" style="color:${dir==='in'?'#0b5d56':'#434a57'}">${dir==='in'?'＋':'−'}${fmt(t.amount)}</span>` : '';
+      const showBal = !(t&&t.col==null);
+      const note = t&&t.note?`<span class="text-ink-300 text-[10px] ml-1">${t.note}</span>`:'';
+      return `<div class="flex items-center gap-2 py-2 pl-2 pr-1 border-b border-line/60 ${last?'bg-g-bg':''}" style="border-left:4px solid ${bar}">
+        ${pen}
+        <div class="min-w-0 flex-1"><div class="text-[13px] font-medium leading-tight truncate">${name}${note}</div><div class="mt-0.5">${chip}</div></div>
+        <div class="text-right shrink-0">${amt}<div class="num text-[11px] ${showBal&&balV<0?'':'text-ink-400'}"${showBal&&balV<0?' style="color:#c8322b"':''}>${showBal?`残高 ${fmt(balV)}`:'<span class="text-ink-300">〃</span>'}</div></div>
+      </div>`;
+    };
+    let h=line('前期繰越',null,bal,false);
+    st.tx.forEach((t,i)=>{
+      if(t.col!=null) bal += IN_COLS.includes(t.col)? t.amount : -t.amount;
+      h+=line(t.label,t,bal,flash&&i===st.tx.length-1);
+    });
+    const {inS,outS}=flows();
+    h+=`<div class="flex items-center justify-between gap-2 pt-2.5 pb-1 px-2 text-[12px]">
+      <span class="font-bold">合計</span>
+      <span class="num text-cin-ink">入金 ＋${fmt(inS)}</span>
+      <span class="num text-cout-ink">出金 −${fmt(outS)}</span>
+      <span class="num font-bold text-[15px]"${bal<0?' style="color:#c8322b"':''}>${fmt(bal)}</span>
+    </div>`;
+    el.innerHTML=h;
+    el.querySelectorAll('[data-cedit]').forEach(b=>b.addEventListener('click',()=>{ const t=st.tx.find(x=>String(x.id)===String(b.dataset.cedit)); if(t) editRow(t); }));
   }
   function rowEl(name,t,bal,idx,last){
     const tr=document.createElement('tr');
@@ -1307,9 +1381,10 @@
     const pile=(n,style,max)=>{ max=max||15; let h=''; const k=Math.min(n,max); for(let i=0;i<k;i++) h+=`<span style="display:inline-block;${style}"></span>`; if(n>max) h+=`<span class="text-ink-500 text-xs ml-1 self-center">+${n-max}</span>`; return h; };
     const cube='width:20px;height:20px;border-radius:4px;background:#8b5e3c;box-shadow:inset 0 2px 2px rgba(255,255,255,.45),inset 0 -3px 3px rgba(0,0,0,.34),0 1px 1px rgba(0,0,0,.18)';
     const pawns=(n)=>{ let h=''; const k=Math.min(n,8); for(let i=0;i<k;i++) h+=`<span style="color:#b9c0cb;font-size:30px;line-height:1;text-shadow:0 1px 1px rgba(0,0,0,.3)">♟</span>`; if(n>8) h+=`<span class="text-ink-500 text-xs self-center">+${n-8}</span>`; return h||'<span class="text-ink-300 text-xs">—</span>'; };
-    const box=(title,pieces)=>`<div style="border:2.5px solid ${GREEN};border-radius:14px;background:#fcfefb;width:248px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.07)"><div class="text-sm font-bold text-ink-600 mb-3 text-center">${title}</div><div class="flex flex-wrap gap-2 justify-center items-center content-center" style="min-height:150px">${pieces||'<span class=\'text-ink-300 text-sm\'>空</span>'}</div></div>`;
+    const box=(title,pieces)=>`<div style="border:2.5px solid ${GREEN};border-radius:14px;background:#fcfefb;width:248px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.07)"><div class="text-sm font-bold text-ink-600 mb-3 text-center">${title}</div><div class="flex flex-wrap gap-2 justify-center items-center content-center min-h-[88px] sm:min-h-[150px]">${pieces||'<span class=\'text-ink-300 text-sm\'>空</span>'}</div></div>`;
     const staffBox=(label,n)=>`<div style="border:2px solid ${GREEN};border-radius:12px;background:#fcfefb;width:248px;padding:8px 12px;box-shadow:0 1px 2px rgba(0,0,0,.06)" class="text-center"><div class="flex gap-1 justify-center items-end flex-wrap" style="min-height:34px">${pawns(n)}</div><div class="text-[11px] font-medium text-ink-600 mt-1">${label}</div></div>`;
-    const barrow=(label)=>`<div class="flex flex-col items-center self-start" style="padding-top:34px"><span class="text-[11px] text-ink-600 mb-1 whitespace-nowrap">${label}</span><span style="display:block;width:48px;height:26px;background:linear-gradient(180deg,#eaf4e8,#cfe6cd);clip-path:polygon(0 30%,60% 30%,60% 4%,100% 50%,60% 96%,60% 70%,0 70%);box-shadow:0 1px 1px rgba(0,0,0,.1)"></span></div>`;
+    // 工程矢印（材料仕入→製造→販売）：スマホでは非表示（縦積みで流れが自明なため）、sm以上のみ表示
+    const barrow=(label)=>`<div class="hidden sm:flex flex-col items-center self-start pt-[34px]"><span class="text-[11px] text-ink-600 mb-1 whitespace-nowrap">${label}</span><span style="display:block;width:48px;height:26px;background:linear-gradient(180deg,#eaf4e8,#cfe6cd);clip-path:polygon(0 30%,60% 30%,60% 4%,100% 50%,60% 96%,60% 70%,0 70%);box-shadow:0 1px 1px rgba(0,0,0,.1)"></span></div>`;
     const tile=(label,n,style)=>`<div style="border:2px solid ${GREEN};border-radius:12px;background:#fcfefb;padding:8px 14px" class="text-center"><div class="flex gap-1.5 justify-center items-center flex-wrap" style="min-height:20px">${pile(n,style,8)||'<span class=\'text-ink-300 text-xs\'>—</span>'}</div><div class="text-[11px] text-ink-600 mt-1 whitespace-nowrap">${label}</div></div>`;
     const cap=(label,val,color)=>`<div class="rounded-xl border-2 px-3 py-2.5 text-center" style="border-color:${color}40;background:${color}0d"><div class="text-[11px] text-ink-500">${label}</div><div class="num font-bold text-2xl leading-tight" style="color:${color}">${val}</div></div>`;
     const hexTok='width:20px;height:20px;background:#8a929e;clip-path:polygon(25% 2%,75% 2%,100% 50%,75% 98%,25% 98%,0 50%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3)';
@@ -1321,7 +1396,7 @@
           <div class="absolute right-0 text-[11px] text-ink-400">第${st.period}期</div>
         </div>
         <div class="overflow-x-auto scroll-x pb-1">
-          <div class="flex items-start gap-2 justify-center" style="min-width:720px">
+          <div class="flex flex-col sm:flex-row items-center sm:items-start gap-2 justify-center sm:min-w-[720px]">
             ${barrow('材料仕入')}
             <div class="flex flex-col items-center gap-2">
               ${box('材料',pile(st.rawCubes,cube,28))}
@@ -1478,7 +1553,7 @@
       ${openTax?`<div class="flex items-baseline justify-between py-1.5 mt-1 rounded-lg px-2" style="background:#fdeacf66"><span class="text-accent-ink text-sm font-bold">期首納税（前期法人税）</span><b class="num text-accent-ink">▲${fmt(openTax.amount)}</b></div>`:''}
     </div>`;
     const tok=(label,n)=>`<div class="rounded-xl border border-line bg-white px-3 py-2 text-center"><div class="num font-bold text-lg" style="color:${C}">${fmt(n)}</div><div class="text-[11px] text-ink-500 leading-tight mt-0.5">${label}</div></div>`;
-    const erow=(id,label,val)=>`<label class="flex items-center justify-between gap-2 py-1 border-b border-line/60"><span class="text-sm text-ink-600">${label}</span><input id="${id}" type="number" min="0" step="1" value="${val}" class="w-20 h-9 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10"></label>`;
+    const erow=(id,label,val)=>`<label class="flex items-center justify-between gap-2 py-1 border-b border-line/60"><span class="text-sm text-ink-600">${label}</span><input id="${id}" type="number" inputmode="numeric" pattern="[0-9]*" min="0" step="1" value="${val}" class="w-20 h-9 border border-line rounded-lg px-2 text-right num text-base outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10"></label>`;
     const board=`<div class="rounded-xl border bg-white p-4" style="border-color:${C}33">
       <div class="flex items-center justify-between mb-2">
         <div class="text-xs font-bold" style="color:${C}">盤面セットアップ（期首の駒）</div>
@@ -1523,12 +1598,12 @@
       <div class="text-xs font-bold mb-2" style="color:${C}">⑨ 借入金可能枠・金利・返済（倍率と返済率はインストラクター設定）</div>
       <div class="border-b border-line py-1.5">
              <span class="text-ink-600 text-sm">借入金可能枠 <span class="text-ink-300 text-[11px]">ⓐ</span></span>
-             <div class="flex items-center gap-1 flex-wrap text-sm mt-1">純資産 <b class="num">${fmt(eq)}</b> × <input id="op-loanmult" type="number" min="0" step="1" value="${st.loanMult}" class="w-12 h-7 border border-line rounded px-1 text-right num text-sm"> 倍 ＝ <b class="num" style="color:${C}">${fmt(cap)}</b></div>
+             <div class="flex items-center gap-1 flex-wrap text-sm mt-1">純資産 <b class="num">${fmt(eq)}</b> × <input id="op-loanmult" type="number" inputmode="numeric" pattern="[0-9]*" min="0" step="1" value="${st.loanMult}" class="w-12 h-7 border border-line rounded px-1 text-right num text-sm"> 倍 ＝ <b class="num" style="color:${C}">${fmt(cap)}</b></div>
            </div>
            ${row('現在借入残高 ⓑ', fmt(bal))}
            <div class="flex items-baseline justify-between border-b border-line py-1.5"><span class="text-ink-700 text-sm font-bold">今期借入可能額 (ⓐ−ⓑ)</span><b class="num text-base" style="color:${C}">${fmt(room)}</b></div>
       <div class="flex items-baseline justify-between py-1.5 mt-1 rounded-lg px-2" style="background:#dfe2f566"><span class="text-sm font-bold" style="color:${BL}">金利 5%・期首支払金利 (期首残高×5%)</span><b class="num" style="color:${BL}">▲${fmt(interest)}</b></div>
-      <div class="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 gap-2 flex-wrap" style="background:#fbe0ea66"><span class="text-sm font-bold" style="color:${PKc}">期末返済（期首残高 × <input id="op-repayrate" type="number" min="0" max="100" step="1" value="${st.repayRate}" class="w-11 h-7 border border-line rounded px-1 text-right num text-sm">%）</span><b class="num" style="color:${PKc}">▲${fmt(repayPlan)}</b></div>
+      <div class="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 gap-2 flex-wrap" style="background:#fbe0ea66"><span class="text-sm font-bold" style="color:${PKc}">期末返済（期首残高 × <input id="op-repayrate" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="100" step="1" value="${st.repayRate}" class="w-11 h-7 border border-line rounded px-1 text-right num text-sm">%）</span><b class="num" style="color:${PKc}">▲${fmt(repayPlan)}</b></div>
       <p class="text-ink-300 text-[11px] mt-2">※ 借入時にも借入額×5%の金利（管理費）。期末返済は「期末処理」で自動計上されます。</p>
     </div>`;
     // 増資（第2期以降のみ・任意）。資本金（ア）として記帳され、現金と純資産が増える
@@ -1536,7 +1611,7 @@
       <div class="text-xs font-bold mb-1" style="color:${C}">増資（任意）</div>
       <p class="text-ink-400 text-[11px] mb-2">この期に追加出資する場合に入力。「ア 資本金」として記帳され、現金と純資産が増えます。</p>
       <div class="flex items-stretch gap-2">
-        <div class="flex items-center bg-p-bg rounded-xl px-3 flex-1"><input id="op-addcap" type="number" min="0" value="100" class="num font-bold text-xl w-full bg-transparent outline-none text-p-ink h-11"></div>
+        <div class="flex items-center bg-p-bg rounded-xl px-3 flex-1"><input id="op-addcap" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="100" class="num font-bold text-xl w-full bg-transparent outline-none text-p-ink h-11"></div>
         <button id="op-addcap-btn" class="px-4 rounded-xl bg-p-base text-white font-bold hover:brightness-95 transition whitespace-nowrap">＋ 増資する</button>
       </div>
     </div>`;
@@ -1710,10 +1785,13 @@
     const allV=bars.flatMap(b=>[b.lo,b.hi]).concat([0]);
     let maxV=Math.max(...allV), minV=Math.min(...allV); if(maxV===minV)maxV=minV+1;
     const padHi=(maxV-minV)*0.12; maxV+=padHi; minV-=padHi*0.5;
-    const n=bars.length, W=760, H=232, padT=12, padB=38, padX=18, span=maxV-minV;
+    // スマホは画面幅に収まる寸法で描き直す（横スクロールなし・ラベルは2段に振り分けて重なり回避）
+    const m=isM();
+    const n=bars.length, W=m?390:760, H=m?252:232, padT=12, padB=m?48:38, padX=m?8:18, span=maxV-minV;
     const Y=v=> padT+(maxV-v)/span*(H-padT-padB);
-    const slot=(W-padX*2)/n, barW=Math.min(110, slot*0.56), cx=i=> padX+slot*i+slot/2, zeroY=Y(0);
-    let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;min-width:420px">`;
+    const slot=(W-padX*2)/n, barW=Math.min(m?44:110, slot*0.56), cx=i=> padX+slot*i+slot/2, zeroY=Y(0);
+    const fsVal=m?11:13, fsLab=m?10:12;
+    let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto${m?'':';min-width:420px'}">`;
     s+=`<line x1="${padX}" y1="${zeroY.toFixed(1)}" x2="${W-padX}" y2="${zeroY.toFixed(1)}" stroke="#c0c7d0" stroke-width="1"/>`;
     for(let i=0;i<n-1;i++){ const y=Y(bars[i].top).toFixed(1); s+=`<line x1="${(cx(i)+barW/2).toFixed(1)}" y1="${y}" x2="${(cx(i+1)-barW/2).toFixed(1)}" y2="${y}" stroke="#b9c2cf" stroke-width="1" stroke-dasharray="3 3"/>`; }
     bars.forEach((b,i)=>{
@@ -1722,8 +1800,9 @@
       else { s+=`<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(2,h).toFixed(1)}" rx="2.5" fill="${b.c}"/>`; }
       const inside=h>24, ly = zero ? zeroY-8 : inside ? (yTop+Y(b.lo))/2+5 : (b.v>=0 ? yTop-6 : Y(b.lo)+15);
       const lc = zero ? '#46505f' : (inside ? (b.tc||'#fff') : '#46505f');
-      s+=`<text x="${cx(i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="${lc}">${sv(b.v)}</text>`;
-      s+=`<text x="${cx(i).toFixed(1)}" y="${(H-20)}" text-anchor="middle" font-size="12" font-weight="600" fill="#5b6472">${b.l}</text>`;
+      s+=`<text x="${cx(i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="${fsVal}" font-weight="700" fill="${lc}">${sv(b.v)}</text>`;
+      const labY = m ? (H - (i%2 ? 6 : 24)) : (H-20);   // スマホは項目名を上下2段に交互配置
+      s+=`<text x="${cx(i).toFixed(1)}" y="${labY}" text-anchor="middle" font-size="${fsLab}" font-weight="600" fill="#5b6472">${b.l}</text>`;
     });
     return s+'</svg>';
   }
@@ -1811,8 +1890,9 @@
     const P=r.Q?Math.round(r.PQ/r.Q):0, V=r.Q?Math.round(r.vPQ/r.Q):0, M=r.Q?Math.round(r.mPQ/r.Q):0;   // 単価 P＝V＋M
     const blk=(h,bg,col,label,val,note)=>`<div class="grid place-items-center text-center overflow-hidden px-1" style="height:${h}px;background:${bg};color:${col}"><div><div class="text-[11px] leading-tight">${label}</div><div class="num font-bold text-[15px] leading-tight">${val}</div>${note?`<div class="text-[9px] leading-tight opacity-80">${note}</div>`:''}</div></div>`;
     $('strac-fig').innerHTML=`
-      <div class="mx-auto overflow-x-auto scroll-x" style="max-width:560px">
-        <div class="flex items-start justify-start gap-1.5" style="min-width:max-content">
+      <div class="mx-auto sm:overflow-x-auto scroll-x" style="max-width:560px">
+        <!-- スマホ：単価×個数=売上高（1段目）→ 売上高の分解（2段目・全幅）に折り返し -->
+        <div class="flex flex-wrap sm:flex-nowrap items-start justify-center sm:justify-start gap-1.5 sm:min-w-max">
           <!-- ① 売上単価 P（一番左） -->
           <div class="shrink-0 rounded-lg overflow-hidden border grid place-items-center text-center px-0.5" style="width:46px;height:${pqH}px;background:#fbe7d3;border-color:#e08a3c"><div><div class="text-[8px] leading-none" style="color:#b5630f">売上単価</div><div class="text-[9px] font-bold leading-none" style="color:#b5630f">P</div><div class="num font-black text-[15px] leading-tight mt-0.5" style="color:#b5630f">${P}</div></div></div>
           <!-- ② 変動単価 V（上）＋ 粗利単価 M（下）。P＝V＋M で高さ一致 -->
@@ -1824,6 +1904,8 @@
           <div class="shrink-0 flex items-center justify-center" style="width:62px;height:${pqH}px">
             <div class="rounded-lg border px-2 py-2 text-center" style="background:#eaeef3;border-color:#b9c2cf"><div class="text-[9px] text-ink-500 leading-none">個数 Q</div><div class="flex items-center justify-center gap-1 mt-1"><span class="text-ink-400 text-sm leading-none">×</span><span class="num font-bold text-ink text-[15px] leading-none">${fmt(r.Q)}</span></div></div>
           </div>
+          <!-- スマホ：売上高PQ柱は2段目（分解ブロックの横）に配置。sm以上は display:contents で従来どおり1列に並ぶ -->
+          <div class="flex items-start gap-1.5 w-full mt-2 sm:contents">
           <!-- ④ 売上高 PQ（柱）＝ P × Q -->
           <div class="shrink-0 rounded-lg grid place-items-center text-center" style="width:76px;height:${pqH}px;background:#fbe7d3;border:1.5px solid #e08a3c">
             <div>
@@ -1833,7 +1915,7 @@
             </div>
           </div>
           <!-- 右：変動費（粗利＋固定費を合わせた全幅）→ 下段に 粗利 ｜ 固定費＋経常利益 -->
-          <div class="shrink-0 flex flex-col" style="width:300px;max-width:60vw">
+          <div class="shrink-0 flex flex-col flex-1 sm:flex-none sm:w-[300px] sm:max-w-[60vw] mt-0">
             <!-- 変動費 vPQ：全幅 -->
             <div class="rounded-t-lg border border-line border-b-0 grid place-items-center text-center text-white overflow-hidden" style="height:${vH}px;background:#37a36b"><div><div class="text-[11px] leading-tight">変動費 vPQ</div><div class="num font-bold text-[15px] leading-tight">${fmt(r.vPQ)}</div><div class="text-[9px] leading-tight opacity-80">売上原価</div></div></div>
             <!-- 下段：黒字＝粗利 ｜ 固定費F＋利益G／赤字＝(粗利＋経常損失) ｜ 固定費F（左右の高さを揃える） -->
@@ -1850,6 +1932,7 @@
                      ${blk(gH,'#f6cf4b','#6b5300','経常利益 G',fmt(r.G),'粗利 − 固定費')}
                    </div>`}
             </div>
+          </div>
           </div>
         </div>
         <div class="mt-3 rounded-lg bg-canvas px-3 py-2 text-[11px] flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
@@ -1899,12 +1982,30 @@
       <td class="px-2 py-2 text-f-ink">${fmt(r.F)}</td><td class="px-2 py-2 font-bold text-g-ink">${fmtA(r.G)}</td><td class="px-2 py-2">${fmtA(r.net)}</td>
       <td class="px-2 py-2">${fmt(r.capEnd+r.retEnd)}</td><td class="px-2 py-2">${fmt(r.cashEnd)}</td>
       <td class="px-2 py-2 text-center whitespace-nowrap"><button data-detail="${i}" class="h-7 px-3 rounded-lg border border-line text-ink-600 text-[12px] font-bold hover:bg-canvas transition">詳細</button> <button data-pdf="${i}" class="h-7 px-3 rounded-lg border border-accent/40 text-accent-ink text-[12px] font-bold hover:bg-accent/5 transition">PDF保存</button></td></tr>`).join('');
+    // モバイル：期ごとのカード（主要数値6つ＋操作。横スクロールなし）
+    const kv=(l,v,cls)=>`<div><div class="text-[10px] text-ink-400">${l}</div><div class="num font-bold text-[15px] ${cls||''}">${v}</div></div>`;
+    $('history-cards').innerHTML=history.map((r,i)=>`<div class="bg-white rounded-2xl shadow-card border border-line p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-black">第${r.period}期</span>
+        <span class="num font-bold ${r.G<0?'text-accent-ink':'text-g-ink'}">経常G ${fmtA(r.G)}</span>
+      </div>
+      <div class="grid grid-cols-3 gap-x-3 gap-y-2 text-right">
+        ${kv('売上PQ',fmt(r.PQ),'text-p-ink')}${kv('粗利mPQ',fmt(r.mPQ),'text-m-ink')}${kv('固定費F',fmt(r.F),'text-f-ink')}
+        ${kv('当期利益',fmtA(r.net),r.net<0?'text-accent-ink':'')}${kv('自己資本',fmt(r.capEnd+r.retEnd))}${kv('現金',fmt(r.cashEnd))}
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button data-detail="${i}" class="flex-1 h-10 rounded-lg border border-line text-ink-600 text-[13px] font-bold active:bg-canvas">決算書をみる</button>
+        <button data-pdf="${i}" class="h-10 px-4 rounded-lg border border-accent/40 text-accent-ink text-[13px] font-bold active:bg-accent/5">PDF</button>
+      </div>
+    </div>`).join('');
   }
   // 履歴の「詳細」→ その期の決算書（イベント委譲）／「PDF保存」→ A3決算書を印刷
-  $('history-rows').addEventListener('click',e=>{
+  const historyClick=e=>{
     const d=e.target.closest('[data-detail]'); if(d){ const r=history[+d.dataset.detail]; if(r){ stmtView=r; switchTab('statement'); } return; }
     const p=e.target.closest('[data-pdf]'); if(p){ const r=history[+p.dataset.pdf]; if(r) savePdf(r); }
-  });
+  };
+  $('history-rows').addEventListener('click',historyClick);
+  $('history-cards').addEventListener('click',historyClick);
 
   // ====================== 決算書PDF（入門編MG決算書レイアウト・A3 1枚） ======================
   function savePdf(r){
@@ -2521,7 +2622,8 @@
     $('hd-name').textContent=st.name; $('hd-period').textContent='第'+st.period+'期';
     const cn=cashNow(), hc=$('hd-cash'); hc.textContent=fmt(cn); hc.style.color=cn<0?'#c8322b':'';
     $('c-captotal').textContent=fmt(st.openingCapital+colTotals()[0]);
-    $('sc-cash').textContent=fmt(cashNow()); $('sc-mat').textContent=fmt(st.rawCubes);
+    { const sc=$('sc-cash'), v=cashNow(); sc.textContent=fmt(v); sc.style.color=v<0?'#ffb4ae':''; }
+    $('sc-mat').textContent=fmt(st.rawCubes);
     $('sc-prod').textContent=fmt(st.products); $('sc-sales').textContent=fmt(colTotals()[2]);
     saveLive();   // ライブ状態を保存（管理者ビュー用）
   }
@@ -2603,6 +2705,13 @@
     if(_histOnly && tab!=='org') tab=(history.length?'history':'org');  // 成績のみは記帳が無いので履歴/組織を表示
     switchTab(tab);
   }
+
+  // 画面幅がスマホ⇄PCをまたいだら図表を描き直す（ウォーターフォール等は幅別のSVGを生成するため）
+  let _mqT=null;
+  mqMobile.addEventListener('change',()=>{
+    clearTimeout(_mqT);
+    _mqT=setTimeout(()=>{ try{ renderAll(); renderClosing(); renderStatement(); renderHistory(); renderReview(); }catch(e){} },150);
+  });
 </script>
 </body>
 </html>

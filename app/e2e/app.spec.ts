@@ -432,6 +432,27 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('admin-rank')).toContainText('第1期')
     await expect(page.getByTestId('admin-rank')).toContainText('第2期')
 
+    // 表形式：指標クリックでソート（▼降順 → ▲昇順 → 解除）
+    await page.getByTestId('sort-PQ').click()
+    await expect(page.getByTestId('sort-PQ')).toContainText('▼')
+    await page.getByTestId('sort-PQ').click()
+    await expect(page.getByTestId('sort-PQ')).toContainText('▲')
+    await page.getByTestId('sort-PQ').click()
+    await expect(page.getByTestId('sort-PQ')).not.toContainText('▲')
+
+    // 期フィルタ：第1期のみに絞ると第2期の列が消える
+    await page.getByTestId('rank-period').selectOption('1')
+    await expect(page.getByTestId('admin-rank')).not.toContainText('第2期')
+    await page.getByTestId('rank-period').selectOption('0')
+    await expect(page.getByTestId('admin-rank')).toContainText('第2期')
+
+    // グラフ形式に切替 → チャート表示 → 表形式に戻す
+    await page.getByTestId('rank-charts').click()
+    await expect(page.getByTestId('admin-charts')).toBeVisible()
+    await expect(page.getByTestId('admin-charts')).toContainText('売上 PQ の推移')
+    await page.getByTestId('rank-table').click()
+    await expect(page.getByTestId('admin-rank')).toBeVisible()
+
     // CSV ダウンロード
     const [download] = await Promise.all([
       page.waitForEvent('download'),

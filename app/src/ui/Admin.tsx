@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type ApiOrgCompany } from '../lib/api'
 import { fmt, fmtA, fmRatio } from '../lib/calc'
+import { ORG_COLORS } from '../lib/figures-review'
+import { OrgLineChart } from './OrgLineChart'
 import { useToast, Toaster } from './Toast'
 
 const TOKEN_KEY = 'mgAdminToken'
@@ -17,6 +19,7 @@ export default function Admin() {
   const [issuedMsg, setIssuedMsg] = useState('')
   const [curCo, setCurCo] = useState<ApiOrgCompany | null>(null) // 参加者ビューで表示中の会社
   const [mainView, setMainView] = useState<'frame' | 'rank'>('frame') // 参加者ビュー / 成績一覧
+  const [rankView, setRankView] = useState<'table' | 'charts'>('table') // 成績一覧：表形式 / グラフ形式
   const [frameMode, setFrameMode] = useState<'view' | 'edit'>('view') // 閲覧専用 / 編集モード
   const [frameKey, setFrameKey] = useState(0) // 参加者ビューの再読み込み用
 
@@ -145,9 +148,6 @@ export default function Admin() {
       </div>
     )
   }
-
-  const rows: { c: ApiOrgCompany; r: any }[] = []
-  companies.forEach((c) => (c.results || []).slice().sort((a: any, b: any) => a.period - b.period).forEach((r: any) => rows.push({ c, r })))
 
   const newUrl = newCode.trim() ? new URL(`/?org=${encodeURIComponent(newCode.trim())}`, location.href).href : ''
   // 選択中の組織コードの参加用URL（いつでもコピーできるようヘッダーに置く）
@@ -428,63 +428,172 @@ export default function Admin() {
                 <div className="font-bold text-sm">
                   成績一覧 <span className="text-ink-400 font-normal">（{org}・{companies.length}社）</span>
                 </div>
-                <button
-                  data-testid="csv-download"
-                  onClick={() => downloadCsv(org, companies)}
-                  className="h-9 px-3 rounded-lg bg-ink text-white text-xs font-bold hover:bg-ink-600"
-                >
-                  CSVダウンロード
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold">
+                    <button
+                      data-testid="rank-table"
+                      onClick={() => setRankView('table')}
+                      className={`px-3 py-1 rounded-md transition ${rankView === 'table' ? 'bg-white shadow-sm text-ink' : 'text-ink-400'}`}
+                    >
+                      表形式
+                    </button>
+                    <button
+                      data-testid="rank-charts"
+                      onClick={() => setRankView('charts')}
+                      className={`px-3 py-1 rounded-md transition ${rankView === 'charts' ? 'bg-white shadow-sm text-ink' : 'text-ink-400'}`}
+                    >
+                      グラフ形式
+                    </button>
+                  </div>
+                  <button
+                    data-testid="csv-download"
+                    onClick={() => downloadCsv(org, companies)}
+                    className="h-9 px-3 rounded-lg bg-ink text-white text-xs font-bold hover:bg-ink-600"
+                  >
+                    CSVダウンロード
+                  </button>
+                </div>
               </div>
               <div className="overflow-auto min-h-0">
-                {rows.length ? (
-                  <table className="w-full text-[12px] min-w-[860px]" data-testid="admin-rank">
-                    <thead>
-                      <tr className="text-ink-400 border-b border-line bg-canvas">
-                        {['会社', '社長', '期', '売上PQ', '粗利', '固定費', '経常G', '当期純', '純資産', '粗利率', 'FM比率', '現金', 'ﾀｰﾝ', '意思決定'].map(
-                          (h, i) => (
-                            <th key={h} className={`px-2 py-1.5 whitespace-nowrap font-bold ${i > 2 ? 'text-right' : 'text-left'}`}>
-                              {h}
-                            </th>
-                          ),
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(({ c, r }, i) => {
-                        const first = i === 0 || rows[i - 1].c.id !== c.id
-                        return (
-                          <tr key={c.id + '-' + r.period} className={`border-b border-line/60 ${first ? 'border-t-2 border-t-line/80' : ''}`}>
-                            <td className={`px-2 py-1.5 font-bold whitespace-nowrap ${first ? '' : 'text-ink-300'}`}>{first ? c.name : '〃'}</td>
-                            <td className="px-2 py-1.5 text-ink-400 text-[11px] whitespace-nowrap">{first ? c.president || '—' : ''}</td>
-                            <td className="px-2 py-1.5 num text-ink-500 whitespace-nowrap">第{r.period}期</td>
-                            <td className="px-2 py-1.5 text-right num">{fmt(r.PQ)}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.mPQ)}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.F)}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.G)}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.net)}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.capEnd + r.retEnd)}</td>
-                            <td className="px-2 py-1.5 text-right num">{r.PQ ? Math.round((r.mPQ / r.PQ) * 100) + '%' : '—'}</td>
-                            <td className="px-2 py-1.5 text-right num">{fmRatio(r)}%</td>
-                            <td className="px-2 py-1.5 text-right num">{fmtA(r.cashEnd)}</td>
-                            <td className="px-2 py-1.5 text-right num">{r.turns}</td>
-                            <td className="px-2 py-1.5 text-right num">{r.decisions}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p className="text-ink-300 text-sm p-6 text-center">
-                    成績データがありません。参加者が決算すると各期の成績が表示されます。
-                  </p>
-                )}
+                {rankView === 'table' ? <RankTable companies={companies} /> : <RankCharts companies={companies} />}
               </div>
             </div>
           )}
         </main>
       </div>
       <Toaster toasts={toasts} />
+    </div>
+  )
+}
+
+// ---- 成績一覧：表形式（転置＝行が指標・列が会社×期。指標クリックでソート）----
+const RANK_ROWS: { k: string; label: string; get: (r: any) => number; cell: (r: any) => string }[] = [
+  { k: 'PQ', label: '売上PQ', get: (r) => r.PQ, cell: (r) => fmt(r.PQ) },
+  { k: 'mPQ', label: '粗利', get: (r) => r.mPQ, cell: (r) => fmtA(r.mPQ) },
+  { k: 'F', label: '固定費', get: (r) => r.F, cell: (r) => fmtA(r.F) },
+  { k: 'G', label: '経常G', get: (r) => r.G, cell: (r) => fmtA(r.G) },
+  { k: 'net', label: '当期純', get: (r) => r.net, cell: (r) => fmtA(r.net) },
+  { k: 'eq', label: '純資産', get: (r) => r.capEnd + r.retEnd, cell: (r) => fmtA(r.capEnd + r.retEnd) },
+  { k: 'margin', label: '粗利率', get: (r) => (r.PQ ? (r.mPQ / r.PQ) * 100 : 0), cell: (r) => (r.PQ ? Math.round((r.mPQ / r.PQ) * 100) + '%' : '—') },
+  { k: 'fm', label: 'FM比率', get: (r) => fmRatio(r), cell: (r) => fmRatio(r) + '%' },
+  { k: 'cash', label: '現金', get: (r) => r.cashEnd, cell: (r) => fmtA(r.cashEnd) },
+  { k: 'turns', label: 'ターン', get: (r) => r.turns, cell: (r) => String(r.turns) },
+  { k: 'dec', label: '意思決定', get: (r) => r.decisions, cell: (r) => String(r.decisions) },
+]
+
+function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
+  const [period, setPeriod] = useState(0) // 0 = 全期
+  const [sort, setSort] = useState<{ k: string; dir: 'desc' | 'asc' } | null>(null)
+  const periods = [...new Set(companies.flatMap((c) => (c.results || []).map((r: any) => r.period as number)))].sort((a, b) => a - b)
+  let entries: { c: ApiOrgCompany; r: any }[] = companies.flatMap((c) =>
+    (c.results || [])
+      .slice()
+      .sort((a: any, b: any) => a.period - b.period)
+      .map((r: any) => ({ c, r })),
+  )
+  if (period) entries = entries.filter((e) => e.r.period === period)
+  if (sort) {
+    const row = RANK_ROWS.find((x) => x.k === sort.k)!
+    entries = entries.slice().sort((a, b) => (sort.dir === 'desc' ? row.get(b.r) - row.get(a.r) : row.get(a.r) - row.get(b.r)))
+  }
+  // クリック: 降順 → 昇順 → 解除（会社・期の順に戻る）
+  const clickSort = (k: string) => setSort((s) => (s?.k !== k ? { k, dir: 'desc' } : s.dir === 'desc' ? { k, dir: 'asc' } : null))
+
+  if (!entries.length && !periods.length)
+    return <p className="text-ink-300 text-sm p-6 text-center">成績データがありません。参加者が決算すると各期の成績が表示されます。</p>
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 text-xs">
+        <label className="text-ink-400 font-bold">期</label>
+        <select
+          data-testid="rank-period"
+          value={period}
+          onChange={(e) => setPeriod(Number(e.target.value))}
+          className="h-8 border border-line rounded-lg px-2 bg-white"
+        >
+          <option value={0}>全期</option>
+          {periods.map((p) => (
+            <option key={p} value={p}>
+              第{p}期
+            </option>
+          ))}
+        </select>
+        <span className="text-ink-300">指標名をクリックすると並べ替えできます（▼降順 → ▲昇順 → 解除）</span>
+      </div>
+      <table className="text-[12px] border-collapse" data-testid="admin-rank">
+        <thead>
+          <tr className="text-ink-600 border-b border-line bg-canvas">
+            <th className="sticky left-0 z-10 bg-canvas px-2 py-1.5 text-left font-bold whitespace-nowrap">会社</th>
+            {entries.map((e, i) => (
+              <th key={i} className="px-2 py-1.5 text-right font-bold whitespace-nowrap border-l border-line/60">
+                {e.c.name}
+                <div className="text-ink-400 text-[10px] font-normal">{e.c.president || '—'}</div>
+              </th>
+            ))}
+          </tr>
+          <tr className="text-ink-400 border-b-2 border-line bg-canvas">
+            <th className="sticky left-0 z-10 bg-canvas px-2 py-1 text-left font-bold">期</th>
+            {entries.map((e, i) => (
+              <th key={i} className="px-2 py-1 text-right num font-bold whitespace-nowrap border-l border-line/60">
+                第{e.r.period}期
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {RANK_ROWS.map((row) => (
+            <tr key={row.k} className="border-b border-line/60">
+              <th
+                data-testid={`sort-${row.k}`}
+                onClick={() => clickSort(row.k)}
+                className="sticky left-0 z-10 bg-white px-2 py-1.5 text-left font-bold whitespace-nowrap cursor-pointer select-none hover:bg-canvas"
+                title="クリックで並べ替え"
+              >
+                {row.label}{' '}
+                <span className={sort?.k === row.k ? 'text-ink' : 'text-ink-200'}>
+                  {sort?.k === row.k ? (sort.dir === 'desc' ? '▼' : '▲') : '⇅'}
+                </span>
+              </th>
+              {entries.map((e, i) => (
+                <td key={i} className={`px-2 py-1.5 text-right num whitespace-nowrap border-l border-line/40 ${row.get(e.r) < 0 ? 'text-accent-ink' : ''}`}>
+                  {row.cell(e.r)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ---- 成績一覧：グラフ形式（組織比較チャートを講師用に表示）----
+function RankCharts({ companies }: { companies: ApiOrgCompany[] }) {
+  const withHist = companies.filter((c) => (c.results || []).length)
+  if (!withHist.length)
+    return <p className="text-ink-300 text-sm p-6 text-center">成績データがありません。参加者が決算すると各期の成績が表示されます。</p>
+  const series = (get: (r: any) => number) =>
+    withHist.map((c, i) => ({
+      name: c.name,
+      color: ORG_COLORS[i % ORG_COLORS.length],
+      pts: (c.results || []).map((r: any) => ({ x: r.period, y: get(r) })),
+    }))
+  const CHARTS: { title: string; get: (r: any) => number; opt: { signed?: boolean; pct?: boolean } }[] = [
+    { title: '売上 PQ の推移', get: (r) => r.PQ, opt: {} },
+    { title: '経常利益 G の推移', get: (r) => r.G, opt: { signed: true } },
+    { title: '当期純利益の推移', get: (r) => r.net, opt: { signed: true } },
+    { title: '純資産の推移', get: (r) => r.capEnd + r.retEnd, opt: { signed: true } },
+    { title: '粗利率の推移', get: (r) => (r.PQ ? (r.mPQ / r.PQ) * 100 : 0), opt: { pct: true } },
+    { title: 'FM比率（損益分岐点比率）の推移', get: (r) => fmRatio(r), opt: { pct: true } },
+  ]
+  return (
+    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="admin-charts">
+      {CHARTS.map((ch) => (
+        <div key={ch.title} className="rounded-xl border border-line p-4">
+          <h3 className="font-bold text-sm mb-2">{ch.title}</h3>
+          <OrgLineChart series={series(ch.get)} signed={ch.opt.signed} pct={ch.opt.pct} />
+        </div>
+      ))}
     </div>
   )
 }

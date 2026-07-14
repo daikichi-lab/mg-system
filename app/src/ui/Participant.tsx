@@ -12,6 +12,7 @@ import {
   loanRoom,
   equityNow,
   fmRatio,
+  flows,
   IN_COLS,
   type St,
   type Result,
@@ -19,6 +20,7 @@ import {
   type TxRow,
 } from '../lib/calc'
 import { eventFvals } from '../lib/game'
+import { mqMobile } from '../lib/mq'
 import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from '../lib/figures'
 import {
   cashAccountHTML,
@@ -62,6 +64,14 @@ export default function Participant() {
   const [amountTx, setAmountTx] = useState<TxRow | null>(null) // 金額のみ編集する行（資本金/給料/家賃 等）
   const [stmtView, setStmtView] = useState<Result | null>(null)
   const [askUnsettle, setAskUnsettle] = useState(false) // 決算取り消しの確認モーダル
+  const [, setMqTick] = useState(0) // スマホ⇄PCをまたいだら図表HTML（幅別生成）を再描画
+  useEffect(() => {
+    const mq = mqMobile
+    if (!mq) return
+    const h = () => setMqTick((v) => v + 1)
+    mq.addEventListener('change', h)
+    return () => mq.removeEventListener('change', h)
+  }, [])
   const st = game.st
   // 決算取り消し → 記帳タブへ（閲覧専用では出さない）
   const onUnsettle = game.spectator ? undefined : () => setAskUnsettle(true)
@@ -244,7 +254,7 @@ function ConfirmModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5">
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
         <h3 className="font-bold text-lg mb-2" data-testid="confirm-title">
           {title}
         </h3>
@@ -283,7 +293,7 @@ function OrgError() {
 function Header({ st }: { st: St }) {
   return (
     <header className="bg-white border-b border-line sticky top-0 z-20">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <span className="grid place-items-center w-9 h-9 rounded-lg bg-accent text-white font-black text-xs">MG</span>
           <div className="truncate">
@@ -748,7 +758,7 @@ function PlayTab({
       </div>
     </div>
   )
-  const subBtn = (v: 'A' | 'B' | 'X' | 'company', label: string) => (
+  const subBtn = (v: 'A' | 'B' | 'X' | 'company', label: ReactNode) => (
     <button
       data-testid={`sub-${v}`}
       onClick={() => setSub(v)}
@@ -767,7 +777,16 @@ function PlayTab({
         <p className="text-ink-400 text-sm mt-1">意思決定 → 数値入力 → 実行。現金出納帳に1行ずつ記帳されます。</p>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {statCard('現金残高', fmt(cashNow(st)), 'stat-cash')}
+        <div className="bg-ink rounded-2xl shadow-card border border-ink px-4 py-3">
+          <div className="text-white/60 text-xs font-bold">現金残高</div>
+          <div
+            className="num font-black text-2xl mt-0.5 text-white"
+            style={cashNow(st) < 0 ? { color: '#ffb4ae' } : undefined}
+            data-testid="stat-cash"
+          >
+            {fmt(cashNow(st))}
+          </div>
+        </div>
         {statCard('材料・原料', fmt(st.rawCubes), 'stat-raw')}
         {statCard('製品・陳列', fmt(st.products), 'stat-prod')}
         {statCard('今期の売上', fmt(tot[2]), 'stat-sales')}
@@ -776,7 +795,13 @@ function PlayTab({
       <div className="grid grid-cols-4 gap-1 bg-canvas border border-line rounded-xl p-1">
         {subBtn('A', 'ルールA')}
         {subBtn('B', 'ルールB')}
-        {subBtn('X', 'イベントカード')}
+        {subBtn(
+          'X',
+          <>
+            <span className="sm:hidden">イベント</span>
+            <span className="hidden sm:inline">イベントカード</span>
+          </>,
+        )}
         {subBtn('company', '会社版')}
       </div>
 
@@ -784,7 +809,7 @@ function PlayTab({
         {sub === 'A' && (
           <>
             <div className="text-xs font-bold text-ink-400 mb-2">ルールA・意思決定（1回1項目）</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {A_KEYS.map((k) => (
                 <ActBtn key={k} k={k} disabled={disabled} onOpen={onOpen} />
               ))}
@@ -794,7 +819,7 @@ function PlayTab({
         {sub === 'B' && (
           <>
             <div className="text-xs font-bold text-ink-400 mb-2">ルールB（1ターンに1回）</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {B_KEYS.map((k) => (
                 <ActBtn key={k} k={k} disabled={disabled} onOpen={onOpen} />
               ))}
@@ -975,6 +1000,27 @@ function Ledger({
   readOnly?: boolean
 }) {
   const tot = colTotals(st)
+  // 行ごとの編集可否・残高を先に導出（テーブルとモバイルカードで共用）
+  const rowMeta = (t: TxRow) => {
+    const derived = t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest
+    const isCustom = t.key === 'ibutsu' || t.key === 'suigai'
+    const canEditModal = !!t.key && !!FORMS[t.key] && !isCustom && !st.settled && !st.closingPrep
+    const canEditAmount = !t.key && !derived && !st.settled
+    return {
+      showEdit: !readOnly && (canEditModal || canEditAmount),
+      showDelete: !readOnly && !derived && !t.isClosing && !t.isCapital && !st.settled && !st.closingPrep,
+      label: t.label || (t.key ? ACTIONS[t.key]?.label : '') || '',
+    }
+  }
+  let cbal = st.openingCash
+  const cardRows = st.tx.map((t) => {
+    const hasCol = t.col !== null && t.col !== undefined
+    if (hasCol && IN_COLS.includes(t.col as number)) cbal += t.amount
+    else if (hasCol) cbal -= t.amount
+    return { t, bal: cbal, hasCol }
+  })
+  const { inS, outS } = flows(st)
+  const endBal = cashNow(st)
   let bal = st.openingCash
   const th = (i: number) => (
     <th
@@ -987,7 +1033,104 @@ function Ledger({
     </th>
   )
   return (
-    <div className="bg-white rounded-2xl shadow-card border border-line overflow-x-auto">
+    <div className="bg-white rounded-2xl shadow-card border border-line">
+      {/* モバイル：仕訳カードリスト（列ア〜コは色チップで表現・横スクロールなし） */}
+      <div className="sm:hidden p-2" data-testid="ledger-cards">
+        <div
+          className="flex items-center justify-between gap-2 py-2 pl-2 pr-1 border-b border-line/60"
+          style={{ borderLeft: '4px solid #1b2230' }}
+        >
+          <span className="text-[13px] font-medium">前期繰越</span>
+          <span className="num text-[11px] text-ink-400">残高 {fmt(st.openingCash)}</span>
+        </div>
+        {cardRows.map(({ t, bal: b, hasCol }) => {
+          const { showEdit, showDelete, label } = rowMeta(t)
+          const dir = !hasCol ? 'none' : IN_COLS.includes(t.col as number) ? 'in' : 'out'
+          const barColor = dir === 'in' ? '#0f766e' : dir === 'out' ? '#5b6472' : '#e4e7ec'
+          return (
+            <div
+              key={t.id}
+              className="flex items-center gap-2 py-2 pl-2 pr-1 border-b border-line/60"
+              style={{ borderLeft: `4px solid ${barColor}` }}
+            >
+              {showEdit ? (
+                <button
+                  data-testid={`cedit-${t.id}`}
+                  onClick={() => onEditRow(t)}
+                  title="編集"
+                  className="shrink-0 h-8 w-8 -ml-1 grid place-items-center rounded-lg text-ink-300 active:bg-canvas"
+                >
+                  ✎
+                </button>
+              ) : (
+                <span className="w-1 shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium leading-tight truncate">
+                  {label}
+                  {t.note ? <span className="text-ink-300 text-[10px] ml-1">{t.note}</span> : null}
+                </div>
+                <div className="mt-0.5">
+                  {hasCol ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+                      style={{ background: LCOL[t.col as number].h, color: LCOL[t.col as number].t }}
+                    >
+                      <span className="opacity-70">{LHEAD[t.col as number].s}</span>
+                      {LHEAD[t.col as number].n}
+                    </span>
+                  ) : (
+                    <span className="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-canvas text-ink-300">
+                      記録のみ
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {hasCol && t.amount ? (
+                  <span
+                    className="num font-bold text-[15px] whitespace-nowrap"
+                    style={{ color: dir === 'in' ? '#0b5d56' : '#434a57' }}
+                  >
+                    {dir === 'in' ? '＋' : '−'}
+                    {fmt(t.amount)}
+                  </span>
+                ) : null}
+                <div className="num text-[11px]" style={hasCol && b < 0 ? { color: '#c8322b' } : undefined}>
+                  {hasCol ? (
+                    <span className="text-ink-400" style={b < 0 ? { color: '#c8322b' } : undefined}>
+                      残高 {fmt(b)}
+                    </span>
+                  ) : (
+                    <span className="text-ink-300">〃</span>
+                  )}
+                </div>
+              </div>
+              {showDelete ? (
+                <button
+                  data-testid={`cdel-${t.id}`}
+                  onClick={() => onDelete(t.id)}
+                  title="削除"
+                  className="shrink-0 h-8 w-7 grid place-items-center rounded-lg text-ink-300 active:bg-canvas text-[11px]"
+                >
+                  ✕
+                </button>
+              ) : (
+                <span className="w-1 shrink-0" />
+              )}
+            </div>
+          )
+        })}
+        <div className="flex items-center justify-between gap-2 pt-2.5 pb-1 px-2 text-[12px]">
+          <span className="font-bold">合計</span>
+          <span className="num text-cin-ink">入金 ＋{fmt(inS)}</span>
+          <span className="num text-cout-ink">出金 −{fmt(outS)}</span>
+          <span className="num font-bold text-[15px]" style={endBal < 0 ? { color: '#c8322b' } : undefined}>
+            {fmt(endBal)}
+          </span>
+        </div>
+      </div>
+      <div className="hidden sm:block overflow-x-auto">
       <table className="text-[11px] min-w-[920px] w-full" data-testid="ledger">
         <thead>
            <tr className="border-b border-line">
@@ -1012,15 +1155,7 @@ function Ledger({
             const hasCol = t.col !== null && t.col !== undefined
             if (hasCol && IN_COLS.includes(t.col as number)) bal += t.amount
             else if (hasCol) bal -= t.amount
-            const derived = t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest
-            const isCustom = t.key === 'ibutsu' || t.key === 'suigai'
-            // ✎ 編集：アクション行はモーダル（記帳前のみ）、キーレス行（資本金/給料/家賃/増資）は金額編集（決算前）
-            const canEditModal = !!t.key && !!FORMS[t.key] && !isCustom && !st.settled && !st.closingPrep
-            const canEditAmount = !t.key && !derived && !st.settled
-            const showEdit = !readOnly && (canEditModal || canEditAmount)
-            // ✕ 削除：資本金・期末（給料/家賃）・自動行は不可
-            const showDelete = !readOnly && !derived && !t.isClosing && !t.isCapital && !st.settled && !st.closingPrep
-            const label = t.label || (t.key ? ACTIONS[t.key]?.label : '') || ''
+            const { showEdit, showDelete, label } = rowMeta(t)
             return (
               <tr key={t.id} className="border-b border-line/60">
                 <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
@@ -1086,6 +1221,7 @@ function Ledger({
           </tr>
         </tfoot>
       </table>
+      </div>
     </div>
   )
 }
@@ -1632,8 +1768,50 @@ function StatementTab({
 function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Result) => void }) {
   if (!history.length)
     return <div className="bg-white rounded-2xl shadow-sm border border-line p-8 text-center text-ink-400">まだ決算がありません。</div>
+  const kv = (l: string, v: string, cls = '') => (
+    <div>
+      <div className="text-[10px] text-ink-400">{l}</div>
+      <div className={`num font-bold text-[15px] ${cls}`}>{v}</div>
+    </div>
+  )
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-line overflow-x-auto">
+    <>
+    {/* モバイル：期ごとのカード（横スクロールなし） */}
+    <div className="sm:hidden space-y-3" data-testid="history-cards">
+      {history.map((r) => (
+        <div key={r.period} className="bg-white rounded-2xl shadow-card border border-line p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-black">第{r.period}期</span>
+            <span className={`num font-bold ${r.G < 0 ? 'text-accent-ink' : 'text-g-ink'}`}>経常G {fmtA(r.G)}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-right">
+            {kv('売上PQ', fmt(r.PQ), 'text-p-ink')}
+            {kv('粗利mPQ', fmt(r.mPQ), 'text-m-ink')}
+            {kv('固定費F', fmt(r.F), 'text-f-ink')}
+            {kv('当期利益', fmtA(r.net), r.net < 0 ? 'text-accent-ink' : '')}
+            {kv('自己資本', fmt(r.capEnd + r.retEnd))}
+            {kv('現金', fmt(r.cashEnd))}
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button
+              data-testid={`cdetail-${r.period}`}
+              onClick={() => onDetail(r)}
+              className="flex-1 h-10 rounded-lg border border-line text-ink-600 text-[13px] font-bold active:bg-canvas"
+            >
+              決算書をみる
+            </button>
+            <button
+              data-testid={`cpdf-${r.period}`}
+              onClick={() => savePdf(r)}
+              className="h-10 px-4 rounded-lg border border-accent/40 text-accent-ink text-[13px] font-bold active:bg-accent/5"
+            >
+              PDF
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div className="hidden sm:block bg-white rounded-2xl shadow-sm border border-line overflow-x-auto">
       <table className="w-full text-[13px] min-w-[560px]" data-testid="history">
         <thead>
           <tr className="text-ink-400 border-b border-line bg-canvas">
@@ -1676,6 +1854,7 @@ function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Re
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 
@@ -1926,7 +2105,7 @@ function ActionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto">
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 max-h-[88vh] overflow-y-auto" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
         <h3 className="font-bold text-lg mb-1" data-testid="modal-title">
           {a.label}
           {editTx ? <span className="text-ink-400 font-normal text-sm ml-1">の編集</span> : null}
@@ -1948,7 +2127,7 @@ function ActionModal({
             {items.map((row, i) => (
               <div key={i} className="flex gap-2 items-end">
                 {form.rowFields!.map((fl) => (
-                  <label key={fl.name} className="flex-1">
+                  <label key={fl.name} className="flex-1 min-w-0">
                     <span className="text-[11px] text-ink-400">{fl.label}</span>
                     <FieldInput
                       fl={fl}
@@ -2038,7 +2217,7 @@ function AmountModal({ tx, onClose, onSave }: { tx: TxRow; onClose: () => void; 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5">
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
         <h3 className="font-bold text-lg mb-1" data-testid="amount-title">
           {label}
           <span className="text-ink-400 font-normal text-sm ml-1">の金額を変更</span>
@@ -2050,6 +2229,7 @@ function AmountModal({ tx, onClose, onSave }: { tx: TxRow; onClose: () => void; 
             data-testid="amount-input"
             type="number"
             inputMode="numeric"
+            pattern="[0-9]*"
             value={v}
             onChange={(e) => setV(e.target.value)}
             className="mt-1 w-full h-11 border border-line rounded-lg px-3 num text-right"
@@ -2100,14 +2280,55 @@ function FieldInput({
       </select>
     )
   }
+  if (fl.fixed) {
+    return (
+      <input
+        data-testid={testid}
+        type="number"
+        inputMode="numeric"
+        value={value}
+        disabled
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 h-11 w-full border border-line rounded-lg px-2 num disabled:bg-canvas"
+      />
+    )
+  }
+  // ±ステッパー：タップだけで個数・枚数を入力できる。金額（借入・返済）は10刻み
+  const step = fl.name === 'a' ? 10 : 1
+  const bump = (d: number) => {
+    let v = parseFloat(value)
+    if (isNaN(v)) v = 0
+    v += d
+    if (fl.min != null && v < fl.min) v = fl.min
+    onChange(String(v))
+  }
   return (
-    <input
-      data-testid={testid}
-      type="number"
-      value={value}
-      disabled={fl.fixed}
-      onChange={(e) => onChange(e.target.value)}
-      className="mt-1 h-11 w-full border border-line rounded-lg px-2 num disabled:bg-canvas"
-    />
+    <div className="mt-1 flex items-stretch w-full rounded-lg border border-line overflow-hidden">
+      <button
+        type="button"
+        aria-label="減らす"
+        onClick={() => bump(-step)}
+        className="w-11 shrink-0 grid place-items-center text-xl leading-none text-ink-400 active:bg-canvas select-none"
+      >
+        −
+      </button>
+      <input
+        data-testid={testid}
+        type="number"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-11 flex-1 min-w-0 border-x border-line px-1 text-center num outline-none focus:bg-canvas/70"
+      />
+      <button
+        type="button"
+        aria-label="増やす"
+        onClick={() => bump(step)}
+        className="w-11 shrink-0 grid place-items-center text-xl leading-none text-ink-400 active:bg-canvas select-none"
+      >
+        ＋
+      </button>
+    </div>
   )
 }

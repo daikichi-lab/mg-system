@@ -2,6 +2,7 @@
 // Tailwind クラスは本番ビルドでパージされるため、すべてインラインスタイルで描画する。
 // 数値データのみから生成し、ユーザ入力文字列は含まない（安全に dangerouslySetInnerHTML 可）。
 import { caps, type St } from './calc'
+import { isM } from './mq'
 
 const GREEN = '#69a86a'
 const INK600 = '#3a4252'
@@ -36,12 +37,12 @@ function pawns(n: number): string {
   return h || `<span style="color:${INK300};font-size:12px">—</span>`
 }
 
-// 材料/店舗の大きな箱
+// 材料/店舗の大きな箱（スマホは高さを圧縮）
 function box(title: string, pieces: string): string {
   const body = pieces || `<span style="color:${INK300};font-size:14px">空</span>`
   return `<div style="border:2.5px solid ${GREEN};border-radius:14px;background:#fcfefb;width:248px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
     <div style="font-size:14px;font-weight:700;color:${INK600};margin-bottom:12px;text-align:center">${title}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;align-content:center;min-height:150px">${body}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;align-content:center;min-height:${isM() ? 88 : 150}px">${body}</div>
   </div>`
 }
 
@@ -83,7 +84,15 @@ export function boardHTML(st: St): string {
       <div style="letter-spacing:.4em;color:#a3bda3;font-weight:700;font-size:13px">会 社 盤</div>
       <div style="position:absolute;right:0;font-size:11px;color:${INK400}">第${st.period}期</div>
     </div>
-    <div style="overflow-x:auto;padding-bottom:4px">
+    ${
+      isM()
+        ? `<div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:4px">
+        ${box('材料', pile(st.rawCubes, CUBE, 28))}
+        ${staffBox('製造スタッフ', st.staffMfg)}
+        ${box('店舗', pile(st.products, CUBE, 28))}
+        ${staffBox('販売スタッフ', st.staffSales)}
+      </div>`
+        : `<div style="overflow-x:auto;padding-bottom:4px">
       <div style="display:flex;align-items:flex-start;gap:8px;justify-content:center;min-width:720px">
         ${barrow('材料仕入')}
         <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
@@ -97,7 +106,8 @@ export function boardHTML(st: St): string {
         </div>
         ${barrow('販売')}
       </div>
-    </div>
+    </div>`
+    }
     <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px">
       ${tile('什器', st.machines, HEX)}
       ${tile('保険', st.insurance, dot('#f3c218'))}

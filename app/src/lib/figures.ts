@@ -2,6 +2,7 @@
 // mock/index.html の図描画関数を TypeScript 移植。
 // すべてインラインスタイルで組み立てる（Tailwind クラスは使わない — 文字列内クラスは purge されるため）。
 import { fmt, fmtA, type Result } from './calc.ts'
+import { isM } from './mq.ts'
 
 // .num 相当（等幅数字フォント）
 const NUM = "font-family:'Roboto Mono','Zen Kaku Gothic New',monospace;font-variant-numeric:tabular-nums"
@@ -47,15 +48,15 @@ export function stracHTML(r: Result): string {
   const pillar = (w: number, bg: string, bd: string, inner: string) =>
     `<div style="width:${w}px;height:${pqH}px;background:${bg};border:1px solid ${bd};border-radius:4px;display:grid;place-items:center;text-align:center;overflow:hidden;flex:none">${inner}</div>`
 
-  const fig = `<div style="max-width:560px;margin:0 auto;overflow-x:auto"><div style="display:flex;align-items:flex-start;gap:4px;min-width:max-content">
-        ${pillar(34, '#fbe7d3', '#e08a3c', `<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div style="${NUM};font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)}
-        <div style="width:34px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
+  // 図の部品（単価P・変動/粗利単価・×個数Q・売上高PQ柱・売上高の分解ブロック）
+  const pillarP = pillar(34, '#fbe7d3', '#e08a3c', `<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div style="${NUM};font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)
+  const unitCol = `<div style="width:34px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
           <div style="height:${vH}px;background:#37a36b;color:#fff;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">変動単価</div><div style="${NUM};font-weight:700;font-size:10px">${f(vP)}</div></div></div>
           <div style="height:${mH}px;background:#fbe4ee;color:#9d3464;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">粗利単価</div><div style="${NUM};font-weight:700;font-size:10px">${f(mP)}</div></div></div>
-        </div>
-        <div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px 5px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div style="${NUM};font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>
-        ${pillar(56, '#fbe7d3', '#e08a3c', `<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div style="${NUM};font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)}
-        <div style="width:240px;max-width:60vw;flex:none;display:flex;flex-direction:column;min-width:0">
+        </div>`
+  const qtyBox = `<div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px 5px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div style="${NUM};font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>`
+  const pqPillar = pillar(56, '#fbe7d3', '#e08a3c', `<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div style="${NUM};font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)
+  const breakdown = (w: string) => `<div style="${w};display:flex;flex-direction:column;min-width:0">
           <div style="height:${vH}px;background:#37a36b;color:#fff;border:1px solid #2f8d5c;border-bottom:0;border-radius:4px 4px 0 0;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">変動費 vPQ</div><div style="${NUM};font-weight:800;font-size:11px">${f(r.vPQ)}</div><div style="font-size:6.5px;opacity:.85">売上原価</div></div></div>
           <div style="display:flex;align-items:flex-start">
             ${
@@ -66,7 +67,19 @@ export function stracHTML(r: Result): string {
                  <div style="flex:1;height:${mH}px;border:1px solid #e1e5ea;border-radius:0 0 4px 0;overflow:hidden;display:flex;flex-direction:column">${blk(fH, '#3b6fd4', '#fff', '固定費 F', f(r.F), '')}${blk(gH, '#f6cf4b', '#6b5300', '経常利益 G', f(r.G), '粗利−固定費')}</div>`
             }
           </div>
-        </div>
+        </div>`
+  // スマホ：1段目「単価×個数」、2段目「売上高PQ柱＋分解」（横スクロールなし）／PC：従来の1列並び
+  const fig = isM()
+    ? `<div style="max-width:560px;margin:0 auto">
+        <div style="display:flex;align-items:flex-start;justify-content:center;gap:4px">${pillarP}${unitCol}${qtyBox}</div>
+        <div style="display:flex;align-items:flex-start;gap:4px;margin-top:8px">${pqPillar}${breakdown('flex:1')}</div>
+      </div>`
+    : `<div style="max-width:560px;margin:0 auto;overflow-x:auto"><div style="display:flex;align-items:flex-start;gap:4px;min-width:max-content">
+        ${pillarP}
+        ${unitCol}
+        ${qtyBox}
+        ${pqPillar}
+        ${breakdown('width:240px;max-width:60vw;flex:none')}
       </div></div>`
 
   const chip = (l: string, v: string) =>
@@ -101,19 +114,23 @@ function wfSVG(bars: WFBar[], opts?: { plus?: boolean }): string {
   const padHi = (maxV - minV) * 0.12
   maxV += padHi
   minV -= padHi * 0.5
+  // スマホは画面幅に収まる寸法で描き直す（横スクロールなし・項目名は上下2段交互で重なり回避）
+  const m = isM()
   const n = bars.length
-  const W = 760
-  const H = 232
+  const W = m ? 390 : 760
+  const H = m ? 252 : 232
   const padT = 12
-  const padB = 38
-  const padX = 18
+  const padB = m ? 48 : 38
+  const padX = m ? 8 : 18
   const span = maxV - minV
   const Y = (v: number) => padT + ((maxV - v) / span) * (H - padT - padB)
   const slot = (W - padX * 2) / n
-  const barW = Math.min(110, slot * 0.56)
+  const barW = Math.min(m ? 44 : 110, slot * 0.56)
   const cx = (i: number) => padX + slot * i + slot / 2
   const zeroY = Y(0)
-  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;min-width:420px">`
+  const fsVal = m ? 11 : 13
+  const fsLab = m ? 10 : 12
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto${m ? '' : ';min-width:420px'}">`
   s += `<line x1="${padX}" y1="${zeroY.toFixed(1)}" x2="${W - padX}" y2="${zeroY.toFixed(1)}" stroke="#c0c7d0" stroke-width="1"/>`
   for (let i = 0; i < n - 1; i++) {
     const y = Y(bars[i].top).toFixed(1)
@@ -132,8 +149,9 @@ function wfSVG(bars: WFBar[], opts?: { plus?: boolean }): string {
     const inside = h > 24
     const ly = zero ? zeroY - 8 : inside ? (yTop + Y(b.lo)) / 2 + 5 : b.v >= 0 ? yTop - 6 : Y(b.lo) + 15
     const lc = zero ? '#46505f' : inside ? b.tc || '#fff' : '#46505f'
-    s += `<text x="${cx(i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="${lc}">${sv(b.v)}</text>`
-    s += `<text x="${cx(i).toFixed(1)}" y="${H - 20}" text-anchor="middle" font-size="12" font-weight="600" fill="#5b6472">${b.l}</text>`
+    s += `<text x="${cx(i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="${fsVal}" font-weight="700" fill="${lc}">${sv(b.v)}</text>`
+    const labY = m ? H - (i % 2 ? 6 : 24) : H - 20
+    s += `<text x="${cx(i).toFixed(1)}" y="${labY}" text-anchor="middle" font-size="${fsLab}" font-weight="600" fill="#5b6472">${b.l}</text>`
   })
   return s + '</svg>'
 }
