@@ -1,6 +1,11 @@
 // 戦略MG 計算エンジン（mock/index.html の純関数を TypeScript 移植）。
 // docs/calc-spec.md に忠実。数値は mock と厳密一致（golden-master テストで検証）。
 
+import { normalizeRules, type Rules } from './rules.ts'
+
+export type { Rules } from './rules.ts'
+export { DEFAULT_RULES } from './rules.ts'
+
 export type Fvals = Record<string, any>
 
 export interface TxRow {
@@ -136,17 +141,24 @@ export interface Result {
   openInterest: number
 }
 
-// ---- 定数 ----
-export const SALARY_TABLE: Record<number, number> = { 1: 25, 2: 28, 3: 31, 4: 34, 5: 37 }
+// ---- 数値ルール ----
+// 研修回ごとに差し替えられる数値は rules.ts に集約してある。
+// 参照は必ず getRules() 経由で行い、モジュールスコープに値を退避しないこと
+// （setRules() で差し替えた後も古い値を掴み続けてしまうため）。
+let RULES: Rules = normalizeRules(null)
+
+/** いま有効な数値ルール */
+export const getRules = (): Rules => RULES
+
+/** 数値ルールを差し替える。null/未指定で既定ルールに戻す。 */
+export function setRules(next?: Partial<Rules> | null): Rules {
+  RULES = normalizeRules(next)
+  return RULES
+}
+
+// ---- 定数（列と勘定科目の対応。ルールでは変更しない） ----
 export const COLS = 11
 export const IN_COLS = [0, 1, 2, 3]
-export const LOAN_RATE = 0.05
-export const RENT = 25
-export const DEP_PER_MACHINE = 10
-export const MACHINE_PRICE = 100
-export const MATERIAL_PRICES = [10, 11, 12, 13, 14, 15, 16]
-export const MAT_CAP = 15
-export const PROD_CAP = 15
 export const COL_LABELS = [
   'ア 資本金',
   'イ 借入金',
@@ -236,10 +248,10 @@ export const ACTIONS: Record<string, ActionDef> = {
     col: 4,
     side: 'out',
      account: '什器',
-    amount: (f) => (f.n || 0) * MACHINE_PRICE,
+    amount: (f) => (f.n || 0) * getRules().machinePrice,
     apply: (st, f) => {
       st.machines += f.n || 0
-      st.equipVal += (f.n || 0) * MACHINE_PRICE
+      st.equipVal += (f.n || 0) * getRules().machinePrice
     },
   },
   saiyo: {
@@ -540,7 +552,7 @@ export function recompute(st: St) {
   for (const t of st.tx) {
     withInterest.push(t)
     if (t.key === 'kariire') {
-      const bi = r((t.amount || 0) * LOAN_RATE)
+      const bi = r((t.amount || 0) * getRules().loanRate)
       if (bi > 0)
         withInterest.push({
           id: -(t.id || 0) - 1000000,
@@ -618,7 +630,7 @@ export function loanRoom(st: St, excl = 0): number {
 export function doClosingPrep(st: St) {
   if (st.settled || st.closingPrep) return
   recompute(st)
-  const SAL = SALARY_TABLE[st.period] || 28
+  const SAL = getRules().salaryTable[st.period - 1] || 28
   const head = st.staffMfg + st.staffSales
   const retired = st.tx.filter((x) => x.key === 'taishoku_mfg' || x.key === 'taishoku_sales').length
   const halfPer = Math.ceil(SAL / 2)
@@ -627,7 +639,7 @@ export function doClosingPrep(st: St) {
   const salNote = retired > 0 ? `在籍${head}×${SAL}＋退職${retired}×${halfPer}(半額)` : `${head}×${SAL}`
   if (salary > 0)
     st.tx.push({ id: st.seq++, label: '給料(期末)', col: 6, amount: salary, note: salNote, isClosing: true })
-  st.tx.push({ id: st.seq++, label: '家賃(期末)', col: 8, amount: RENT, isClosing: true })
+  st.tx.push({ id: st.seq++, label: '家賃(期末)', col: 8, amount: getRules().rent, isClosing: true })
   const repay = Math.min(r((st.openingLoan * st.repayRate) / 100), st.loan)
   if (repay > 0)
     st.tx.push({
@@ -668,7 +680,7 @@ export function settle(st: St): Result | null {
   const salRow = st.tx.find((x) => x.isClosing && x.col === 6)
   const rentRow = st.tx.find((x) => x.isClosing && x.col === 8)
   const salary = salRow ? salRow.amount : 0
-  const rent = rentRow ? rentRow.amount : RENT
+  const rent = rentRow ? rentRow.amount : getRules().rent
   const tot = colTotals(st)
   const { inS, outS } = flows(st)
   const PQ = tot[2]
@@ -679,7 +691,7 @@ export function settle(st: St): Result | null {
   const endInvVal = avg * endInvQty
   const vPQ = st.matVal - scrapVal - endInvVal
   const mPQ = PQ - vPQ
-  const dep = st.machines * DEP_PER_MACHINE
+  const dep = st.machines * getRules().depPerMachine
   const F = tot[6] + tot[7] + tot[8] + dep
   const G = mPQ - F
   const special = tot[3] - scrapVal
@@ -772,7 +784,7 @@ export function settle(st: St): Result | null {
     capStart: st.openingCapital,
     loanMult: st.loanMult,
     repayRate: st.repayRate,
-    openInterest: r(st.openingLoan * LOAN_RATE),
+    openInterest: r(st.openingLoan * getRules().loanRate),
   }
   st.result = result
   st.settled = true
@@ -804,7 +816,7 @@ export function nextPeriod(st: St): void {
   if (res.period < 5 && res.tax > 0)
     st.tx.push({ id: st.seq++, label: '法人税納付(期首)', col: 10, amount: res.tax, isOpeningTax: true })
   if (res.period < 5 && res.loanEnd > 0) {
-    const intr = r(res.loanEnd * LOAN_RATE)
+    const intr = r(res.loanEnd * getRules().loanRate)
     if (intr > 0)
       st.tx.push({ id: st.seq++, label: '支払金利(期首)', col: 8, amount: intr, isOpeningInterest: true })
   }

@@ -17,8 +17,7 @@ import {
   caps,
   cashNow,
   loanRoom,
-  MAT_CAP,
-  PROD_CAP,
+  getRules,
 } from '../src/lib/calc.ts'
 
 // テストデータはローカル確認専用。DATABASE_URL（本番Postgres）が設定された環境では誤投入を防ぐ。
@@ -50,7 +49,8 @@ function validate(st, key, f) {
   switch (key) {
     case 'shiire': {
       const q = rowsOf(f).reduce((s, x) => s + (x.qty || 0), 0)
-      if (st.rawCubes + q > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます（現在 ${st.rawCubes}・追加 ${q}）`)
+      if (st.rawCubes + q > getRules().matCap)
+        errs.push(`材料在庫の上限${getRules().matCap}を超えます（現在 ${st.rawCubes}・追加 ${q}）`)
       break
     }
     case 'seizo':
@@ -58,7 +58,7 @@ function validate(st, key, f) {
       if (st.staffMfg <= 0) errs.push('製造スタッフがいません')
       if (f.qty > c.mfgCap) errs.push(`製造能力 ${c.mfgCap} を超えています（${f.qty}）`)
       if (f.qty > st.rawCubes) errs.push(`材料が足りません（在庫 ${st.rawCubes}・要求 ${f.qty}）`)
-      if (st.products + f.qty > PROD_CAP) errs.push(`店舗陳列の上限${PROD_CAP}を超えます`)
+      if (st.products + f.qty > getRules().prodCap) errs.push(`店舗陳列の上限${getRules().prodCap}を超えます`)
       break
     case 'hanbai': {
       const q = rowsOf(f).reduce((s, x) => s + (x.qty || 0), 0)
