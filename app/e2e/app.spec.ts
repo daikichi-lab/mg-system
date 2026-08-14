@@ -546,4 +546,83 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     expect((page as any)._mgErrors).toEqual([])
   })
+  test('管理者：ルールの作成→確認→編集→複製→削除（URLで画面が決まる）', async ({ page }) => {
+    await page.goto('/admin/rules')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+
+    // 一覧には既定ルールが並んでいる。既定は削除できない
+    await expect(page.getByTestId('ruleset-table')).toContainText('入門編 標準')
+    await expect(page.getByTestId(/^del-/).first()).toBeDisabled()
+
+    // 作成
+    await page.getByTestId('new-ruleset').click()
+    await expect(page).toHaveURL(/\/admin\/rules\/new$/)
+    await page.getByTestId('rule-name-input').fill('E2E 上級編')
+    await page.getByTestId('rule-desc-input').fill('金利と家賃を上げた設定')
+    await page.getByTestId('f-loanRate').fill('8')
+    await page.getByTestId('f-rent').fill('40')
+    await page.getByTestId('f-salary-0').fill('30')
+    // 仕入単価はタグ：1つ外して1つ足す
+    await page.getByTestId('price-del-16').click()
+    await page.getByTestId('price-new').fill('9')
+    await page.getByTestId('price-add').click()
+    await page.getByTestId('rule-save').click()
+
+    // 確認画面へ遷移し、入れた値が出る
+    await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
+    await expect(page.getByTestId('rule-name')).toContainText('E2E 上級編')
+    const view = page.getByTestId('rule-view')
+    await expect(view).toContainText('8%')
+    await expect(view).toContainText('40')
+    await expect(view).toContainText('9')
+    await expect(view).not.toContainText('16')
+
+    // URL を直接開いても同じ画面（リロード耐性）
+    const viewUrl = page.url()
+    await page.goto(viewUrl)
+    await expect(page.getByTestId('rule-name')).toContainText('E2E 上級編')
+
+    // 編集：家賃を変えて保存 → 確認画面に反映
+    await page.getByTestId('rule-edit').click()
+    await expect(page).toHaveURL(/\/admin\/rules\/\d+\/edit$/)
+    await page.getByTestId('f-rent').fill('45')
+    await page.getByTestId('rule-save').click()
+    await expect(page).toHaveURL(viewUrl)
+    await expect(page.getByTestId('rule-view')).toContainText('45')
+
+    // 複製 → 編集画面が開き、名前が「… のコピー」になっている
+    await page.getByTestId('rule-duplicate').click()
+    await expect(page).toHaveURL(/\/admin\/rules\/\d+\/edit$/)
+    await expect(page.getByTestId('rule-name-input')).toHaveValue('E2E 上級編 のコピー')
+
+    // 一覧に2件出て、コピーを削除できる
+    await page.getByTestId('menu-rules').click()
+    await expect(page.getByTestId('ruleset-table')).toContainText('E2E 上級編 のコピー')
+    const rows = page.locator('[data-testid^="ruleset-row-"]')
+    const before = await rows.count()
+    await page.locator('[data-testid^="del-"]:not([disabled])').first().click()
+    await expect(rows).toHaveCount(before - 1)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
+  test('管理者：既定ルールは編集できず、複製に誘導される', async ({ page }) => {
+    await page.goto('/admin/rules')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+
+    await page.locator('[data-testid^="ruleset-row-"]', { hasText: '入門編 標準' }).click()
+    await expect(page.getByTestId('rule-name')).toContainText('入門編 標準')
+    // 編集ボタンは出ず、複製への誘導が出る
+    await expect(page.getByTestId('rule-edit')).toHaveCount(0)
+    await expect(page.getByTestId('rule-duplicate')).toBeVisible()
+    // 既定の数値が既定値のまま出ている（家賃25・金利5%・機械100）
+    const view = page.getByTestId('rule-view')
+    await expect(view).toContainText('25')
+    await expect(view).toContainText('5%')
+    await expect(view).toContainText('100')
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
 })
