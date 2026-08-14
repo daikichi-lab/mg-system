@@ -2,7 +2,6 @@
 //  - 既定: Node 24 内蔵 node:sqlite（ローカル開発/E2E・追加インフラ不要）
 //  - DATABASE_URL があれば PostgreSQL（pg）を使用（本番・Supabase等の無料枠でも可）
 // クエリ文字列は `?` プレースホルダで共通化し、pg ドライバ側で $1.. へ変換する。
-import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -66,6 +65,8 @@ export function pgConv(sql) {
 
 // ---- ドライバ ----
 async function makeSqlite() {
+  // node:sqlite は sqlite使用時のみ動的読込（Postgres運用時はNodeのsqlite対応に依存しない）
+  const { DatabaseSync } = await import('node:sqlite')
   const path = process.env.MG_DB || new URL('./data/mg.db', import.meta.url).pathname
   mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
