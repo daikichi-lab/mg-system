@@ -523,6 +523,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 編集モーダルで研修名と研修URLを変更（URL変更時は警告が出る）
     await page.getByTestId('edit-E2EEDIT').click()
     await page.getByTestId('edit-name').fill('名前つき研修')
+    // 再生成ボタンで新しいコードが入ることを確認してから、検証しやすい値に置き換える
+    await page.getByTestId('edit-gen-code').click()
+    await expect(page.getByTestId('edit-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
     await page.getByTestId('edit-code').fill('E2EEDIT2')
     await expect(page.getByTestId('edit-warn')).toBeVisible()
     await page.getByTestId('save-session').click()

@@ -296,12 +296,21 @@ function EditModal({
         className="w-full h-10 border border-line rounded-lg px-3 text-sm"
       />
       <label className="block text-xs font-bold text-ink-400 mt-3 mb-1">研修URL</label>
-      <input
-        data-testid="edit-code"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        className="w-full h-10 border border-line rounded-lg px-3 text-[11px] num"
-      />
+      <div className="flex gap-2">
+        <input
+          data-testid="edit-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          className="flex-1 h-10 border border-line rounded-lg px-3 text-[11px] num min-w-0"
+        />
+        <button
+          data-testid="edit-gen-code"
+          onClick={() => setCode(genCode())}
+          className="h-10 px-3 rounded-lg border border-line text-ink-600 text-xs font-bold shrink-0 whitespace-nowrap"
+        >
+          再生成
+        </button>
+      </div>
       <p className="text-ink-300 text-[10px] mt-1 leading-snug num break-all">{urlOf(code)}</p>
       {codeChanged && (
         <p data-testid="edit-warn" className="text-accent-ink text-[11px] mt-2 leading-snug">
