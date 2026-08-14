@@ -122,6 +122,25 @@ nginx でリバースプロキシ＋Let's Encrypt で HTTPS 終端（`proxy_pass
 
 ---
 
+## 本番へ反映する（手動デプロイ）
+
+**自動デプロイは無効にしてある**（`render.yaml` の `autoDeploy: false`）。研修中に意図せず本番が
+入れ替わるのを防ぐため、main にマージしても本番は変わらない。
+
+```
+PR をマージ（本番は変わらない）
+      ↓
+Render → mg-system → 右上 Manual Deploy → Deploy latest commit
+      ↓
+ログに「MG server on … (postgres)」が出るのを確認 → 画面で動作確認
+```
+
+- 研修の直前・最中は避ける。デプロイ中は数十秒アクセスできない。
+- 切り戻すときは Render の **Events** から以前のデプロイを選んで **Rollback**。
+
+> `mg-system` が Blueprint 管理でない場合、Render は `render.yaml` を読まない。
+> その場合は **Settings → Auto-Deploy** を **No** にしておくこと（ダッシュボード側が優先される）。
+
 ## デプロイ後チェックリスト
 - [ ] **`DATABASE_URL` を設定した**（未設定＝SQLite＝デプロイのたびにデータが消える）
 - [ ] ログに **`(postgres)`** と出ている

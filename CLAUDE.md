@@ -8,12 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **ブランチは main から、issue 番号で作る。** 例：issue #12 なら `git switch -c 12-loan-rate origin/main`（`<issue番号>-<短い英字スラッグ>`）。
 3. **作業後は PR まで作る。** `git push -u origin <branch>` → `gh pr create --base main`。PR 本文に `Closes #<issue番号>` を入れる。
 4. **マージは必ず人間が行う。** `gh pr merge` は実行しない。push と PR 作成までで止め、レビュー依頼を出して終わる。
-   **main は autoDeploy 対象**（`render.yaml`）。マージ＝本番デプロイなので、機械的にマージしない。
+5. **本番へのデプロイも人間が行う。** 自動デプロイは無効（`render.yaml` の `autoDeploy: false`）。
+   **main にマージしても本番は変わらない。** 反映は Render の Manual Deploy による手動操作。
 
 ### 作業順序
 
 ```
-issue 作成 → main からブランチ作成（issue番号） → 実装 → lint + テスト → コミット → push → PR 作成 → （人間がマージ＝本番デプロイ）
+issue 作成 → main からブランチ作成（issue番号） → 実装 → lint + テスト → コミット → push → PR 作成
+                                                        → （人間がマージ）→ （人間が Render で手動デプロイ）
 ```
 
 - 1 PR = 1 ゴール。まとめて出さない。過去に一括開発して本番検証が不能になった経緯がある（issue #5）。
@@ -150,8 +152,10 @@ npm run test:calc
 
 ## デプロイ
 
-Render Blueprint（`render.yaml`・`rootDir: app`・ヘルスチェック `/api/health`・`autoDeploy: true`）。
-**main へのマージがそのまま本番デプロイ**になる。
+Render Blueprint（`render.yaml`・`rootDir: app`・ヘルスチェック `/api/health`）。
+
+**自動デプロイは無効（`autoDeploy: false`）。main にマージしても本番は変わらない。**
+反映するときは Render → `mg-system` → **Manual Deploy → Deploy latest commit**。研修の直前・最中は避ける。
 
 - `plan: starter` を **free に戻さない**。無料プランは15分アイドルでスリープし、研修開始時に最初の参加者が数十秒待たされる。
 - Render のファイルシステムは揮発性なので、本番は必ず `DATABASE_URL`（PostgreSQL）を設定する。SQLite だとデプロイのたびにデータが消える。

@@ -19,7 +19,9 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
-    autoDeploy: true
+    # 自動デプロイはしない。研修中に意図せず本番が入れ替わるのを避けるため、
+    # main へマージしたあと、ダッシュボードの Manual Deploy で任意のタイミングに反映する。
+    autoDeploy: false
     envVars:
       - key: NODE_VERSION
         value: 24.14.1
