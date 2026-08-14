@@ -34,7 +34,7 @@ import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS 
 import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
 import { savePdf } from '../lib/pdf'
-import { FORMS, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
+import { getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
 import { useToast, Toaster } from './Toast'
 
@@ -78,7 +78,7 @@ export default function Participant() {
 
   // 記帳行の ✎ 編集：アクション行→モーダル再表示、キーレス行→金額編集
   const openEditRow = (t: TxRow) => {
-    if (t.key && FORMS[t.key]) {
+    if (t.key && getForms()[t.key]) {
       setEditTx(t)
       setModalKey(t.key)
     } else {
@@ -1004,7 +1004,7 @@ function Ledger({
   const rowMeta = (t: TxRow) => {
     const derived = t.isBorrowInterest || t.isAutoRepay || t.isOpeningTax || t.isOpeningInterest
     const isCustom = t.key === 'ibutsu' || t.key === 'suigai'
-    const canEditModal = !!t.key && !!FORMS[t.key] && !isCustom && !st.settled && !st.closingPrep
+    const canEditModal = !!t.key && !!getForms()[t.key] && !isCustom && !st.settled && !st.closingPrep
     const canEditAmount = !t.key && !derived && !st.settled
     return {
       showEdit: !readOnly && (canEditModal || canEditAmount),
@@ -2041,7 +2041,7 @@ function ActionModal({
   onEvent: (k: string) => string[]
 }) {
   const a = ACTIONS[keyName]
-  const form = FORMS[keyName]
+  const form = getForms()[keyName]
   const isCustomEvent = keyName === 'ibutsu' || keyName === 'suigai'
   const [errors, setErrors] = useState<string[]>([])
   const [single, setSingle] = useState<Record<string, string>>(() => {

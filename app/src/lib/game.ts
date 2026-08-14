@@ -7,8 +7,7 @@ import {
   settle,
   nextPeriod,
   loanRoom,
-  MAT_CAP,
-  PROD_CAP,
+  getRules,
   type St,
   type Result,
   type Fvals,
@@ -136,7 +135,8 @@ function validate(st: St, key: string, f: Fvals): string[] {
         }
         q += it.qty || 0
       }
-      if (!bad && st.rawCubes + q > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます（現在 ${st.rawCubes}・追加 ${q}）`)
+      if (!bad && st.rawCubes + q > getRules().matCap)
+        errs.push(`材料在庫の上限${getRules().matCap}を超えます（現在 ${st.rawCubes}・追加 ${q}）`)
       break
     }
     case 'seizo': {
@@ -147,7 +147,7 @@ function validate(st: St, key: string, f: Fvals): string[] {
       } else {
         if (f.qty > c.mfgCap) errs.push(`製造能力 ${c.mfgCap} を超えています`)
         if (f.qty > st.rawCubes) errs.push(`材料が足りません（在庫 ${st.rawCubes}）`)
-        if (st.products + f.qty > PROD_CAP) errs.push(`店舗陳列の上限${PROD_CAP}を超えます`)
+        if (st.products + f.qty > getRules().prodCap) errs.push(`店舗陳列の上限${getRules().prodCap}を超えます`)
       }
       break
     }
@@ -222,11 +222,13 @@ function validate(st: St, key: string, f: Fvals): string[] {
     case 'tokubai':
       if ((f.qty || 0) < 0) errs.push('個数を確認してください')
       if (f.qty > 5) errs.push('特別サービスは最大5個までです')
-      if (st.rawCubes + (f.qty || 0) > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます`)
+      if (st.rawCubes + (f.qty || 0) > getRules().matCap)
+        errs.push(`材料在庫の上限${getRules().matCap}を超えます`)
       break
     case 'keiki':
       if (f.qty > 3) errs.push('景気上昇は最大3個までです')
-      if (st.rawCubes + (f.qty || 0) > MAT_CAP) errs.push(`材料在庫の上限${MAT_CAP}を超えます`)
+      if (st.rawCubes + (f.qty || 0) > getRules().matCap)
+        errs.push(`材料在庫の上限${getRules().matCap}を超えます`)
       break
     case 'taishoku_mfg':
       if (st.staffMfg <= 0) errs.push('退職できる製造スタッフがいません')

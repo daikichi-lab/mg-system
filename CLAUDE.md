@@ -60,6 +60,7 @@ npm run lint     # oxlint
 ```bash
 npm run test:calc   # golden-master：TSエンジンが mock と数値厳密一致するか
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
+npm run test:rules  # 数値ルールの差し替えが計算に効くか（rules.ts / setRules）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
 npm run test:pgssl  # 接続先ごとの TLS 判定（Render Internal URL / FQDN / sslmode）
 npm run test:e2e    # Playwright（:3021・毎回 e2e.db を消してクリーン起動）
@@ -103,10 +104,17 @@ npm run test:calc
 **定数を変えると過去の記帳行の盤面だけが遡って変化し、保存済み `amount` と食い違って B/S が壊れる**。
 ゲーム定数を変更するときは、進行中データへの影響を必ず確認すること。
 
-### ゲーム定数は calc.ts に直書き
+### 数値ルールは rules.ts
 
-`LOAN_RATE` / `RENT` / `DEP_PER_MACHINE` / `MACHINE_PRICE` / `MATERIAL_PRICES` / `MAT_CAP` / `PROD_CAP` などは `calc.ts` の定数（`calc.ts:141` 付近）。
-研修回ごとに差し替える仕組みは main には無い（`feat/auth-rework` に実装があるが凍結中）。issue #5 の第2ゴールがここ。
+給料表・借入金利・家賃・減価償却・機械価格・仕入単価の選択肢・在庫上限は `app/src/lib/rules.ts` の `Rules` に集約されている。
+`DEFAULT_RULES` が「入門編 標準」＝現行の値。
+
+- 参照は必ず **`getRules()` 経由**で行う。モジュールスコープに値を退避すると `setRules()` の差し替え後も古い値を掴み続ける。
+- 数値を1つ足すときは `Rules` / `DEFAULT_RULES` / `normalizeRules()` の3つに追加する。`calc.ts` に定数を直書きしない。
+- 記帳フォームは数値ルールに連動するため `ui/actions.ts` の **`getForms()`** から取る（`FORMS` という静的オブジェクトはもう無い）。
+- 差し替えが効くことは `npm run test:rules`、既定値のままなら数値が変わらないことは `npm run test:calc`（golden-master）が担保する。
+
+法人税率0.3・最低税額5・開発売価32・特売10・景気12・広告10・最終期5 は、まだ式に直書きのまま（issue #5 第2ゴールの続き）。
 
 ### 動かしてはいけない前提
 

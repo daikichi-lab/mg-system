@@ -17,6 +17,7 @@
     "seed:15": "node test/seed-15.mjs",
     "test:calc": "node --test test/calc.test.ts",
     "test:game": "node --test test/game.test.ts",
+    "test:rules": "node --test test/rules.test.ts",
     "test:db": "node --test test/db.pg.test.ts",
     "test:pgssl": "node --test test/pgssl.test.ts",
     "test:e2e": "playwright test"
