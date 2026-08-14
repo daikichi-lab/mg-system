@@ -61,6 +61,7 @@ npm run lint     # oxlint
 npm run test:calc   # golden-master：TSエンジンが mock と数値厳密一致するか
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
+npm run test:orgs   # 研修（組織）のマイグレーション・改名・研修URL変更
 npm run test:pgssl  # 接続先ごとの TLS 判定（Render Internal URL / FQDN / sslmode）
 npm run test:e2e    # Playwright（:3021・毎回 e2e.db を消してクリーン起動）
 ```
@@ -121,7 +122,10 @@ npm run test:calc
 ### サーバ（`app/server/`）
 
 - `index.js` … Express の REST API ＋ `dist` 配信。API は11本。参加者系は無認証、`/api/admin/*` のみトークン必須。
-- `db.js` … スキーマ＋クエリ層。SQL は `?` プレースホルダで書き、pg ドライバ側で `$1..` へ変換する。テーブルは `companies` / `entries` / `period_results` など。
+- `db.js` … スキーマ＋クエリ層。SQL は `?` プレースホルダで書き、pg ドライバ側で `$1..` へ変換する。テーブルは `companies` / `entries` / `period_results` / `orgs`。
+- **スキーマ変更は `migrate()` に足す。** スキーマ本体は `CREATE TABLE IF NOT EXISTS` なので、既存DB（本番）のテーブルには列が増えない。
+  `ADDED_COLUMNS` に `[テーブル, [列名, 型]]` を書くと、不足している列だけ `ALTER TABLE … ADD COLUMN` される。**追加のみ**で、削除・型変更はしない。
+  ドライバは `kind`（`'sqlite'` / `'pg'`）を持ち、列の確認は SQLite が `PRAGMA table_info`、Postgres が `information_schema.columns`。
 - **講師認証は暫定実装**：パスワードは `MG_ADMIN_PW`（既定 `mg`）の平文比較、トークンはインメモリ `Set`（無期限・再起動で消える）。
   公開運用の前に実認証・トークン期限・HTTPS が必要（`app/README.md`「セキュリティ」参照）。
 - **参加者はログイン不要**（組織コード付きURLで参加）。同一組織内では会社名を知れば他社の状態を取得・上書きできる設計トレードオフを受容している。
@@ -129,7 +133,18 @@ npm run test:calc
 
 ### フロント（`app/src/`）
 
-`App.tsx` は `location.pathname` が `/admin` で終わるかどうかだけで `Admin` / `Participant` を出し分ける（React Router は使っていない）。
+`App.tsx` が `location.pathname` を見て画面を出し分ける（React Router は使っていない）。
+
+| パス | 画面 |
+|---|---|
+| `/admin` | サイドメニュー（研修一覧／ルール一覧）＋ 研修一覧（`Admin.tsx` ＋ `SessionList.tsx`） |
+| `/admin/session?org=<コード>` | 研修1件の管理画面。研修一覧から**別タブ**で開く（`AdminSession.tsx`） |
+| それ以外 | 参加者（`Participant.tsx`） |
+
+講師ログインは `adminAuth.tsx` に集約（`useAdminToken()` / `<AdminLogin>`）。トークンは sessionStorage。
+
+**研修（組織）**：`orgs.code` が研修URLの元になる一意なコード（主キー）で、`orgs.name` が研修名。**研修名は重複可、コードは一意**。
+コードを変更すると `orgs` と `companies` を同一トランザクションで移すため参加者データは失われないが、配布済みURLは無効になる。
 
 - `state/useGame.ts` … 参加者の状態を保持し、記帳・決算のたびに DB へ同期。リロード・別端末でも「組織コード＋会社名」で復元。
 - `lib/game.ts` … calc エンジンと API/UI の橋渡し（状態⇄API変換・記帳バリデーション・イベント）。

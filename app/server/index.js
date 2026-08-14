@@ -16,6 +16,7 @@ import {
   deleteOrg,
   removeOrg,
   registerOrg,
+  updateOrg,
   orgExists,
 } from './db.js'
 
@@ -153,15 +154,33 @@ app.get(
   }),
 )
 
-// 組織コードを発行（登録）＝この組織のURLで参加者が開始できるようになる
+// 研修を開始（＝組織コードを発行）。研修名は重複可、組織コードは一意。
 app.post(
   '/api/admin/org',
   requireAdmin,
   wrap(async (req, res) => {
-    const code = String((req.body || {}).code || '').trim()
-    if (!code) return res.status(400).json({ error: '組織コードを指定してください' })
-    await registerOrg(code)
-    res.json({ ok: true, org: code })
+    const body = req.body || {}
+    const code = String(body.code || '').trim()
+    const name = String(body.name || '').trim().slice(0, 100)
+    if (!code) return res.status(400).json({ error: '研修URL（組織コード）を指定してください' })
+    if (await orgExists(code)) return res.status(409).json({ error: 'この研修URLはすでに使われています' })
+    await registerOrg(code, name)
+    res.json({ ok: true, org: { code, name: name || code } })
+  }),
+)
+
+// 研修名・研修URL（組織コード）の変更
+app.put(
+  '/api/admin/org/:code',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const body = req.body || {}
+    const name = typeof body.name === 'string' ? body.name.slice(0, 100) : undefined
+    const newCode = typeof body.newCode === 'string' ? body.newCode : undefined
+    const r = await updateOrg(req.params.code, { name, newCode })
+    if (r.error === 'not_found') return res.status(404).json({ error: '研修が見つかりません' })
+    if (r.error === 'duplicate') return res.status(409).json({ error: 'この研修URLはすでに使われています' })
+    res.json(r)
   }),
 )
 
