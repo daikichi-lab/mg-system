@@ -468,7 +468,7 @@ function simulate(spec) {
 // ---- DB 投入 ----
 await initDb()
 await deleteOrg(ORG) // 冪等：同組織の既存参加者データを消してから投入
-await registerOrg(ORG)
+await registerOrg(ORG, `デモ研修（${ORG}）`)
 
 const fmtG = (n) => (n < 0 ? `▲${Math.abs(n)}` : `${n}`)
 console.log(`組織コード: ${ORG}（15社を投入）\n`)

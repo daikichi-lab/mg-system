@@ -40,6 +40,12 @@ export interface ApiState {
 export interface ApiOrgCompany extends ApiCompany {
   results: any[]
 }
+/** 研修（組織）。code が研修URLの元になる一意なコード、name は講師が付けた研修名（重複可） */
+export interface ApiOrg {
+  code: string
+  name: string
+  createdAt: number
+}
 
 export const api = {
   join: (org: string, name: string, president: string) =>
@@ -52,13 +58,21 @@ export const api = {
     jf<{ org: string; companies: ApiOrgCompany[] }>(`/api/org/${encodeURIComponent(code)}`),
   orgExists: (code: string) => jf<{ exists: boolean }>(`/api/org-exists?code=${encodeURIComponent(code)}`),
   adminLogin: (password: string) => jf<{ token: string }>('/api/admin/login', jsonPost({ password })),
-  adminCreateOrg: (token: string, code: string) =>
-    jf<{ ok: boolean; org: string }>('/api/admin/org', {
-      ...jsonPost({ code }),
+  // 研修を開始（＝組織コードを発行）。研修名は重複可、組織コードは一意。
+  adminCreateOrg: (token: string, code: string, name: string) =>
+    jf<{ ok: boolean; org: ApiOrg }>('/api/admin/org', {
+      ...jsonPost({ code, name }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }),
+  // 研修名・研修URL（組織コード）の変更
+  adminUpdateOrg: (token: string, code: string, body: { name?: string; newCode?: string }) =>
+    jf<{ ok: boolean; org: ApiOrg }>(`/api/admin/org/${encodeURIComponent(code)}`, {
+      ...jsonPost(body),
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     }),
   adminOrgs: (token: string) =>
-    jf<{ orgs: string[] }>('/api/admin/orgs', { headers: { Authorization: `Bearer ${token}` } }),
+    jf<{ orgs: ApiOrg[] }>('/api/admin/orgs', { headers: { Authorization: `Bearer ${token}` } }),
   adminDeleteCompany: (token: string, id: number) =>
     jf<{ ok: boolean }>(`/api/admin/company/${id}`, {
       method: 'DELETE',

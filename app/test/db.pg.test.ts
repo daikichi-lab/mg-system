@@ -76,7 +76,10 @@ test('Postgres(pglite) 方式で DB round-trip が成立する', async () => {
   const org = await listOrg('PGORG')
   assert.equal(org.length, 1)
   assert.equal(org[0].results[0].G, 90)
-  assert.ok((await listOrgs()).includes('PGORG'))
+  const orgs = await listOrgs()
+  assert.ok(orgs.some((o: any) => o.code === 'PGORG'))
+  // Postgres 側でも migrate() が通り name 列が使えること（名前が空なら code で代替される）
+  assert.equal(typeof orgs.find((o: any) => o.code === 'PGORG')?.name, 'string')
 
   // 2社目→組織に2社
   await joinCompany('PGORG', 'B社', '社長B')

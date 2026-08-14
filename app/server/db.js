@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS period_results (
   UNIQUE(company_id, period),
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, created_at INTEGER DEFAULT 0);`
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at INTEGER DEFAULT 0);`
 
 const PG_SCHEMA = `
 CREATE TABLE IF NOT EXISTS companies (
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS period_results (
   turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period)
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, created_at BIGINT DEFAULT 0);`
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at BIGINT DEFAULT 0);`
 
 // `?` → `$1,$2,...`（Postgres系）
 export function pgConv(sql) {
@@ -81,6 +81,7 @@ async function makeSqlite() {
     },
   }
   return {
+    kind: 'sqlite',
     ...base,
     tx: async (fn) => {
       db.exec('BEGIN')
@@ -142,6 +143,7 @@ async function makePg(connectionString) {
     },
   })
   return {
+    kind: 'pg',
     ...clientOps(pool),
     tx: async (fn) => {
       const c = await pool.connect()
@@ -171,6 +173,7 @@ export async function makePgliteDriver(pglite) {
     },
   }
   return {
+    kind: 'pg',
     ...ops,
     tx: async (fn) => {
       await pglite.query('BEGIN')
@@ -186,14 +189,57 @@ export async function makePgliteDriver(pglite) {
   }
 }
 
+// ---- マイグレーション ----
+// スキーマは CREATE TABLE IF NOT EXISTS なので、既存DBのテーブルには後から足した列が入らない。
+// ここで不足している列だけを ALTER TABLE ADD COLUMN で追加する。**追加のみ**で、
+// 列の削除・型変更・データの破壊は行わない（本番データが入っているため）。
+const ADDED_COLUMNS = {
+  orgs: [['name', "TEXT DEFAULT ''"]],
+}
+
+async function columnNames(driver, table) {
+  if (driver.kind === 'sqlite') {
+    // PRAGMA はバインド変数を取れない。table は内部定数のみ（外部入力は渡さない）。
+    const rows = await driver.all(`PRAGMA table_info(${table})`, [])
+    return new Set(rows.map((r) => r.name))
+  }
+  const rows = await driver.all('SELECT column_name FROM information_schema.columns WHERE table_name = ?', [table])
+  return new Set(rows.map((r) => r.column_name))
+}
+
+// 名前が空の組織に「組織1」「組織2」…を作成順で振る（既存の名前は上書きしない）
+async function backfillOrgNames(driver) {
+  const rows = await driver.all(
+    "SELECT code FROM orgs WHERE name IS NULL OR name = '' ORDER BY created_at ASC, code ASC",
+    [],
+  )
+  let i = 0
+  for (const row of rows) {
+    i += 1
+    await driver.run('UPDATE orgs SET name = ? WHERE code = ?', [`組織${i}`, row.code])
+  }
+}
+
+async function migrate(driver) {
+  for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
+    const have = await columnNames(driver, table)
+    for (const [name, type] of cols) {
+      if (!have.has(name)) await driver.run(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`, [])
+    }
+  }
+  await backfillOrgNames(driver)
+}
+
 let D = null
 export async function initDb(override) {
   if (override) {
     D = override
+    await migrate(D)
     return D
   }
   if (D) return D
   D = process.env.DATABASE_URL ? await makePg(process.env.DATABASE_URL) : await makeSqlite()
+  await migrate(D)
   return D
 }
 
@@ -358,18 +404,52 @@ export async function listOrg(code) {
 // 登録(orgs)は created_at、会社のみ存在する組織は最初の会社更新時刻で代替。
 export async function listOrgs() {
   const ts = new Map()
-  for (const r of await D.all('SELECT code AS org, created_at FROM orgs', [])) {
+  const names = new Map()
+  for (const r of await D.all('SELECT code AS org, name, created_at FROM orgs', [])) {
     ts.set(r.org, Number(r.created_at) || 0)
+    names.set(r.org, r.name || '')
   }
+  // orgs に登録が無く会社だけ存在する組織（旧データ）も拾う
   for (const r of await D.all('SELECT org, MIN(updated_at) AS t FROM companies GROUP BY org', [])) {
     if (!ts.has(r.org)) ts.set(r.org, Number(r.t) || 0)
   }
-  return [...ts.keys()].sort((x, y) => ts.get(y) - ts.get(x) || (x < y ? 1 : x > y ? -1 : 0))
+  return [...ts.keys()]
+    .sort((x, y) => ts.get(y) - ts.get(x) || (x < y ? 1 : x > y ? -1 : 0))
+    .map((code) => ({ code, name: names.get(code) || code, createdAt: ts.get(code) }))
 }
 
 // ---- 組織コードの登録（講師が発行）／存在チェック ----
-export async function registerOrg(code) {
-  await D.run('INSERT INTO orgs (code, created_at) VALUES (?, ?) ON CONFLICT (code) DO NOTHING', [code, now()])
+// 研修名（name）は重複可。組織コード（code）は主キーなので一意。
+export async function registerOrg(code, name = '') {
+  await D.run('INSERT INTO orgs (code, name, created_at) VALUES (?, ?, ?) ON CONFLICT (code) DO NOTHING', [
+    code,
+    name,
+    now(),
+  ])
+}
+
+/**
+ * 研修名・組織コードの変更。
+ * コードを変えるときは orgs と companies を同一トランザクションで移す（データは失わない）。
+ * すでに使われているコードには変更できない（'duplicate' を返す）。
+ */
+export async function updateOrg(code, { name, newCode } = {}) {
+  return await D.tx(async (t) => {
+    const cur = await t.get('SELECT code FROM orgs WHERE code = ?', [code])
+    if (!cur) return { error: 'not_found' }
+    const next = typeof newCode === 'string' ? newCode.trim() : ''
+    if (next && next !== code) {
+      const dupOrg = await t.get('SELECT code FROM orgs WHERE code = ?', [next])
+      const dupCo = await t.get('SELECT id FROM companies WHERE org = ? LIMIT 1', [next])
+      if (dupOrg || dupCo) return { error: 'duplicate' }
+      await t.run('UPDATE orgs SET code = ? WHERE code = ?', [next, code])
+      await t.run('UPDATE companies SET org = ? WHERE org = ?', [next, code])
+    }
+    const finalCode = next && next !== code ? next : code
+    if (typeof name === 'string') await t.run('UPDATE orgs SET name = ? WHERE code = ?', [name.trim(), finalCode])
+    const row = await t.get('SELECT code, name FROM orgs WHERE code = ?', [finalCode])
+    return { ok: true, org: { code: row.code, name: row.name || row.code } }
+  })
 }
 export async function orgExists(code) {
   const r = await D.get('SELECT code FROM orgs WHERE code = ?', [code])

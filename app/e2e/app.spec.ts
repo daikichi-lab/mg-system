@@ -49,11 +49,23 @@ async function closeAndSettle(page: Page) {
   await page.getByTestId('to-statement').click() // 決算書へ
 }
 
-// 講師が組織コードを発行（登録）＝参加者がそのURLで開始できるようにする
-async function registerOrg(page: Page, code: string) {
+// 講師トークン。ログインはIP単位で15分に10回までなので、スペック全体で使い回す。
+let adminToken = ''
+async function getAdminToken(page: Page) {
+  if (adminToken) return adminToken
   const login = await page.request.post('/api/admin/login', { data: { password: 'mg' } })
-  const { token } = await login.json()
-  await page.request.post('/api/admin/org', { data: { code }, headers: { Authorization: `Bearer ${token}` } })
+  adminToken = (await login.json()).token
+  return adminToken
+}
+
+// 講師が研修を作成（＝組織コードを登録）＝参加者がそのURLで開始できるようにする
+async function registerOrg(page: Page, code: string, name = '') {
+  const token = await getAdminToken(page)
+  const res = await page.request.post('/api/admin/org', {
+    data: { code, name },
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok()) throw new Error(`研修の作成に失敗: ${res.status()} ${await res.text()}`)
 }
 
 test.describe.serial('戦略MG 本番アプリ E2E', () => {
@@ -376,10 +388,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await act(page, 'kikai', { n: 1 })
 
     // 管理者ビュー → 参加者を選択 → 編集モードに切替
-    await page.goto('/admin')
+    await page.goto('/admin/session?org=E2E6')
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
-    await page.getByTestId('admin-org').selectOption('E2E6')
     await page.locator('text=修正製菓').first().click()
     await page.getByTestId('frame-edit').click()
 
@@ -416,16 +427,17 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
 
-    // ランダム組織コード生成→発行（登録）
-    await page.getByTestId('gen-code').click()
+    // 研修を開始（モーダルで研修名を入れて作成 → 研修URLが表示される）
+    await page.getByTestId('start-session').click()
+    await page.getByTestId('new-name').fill('E2E 新規研修')
     await expect(page.getByTestId('new-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
-    await expect(page.getByTestId('new-url')).toHaveValue(/\/\?org=MG-/)
-    await page.getByTestId('issue-org').click()
-    await expect(page.getByTestId('issued-msg')).toContainText('発行しました')
+    await page.getByTestId('create-session').click()
+    await expect(page.getByTestId('created-url')).toHaveValue(/\/\?org=MG-/)
+    await page.getByTestId('created-close').click()
+    await expect(page.getByTestId('session-table')).toContainText('E2E 新規研修')
 
-    // 組織 E2E を選択 → 成績一覧タブへ（DBの実値）
-    await expect(page.getByTestId('admin-org')).toBeVisible()
-    await page.getByTestId('admin-org').selectOption(ORG)
+    // 対象の研修の管理画面へ → 成績一覧タブ（DBの実値）
+    await page.goto(`/admin/session?org=${ORG}`)
     await page.getByTestId('mv-rank').click()
     await expect(page.getByTestId('admin-rank')).toBeVisible()
     await expect(page.getByTestId('admin-rank')).toContainText('E2E製菓')
@@ -478,22 +490,59 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('seed-flood').click()
     await closeAndSettle(page)
 
-    // admin で E2EDEL を選び「組織を削除」
-    await page.goto('/admin')
+    // その研修の管理画面で参加者が見えていることを確認
+    await page.goto('/admin/session?org=E2EDEL')
     await page.getByTestId('admin-pw').fill('mg')
     await page.getByTestId('admin-login').click()
-    await page.getByTestId('admin-org').selectOption('E2EDEL')
-    await expect(page.getByText('削除対象製菓')).toBeVisible() // 参加者が見えている
-    await page.getByTestId('admin-remove-org').click()
+    await expect(page.getByText('削除対象製菓')).toBeVisible()
 
-    // 組織一覧（プルダウン）から E2EDEL が消える
-    await expect(page.locator('[data-testid="admin-org"] option', { hasText: /^E2EDEL$/ })).toHaveCount(0)
-    // 参加者一覧も消える
-    await expect(page.getByText('削除対象製菓')).toHaveCount(0)
+    // 研修一覧から削除
+    await page.goto('/admin')
+    await expect(page.getByTestId('session-row-E2EDEL')).toBeVisible()
+    await page.getByTestId('remove-E2EDEL').click()
+    await expect(page.getByTestId('session-row-E2EDEL')).toHaveCount(0)
 
     // 参加用URLも無効化：404（参加できない）
     await page.goto('/?org=E2EDEL')
     await expect(page.getByTestId('org-error')).toBeVisible()
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+  test('管理者：研修一覧から研修名・研修URLを変更する', async ({ page }) => {
+    await registerOrg(page, 'E2EEDIT')
+    // 参加者を1社つくる（URL変更でデータが引き継がれることを確認するため）
+    await page.goto('/?org=E2EEDIT')
+    await page.getByTestId('c-name').fill('引越製菓')
+    await page.getByTestId('c-pres').fill('引越太郎')
+    await page.getByTestId('start').click()
+
+    await page.goto('/admin')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+
+    // 編集モーダルで研修名と研修URLを変更（URL変更時は警告が出る）
+    await page.getByTestId('edit-E2EEDIT').click()
+    await page.getByTestId('edit-name').fill('名前つき研修')
+    // 再生成ボタンで新しいコードが入ることを確認してから、検証しやすい値に置き換える
+    await page.getByTestId('edit-gen-code').click()
+    await expect(page.getByTestId('edit-code')).toHaveValue(/^MG-[a-z2-9]{12}$/)
+    await page.getByTestId('edit-code').fill('E2EEDIT2')
+    await expect(page.getByTestId('edit-warn')).toBeVisible()
+    await page.getByTestId('save-session').click()
+
+    // 一覧が新しい研修名・新しいコードに置き換わる
+    await expect(page.getByTestId('session-table')).toContainText('名前つき研修')
+    await expect(page.getByTestId('session-row-E2EEDIT2')).toBeVisible()
+    await expect(page.getByTestId('session-row-E2EEDIT')).toHaveCount(0)
+
+    // 旧URLでは参加できない
+    await page.goto('/?org=E2EEDIT')
+    await expect(page.getByTestId('org-error')).toBeVisible()
+
+    // 新URLの管理画面に参加者データが引き継がれている
+    await page.goto('/admin/session?org=E2EEDIT2')
+    await expect(page.getByTestId('session-name')).toHaveText('名前つき研修')
+    await expect(page.getByText('引越製菓')).toBeVisible()
 
     expect((page as any)._mgErrors).toEqual([])
   })
