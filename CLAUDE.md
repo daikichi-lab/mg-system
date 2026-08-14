@@ -61,6 +61,7 @@ npm run lint     # oxlint
 npm run test:calc   # golden-master：TSエンジンが mock と数値厳密一致するか
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
+npm run test:pgssl  # 接続先ごとの TLS 判定（Render Internal URL / FQDN / sslmode）
 npm run test:e2e    # Playwright（:3021・毎回 e2e.db を消してクリーン起動）
 ```
 
@@ -152,5 +153,8 @@ npm run test:calc
 Render Blueprint（`render.yaml`・`rootDir: app`・ヘルスチェック `/api/health`・`autoDeploy: true`）。
 **main へのマージがそのまま本番デプロイ**になる。
 
-- 現状は `plan: free`。無料プランは15分アイドルでスリープするため、研修開始時に最初の参加者が数十秒待たされる（issue #5 の第1ゴール）。
+- `plan: starter` を **free に戻さない**。無料プランは15分アイドルでスリープし、研修開始時に最初の参加者が数十秒待たされる。
 - Render のファイルシステムは揮発性なので、本番は必ず `DATABASE_URL`（PostgreSQL）を設定する。SQLite だとデプロイのたびにデータが消える。
+  接続先は Render Postgres の **Internal Database URL**（`dpg-xxxx-a` のような内部ホスト名）。
+  `pgSsl()` は内部ホスト名では TLS を使わない（外部を経由せず、公的CAでは検証できないため）。判定は `npm run test:pgssl` で検証している。
+- `render.yaml` に `databases:` を書かない（既存DBとは別に新規作成されてしまう）。DBはダッシュボードで作り、URLだけ環境変数で渡す。

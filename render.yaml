@@ -1,11 +1,20 @@
 # Render Blueprint（https://render.com）。リポジトリ接続で自動読込。
-# 構成: 無料 Node Web Service ＋ 外部 Postgres（Supabase）。永続ディスク不要＝月$0。
-# デプロイ後、ダッシュボードで DATABASE_URL（Supabaseの接続URI）と MG_ADMIN_PW（強力なPW）を設定すること。
+#
+# 構成: Node Web Service（Starter・スリープなし） ＋ Render Postgres。
+#   - Starter を使うのは、無料プランが15分アイドルでスリープし、研修開始時に
+#     最初の参加者が数十秒待たされるため。
+#   - Render のファイルシステムは Starter でも揮発性のため、SQLite では
+#     デプロイのたびにデータが消える。本番では必ず DATABASE_URL（Postgres）を設定する。
+#
+# データベースはダッシュボードから作成し、その **Internal Database URL** を
+# DATABASE_URL に設定する（手順は DEPLOY.md「方法A」を参照）。
+# Blueprint 側で databases: を定義すると既存DBとは別に新規作成されてしまうため、
+# ここでは意図的に定義していない。
 services:
   - type: web
     name: mg-system
     runtime: node
-    plan: free
+    plan: starter # ← 無料プランに戻さないこと（スリープで研修開始時に待たされる）
     rootDir: app
     buildCommand: npm ci && npm run build
     startCommand: npm start
@@ -14,9 +23,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.1
+      # ---- 必須 ----
       - key: DATABASE_URL
-        sync: false # ← Supabase の接続URI（パスワード置換済み）をダッシュボードで設定
+        sync: false # ← Render Postgres の Internal Database URL をダッシュボードで設定
       - key: MG_ADMIN_PW
         sync: false # ← 講師ログインの強力なパスワードをダッシュボードで設定
-# ※SQLite（永続ディスク）で運用する場合は plan を starter 等にし、
-#   envVars を MG_DB=/data/mg.db に、disk: (name/mountPath:/data/sizeGB:1) を追加する。
+      # ---- 任意 ----
+      # MG_PG_CA … Postgres の TLS 検証に独自CAが必要な場合のみ設定する

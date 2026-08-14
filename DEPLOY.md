@@ -1,8 +1,11 @@
 # 本番デプロイ手順（app/）
 
 本アプリは **Nodeサーバ**で動作します。DBは**二刀流**：
-- 既定＝**SQLite**（`node:sqlite`）… 永続ディスクのあるNodeホスト向け。
-- `DATABASE_URL` を設定すると**PostgreSQL**（Supabase等の無料枠でも可）… **永続ディスク不要**＝無料ホストで動く。
+- 既定＝**SQLite**（`node:sqlite`）… 永続ディスクのあるNodeホスト向け。**ローカル開発・E2E用**。
+- `DATABASE_URL` を設定すると**PostgreSQL**… **永続ディスク不要**。
+
+> ⚠️ **本番では必ず `DATABASE_URL` を設定すること。**
+> Render のファイルシステムは揮発性のため、SQLite のまま運用すると**デプロイのたびに参加者データが消えます**。
 
 （Netlify/Vercel/GitHub Pages などの静的専用ホストは、いずれの場合も不可＝Nodeが動かないため。）
 
@@ -18,35 +21,57 @@
 | `MG_PG_CA` | （任意）Postgresの検証用CA証明書PEM（プロバイダ指定時） | |
 | `MG_PG_INSECURE` | （非推奨・dev限定）`1`でTLS検証を無効化 | |
 
-> `DATABASE_URL` を設定した場合は `MG_DB`（SQLite）は使われません。TLSは既定で**検証あり**（Supabase等の公的CAでそのまま接続可）。
+> `DATABASE_URL` を設定した場合は `MG_DB`（SQLite）は使われません。
+>
+> **TLS の扱い**（`app/server/db.js` の `pgSsl()`。検証は `npm run test:pgssl`）
+> | 接続先 | 挙動 |
+> |---|---|
+> | 外部ホスト（FQDN。Supabase・Neon・Render の External URL 等） | **証明書を検証**して TLS 接続 |
+> | 内部ホスト名（ドットなし。**Render の Internal Database URL** `dpg-xxxx-a` 等） | TLS を使わない（外部を経由せず、公的CAでは検証もできないため） |
+> | `localhost` / `127.0.0.1` | TLS を使わない |
+> | 接続文字列に `sslmode=` がある | **その指定を優先**（`require` なら内部ホストでも TLS、`disable` なら外部でも非TLS） |
 
 ---
 
-## 方法A：Render ＋ Supabase（無料・推奨・$0）★
-### 手順1. Supabase（DB）を用意
-1. https://supabase.com → Sign up（GitHubログイン可）。
-2. **New project** → 名前／**Database Password**（控える）／Region（Tokyo等）→ Create（1〜2分）。
-3. **Project Settings → Database → Connection string** → **URI**（推奨: Session pooler）をコピー。
-   - `[YOUR-PASSWORD]` を手順2のDBパスワードに置換したものが **`DATABASE_URL`**。
+## 方法A：Render（Starter）＋ Render Postgres ★推奨
+アプリとDBを同じ Render 内に置き、**Internal Database URL**（内部ネットワーク）で接続する。
+外部を経由しないので速く、接続情報が外に出ない。
 
-### 手順2. Render（アプリ）にデプロイ
-1. https://render.com → Sign up（GitHubで）。
-2. **New + → Web Service** → リポジトリ `daikichi-lab/mg-system` を接続。
-   - Blueprint（`render.yaml`）が検出されればそれでOK。手動なら:
-     Root Directory `app` ／ Build `npm ci && npm run build` ／ Start `npm start` ／ Instance Type **Free**。
-3. **Environment** に環境変数を設定:
-   - `DATABASE_URL` ＝ 手順1のURI ／ `MG_ADMIN_PW` ＝ 強力なパスワード
-4. **Create Web Service** → ビルド完了を待つ。
+### 手順1. Render Postgres を用意する
+1. https://render.com → **New + → Postgres**。
+2. 名前／Region（**Web Service と同じリージョンにすること**。違うと内部接続できない）／プランを選んで Create。
+3. 作成した Postgres の **Info** タブを開き、**Internal Database URL** をコピーする。
+   - `postgres://<user>:<pass>@dpg-xxxxxxxx-a/<db>` の形。**ホスト名にドットが無い**のが内部URLの目印。
+   - External Database URL（`...-a.oregon-postgres.render.com`）でも動くが、外部経由になるので内部URLを使う。
 
-### 手順3. 確認
-- `https://<app>.onrender.com/api/health` が `{"ok":true}`、Renderログに `(postgres)` が出れば成功。
-- `.../admin` にログイン → 「ランダム生成」で組織コード発行 → 参加URL（`.../?org=...`）を配布。
-- 参加者URLで1周（会社作成→記帳→決算）動作確認。
+### 手順2. Web Service に環境変数を設定する
+1. Web Service `mg-system` → **Environment**。
+2. 次を設定する。
+   | キー | 値 |
+   |---|---|
+   | `DATABASE_URL` | 手順1でコピーした **Internal Database URL** |
+   | `MG_ADMIN_PW` | 講師ログイン用の強力なパスワード |
+3. 保存すると再デプロイが走る。
 
-> **TLSでエラーが出たら**（`self-signed certificate` 等）: 環境変数 `MG_PG_CA` に Supabase のCA証明書（Settings→Database→SSL certificate からDL）を設定＝安全。急ぎは `MG_PG_INSECURE=1`（暗号化は維持・証明書検証のみ無効／簡易）。
-> **無料枠の癖**: Render無料は無操作でスリープ（初回アクセスが遅い）／Supabase無料は長期未使用で一時停止。研修用途では実用範囲。
+> **`render.yaml` に `databases:` を書かないこと。** Blueprint 側で定義すると、既存のDBとは別に
+> 新しいDBが作られてしまう。DBはダッシュボードで作り、URLだけを環境変数で渡す。
 
-## 方法D：完全無料（Supabase Postgres ＋ 無料Nodeホスト）★おすすめ（$0）
+### 手順3. 起動を確認する
+- `https://<app>.onrender.com/api/health` が `{"ok":true}` を返す。
+- Render のログに **`(postgres)`** と出ていれば Postgres に繋がっている。
+  `(sqlite)` と出ていたら `DATABASE_URL` が読めていない ＝ **データが揮発する状態**なので設定を見直す。
+
+### 手順4. 永続化を確認する（★第1ゴールの検証）
+1. `/admin` にログイン → 組織コードを発行 → 参加URLで会社を1件作る。
+2. Render で **Manual Deploy → Deploy latest commit** を実行する。
+3. 再デプロイ後、同じ組織コード＋会社名で**データが残っていること**を確認する。
+   - 消えていたら SQLite で動いている。手順2・3をやり直す。
+
+> **TLSでエラーが出たら**：Internal URL では TLS を使わない実装になっている（上表参照）。
+> 外部URLで `self-signed certificate` 等が出る場合は `MG_PG_CA` にプロバイダのCA証明書PEMを設定する＝安全。
+> `MG_PG_INSECURE=1` は証明書検証のみ無効化する応急処置で、恒久運用には使わない。
+
+## 方法D：Supabase Postgres ＋ 無料Nodeホスト（$0）
 永続ディスク不要。DBを外部Postgresにするので、揮発FSの無料ホストでも本番運用できます。
 1. **Supabase** で無料プロジェクト作成 → Settings > Database の **Connection string（URI）** を取得（`postgres://...`）。
 2. **無料Nodeホスト**（Render 無料 Web Service など）にデプロイ（`rootDir: app` / build `npm ci && npm run build` / start `npm start`）。
@@ -98,6 +123,9 @@ nginx でリバースプロキシ＋Let's Encrypt で HTTPS 終端（`proxy_pass
 ---
 
 ## デプロイ後チェックリスト
+- [ ] **`DATABASE_URL` を設定した**（未設定＝SQLite＝デプロイのたびにデータが消える）
+- [ ] ログに **`(postgres)`** と出ている
+- [ ] **再デプロイしてもデータが残る**ことを確認した
 - [ ] `MG_ADMIN_PW` をデモ `mg` から**強力な値に変更**した
 - [ ] **HTTPS** で配信されている
 - [ ] `/api/health` が 200 `{"ok":true}`

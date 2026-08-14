@@ -96,15 +96,36 @@ async function makeSqlite() {
   }
 }
 
-// TLS設定：既定で証明書検証あり（MITM対策）。ローカルは非TLS。
-// 特定CAが必要なら MG_PG_CA にPEMを設定。検証無効化は dev 限定で MG_PG_INSECURE=1 を明示した場合のみ。
-function pgSsl(connectionString) {
-  if (/localhost|127\.0\.0\.1/.test(connectionString)) return false
+// TLS設定。
+//  既定は「証明書検証あり」（MITM対策）だが、次の場合は TLS を使わない：
+//   - ローカル
+//   - ホスト名にドットが無い＝ホスティングの内部ネットワーク
+//     （Render の Internal Database URL は `dpg-xxxx-a` のような内部ホスト名。
+//       外部を経由しないため TLS は不要で、公的CAでは検証もできない）
+//  接続文字列に sslmode が指定されていればそれを優先する。
+//  特定CAが必要なら MG_PG_CA にPEMを設定。検証無効化は MG_PG_INSECURE=1 を明示した場合のみ。
+export function pgSsl(connectionString) {
+  let host = ''
+  let sslmode = null
+  try {
+    const u = new URL(connectionString)
+    host = u.hostname
+    sslmode = u.searchParams.get('sslmode')
+  } catch {
+    /* URLとして解釈できない場合は既定（検証あり）に倒す */
+  }
+
+  if (sslmode === 'disable') return false
   if (process.env.MG_PG_CA) return { ca: process.env.MG_PG_CA }
   if (process.env.MG_PG_INSECURE === '1') {
     console.warn('[WARN] MG_PG_INSECURE=1: TLS証明書の検証を無効化しています（開発用途のみ）')
     return { rejectUnauthorized: false }
   }
+  // sslmode で明示的に要求されていれば、ホスト名にかかわらず TLS を使う
+  if (sslmode && sslmode !== 'prefer' && sslmode !== 'allow') return true
+
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false
+  if (host && !host.includes('.')) return false // 内部ネットワーク（Render Internal 等）
   return true // 既定：システムCAで検証
 }
 
