@@ -8,9 +8,9 @@ import SessionList from './SessionList'
 
 type MenuKey = 'sessions' | 'rules'
 
-const MENU: { key: MenuKey; label: string; icon: string }[] = [
-  { key: 'sessions', label: '研修一覧', icon: '📋' },
-  { key: 'rules', label: 'ルール一覧', icon: '⚙️' },
+const MENU: { key: MenuKey; label: string }[] = [
+  { key: 'sessions', label: '研修一覧' },
+  { key: 'rules', label: 'ルール一覧' },
 ]
 
 export default function Admin() {
@@ -53,11 +53,10 @@ export default function Admin() {
               key={m.key}
               data-testid={`menu-${m.key}`}
               onClick={() => setMenu(m.key)}
-              className={`w-full flex items-center gap-2 px-3 h-10 rounded-lg text-sm font-bold transition ${
+              className={`w-full text-left px-3 h-10 rounded-lg text-sm font-bold transition ${
                 menu === m.key ? 'bg-ink text-white' : 'text-ink-600 hover:bg-canvas'
               }`}
             >
-              <span>{m.icon}</span>
               {m.label}
             </button>
           ))}

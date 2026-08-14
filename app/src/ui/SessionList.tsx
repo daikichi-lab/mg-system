@@ -59,12 +59,19 @@ export default function SessionList({
       </div>
 
       <div className="bg-white rounded-xl border border-line overflow-hidden">
-        <table className="w-full text-sm" data-testid="session-table">
+        {/* table-fixed ＋ colgroup で列幅を固定する。
+            自動幅だと長い研修URLが全幅を奪い、研修名や操作ボタンが1文字ずつ折り返される */}
+        <table className="w-full text-sm table-fixed" data-testid="session-table">
+          <colgroup>
+            <col className="w-[26%]" />
+            <col />
+            <col className="w-[230px]" />
+          </colgroup>
           <thead>
             <tr className="bg-canvas border-b border-line text-ink-600 text-xs">
-              <th className="px-4 py-2.5 text-left font-bold">研修名</th>
-              <th className="px-4 py-2.5 text-left font-bold">研修URL</th>
-              <th className="px-4 py-2.5 text-right font-bold w-56">操作</th>
+              <th className="px-4 py-2.5 text-left font-bold whitespace-nowrap">研修名</th>
+              <th className="px-4 py-2.5 text-left font-bold whitespace-nowrap">研修URL</th>
+              <th className="px-4 py-2.5 text-right font-bold whitespace-nowrap">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -75,28 +82,32 @@ export default function SessionList({
                 onClick={() => window.open(`/admin/session?org=${encodeURIComponent(o.code)}`, '_blank')}
                 className="border-b border-line/60 last:border-0 cursor-pointer hover:bg-canvas transition"
               >
-                <td className="px-4 py-3 font-bold">{o.name || o.code}</td>
-                <td className="px-4 py-3 num text-[11px] text-ink-500 truncate max-w-0 w-full">{urlOf(o.code)}</td>
+                <td className="px-4 py-3 font-bold truncate" title={o.name || o.code}>
+                  {o.name || o.code}
+                </td>
+                <td className="px-4 py-3 num text-[11px] text-ink-500 truncate" title={urlOf(o.code)}>
+                  {urlOf(o.code)}
+                </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1.5">
                     <button
                       data-testid={`copy-${o.code}`}
                       onClick={() => copy(urlOf(o.code), '研修URLをコピーしました')}
-                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas"
+                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas whitespace-nowrap shrink-0"
                     >
                       URLコピー
                     </button>
                     <button
                       data-testid={`edit-${o.code}`}
                       onClick={() => setEditing(o)}
-                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas"
+                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas whitespace-nowrap shrink-0"
                     >
                       編集
                     </button>
                     <button
                       data-testid={`remove-${o.code}`}
                       onClick={() => remove(o)}
-                      className="h-8 px-2.5 rounded-lg border border-accent/40 text-accent text-xs font-bold hover:bg-accent/5"
+                      className="h-8 px-2.5 rounded-lg border border-accent/40 text-accent text-xs font-bold hover:bg-accent/5 whitespace-nowrap shrink-0"
                     >
                       削除
                     </button>
