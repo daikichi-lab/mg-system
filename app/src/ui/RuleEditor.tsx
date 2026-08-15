@@ -2,7 +2,7 @@
 // 確認画面と同じ6グループ・同じ順序で、値を入力欄にしたもの。
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import { DEFAULT_RULES, normalizeRules, type Rules } from '../lib/rules'
+import { normalizeRules, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
 import { ColChip, NotFound } from './RuleView'
 
@@ -300,17 +300,7 @@ export default function RuleEditor({
         ))}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
-        <button
-          onClick={() => {
-            if (!confirm('すべての数値を既定値に戻します。よろしいですか？')) return
-            setRules(normalizeRules(DEFAULT_RULES))
-            setDirty(true)
-          }}
-          className="h-10 px-4 rounded-xl border border-line text-ink-600 text-sm font-bold hover:bg-white"
-        >
-          数値を既定に戻す
-        </button>
+      <div className="mt-4 flex items-center justify-end gap-3 flex-wrap">
         <button
           data-testid="rule-save-bottom"
           onClick={save}
