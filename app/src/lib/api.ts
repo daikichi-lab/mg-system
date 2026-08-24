@@ -40,6 +40,16 @@ export interface ApiState {
 export interface ApiOrgCompany extends ApiCompany {
   results: any[]
 }
+/** 数値ルールのマスタ。name は重複可。isBuiltin は既定ルールで編集・削除できない */
+export interface ApiRuleset {
+  id: number
+  name: string
+  description: string
+  isBuiltin: boolean
+  rules: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
 /** 研修（組織）。code が研修URLの元になる一意なコード、name は講師が付けた研修名（重複可） */
 export interface ApiOrg {
   code: string
@@ -73,6 +83,27 @@ export const api = {
     }),
   adminOrgs: (token: string) =>
     jf<{ orgs: ApiOrg[] }>('/api/admin/orgs', { headers: { Authorization: `Bearer ${token}` } }),
+  // ---- 数値ルールのマスタ ----
+  adminRulesets: (token: string) =>
+    jf<{ rulesets: ApiRuleset[] }>('/api/admin/rulesets', { headers: { Authorization: `Bearer ${token}` } }),
+  adminRuleset: (token: string, id: number) =>
+    jf<{ ruleset: ApiRuleset }>(`/api/admin/rulesets/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
+  adminCreateRuleset: (token: string, body: { name: string; description: string; rules: unknown }) =>
+    jf<{ ok: boolean; ruleset: ApiRuleset }>('/api/admin/rulesets', {
+      ...jsonPost(body),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }),
+  adminUpdateRuleset: (token: string, id: number, body: { name: string; description: string; rules: unknown }) =>
+    jf<{ ok: boolean; ruleset: ApiRuleset }>(`/api/admin/rulesets/${id}`, {
+      ...jsonPost(body),
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }),
+  adminDeleteRuleset: (token: string, id: number) =>
+    jf<{ ok: boolean }>(`/api/admin/rulesets/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   adminDeleteCompany: (token: string, id: number) =>
     jf<{ ok: boolean }>(`/api/admin/company/${id}`, {
       method: 'DELETE',

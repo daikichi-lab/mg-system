@@ -18,6 +18,11 @@ import {
   registerOrg,
   updateOrg,
   orgExists,
+  listRulesets,
+  getRuleset,
+  createRuleset,
+  updateRuleset,
+  deleteRuleset,
 } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -201,6 +206,82 @@ app.delete(
     if (String(req.query.full) === '1') await removeOrg(req.params.code)
     else await deleteOrg(req.params.code)
     res.json({ ok: true })
+  }),
+)
+
+// ---- ルール（数値ルールのマスタ・講師のみ）----
+// 研修への適用は別途。ここではマスタの CRUD だけを扱う。
+const MAX_NAME = 100
+const cleanName = (v) => String(v || '').trim().slice(0, MAX_NAME)
+
+// rules は src/lib/rules.ts の Rules を JSON にしたもの。画面側で normalizeRules() を通すため、
+// ここではオブジェクトであることとサイズだけを見る。
+function badRules(rules) {
+  if (rules === undefined) return null
+  if (rules === null || typeof rules !== 'object' || Array.isArray(rules)) return '数値ルールの形式が正しくありません'
+  if (JSON.stringify(rules).length > 20000) return '数値ルールが大きすぎます'
+  return null
+}
+
+app.get(
+  '/api/admin/rulesets',
+  requireAdmin,
+  wrap(async (_req, res) => {
+    res.json({ rulesets: await listRulesets() })
+  }),
+)
+
+app.get(
+  '/api/admin/rulesets/:id',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const r = await getRuleset(Number(req.params.id))
+    if (!r) return res.status(404).json({ error: 'ルールが見つかりません' })
+    res.json({ ruleset: r })
+  }),
+)
+
+app.post(
+  '/api/admin/rulesets',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const b = req.body || {}
+    const name = cleanName(b.name)
+    if (!name) return res.status(400).json({ error: 'ルール名を入力してください' })
+    const bad = badRules(b.rules)
+    if (bad) return res.status(400).json({ error: bad })
+    res.json({ ok: true, ruleset: await createRuleset({ name, description: cleanName(b.description), rules: b.rules || {} }) })
+  }),
+)
+
+app.put(
+  '/api/admin/rulesets/:id',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const b = req.body || {}
+    const name = cleanName(b.name)
+    if (!name) return res.status(400).json({ error: 'ルール名を入力してください' })
+    const bad = badRules(b.rules)
+    if (bad) return res.status(400).json({ error: bad })
+    const r = await updateRuleset(Number(req.params.id), {
+      name,
+      description: cleanName(b.description),
+      rules: b.rules || {},
+    })
+    if (r.error === 'not_found') return res.status(404).json({ error: 'ルールが見つかりません' })
+    if (r.error === 'builtin') return res.status(409).json({ error: '既定ルールは編集できません。複製してください。' })
+    res.json(r)
+  }),
+)
+
+app.delete(
+  '/api/admin/rulesets/:id',
+  requireAdmin,
+  wrap(async (req, res) => {
+    const r = await deleteRuleset(Number(req.params.id))
+    if (r.error === 'not_found') return res.status(404).json({ error: 'ルールが見つかりません' })
+    if (r.error === 'builtin') return res.status(409).json({ error: '既定ルールは削除できません' })
+    res.json(r)
   }),
 )
 

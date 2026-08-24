@@ -29,7 +29,12 @@ CREATE TABLE IF NOT EXISTS period_results (
   UNIQUE(company_id, period),
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at INTEGER DEFAULT 0);`
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS rulesets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL, description TEXT DEFAULT '', rules_json TEXT NOT NULL,
+  is_builtin INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0
+);`
 
 const PG_SCHEMA = `
 CREATE TABLE IF NOT EXISTS companies (
@@ -55,7 +60,12 @@ CREATE TABLE IF NOT EXISTS period_results (
   turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period)
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at BIGINT DEFAULT 0);`
+CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at BIGINT DEFAULT 0);
+CREATE TABLE IF NOT EXISTS rulesets (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  name TEXT NOT NULL, description TEXT DEFAULT '', rules_json TEXT NOT NULL,
+  is_builtin INTEGER DEFAULT 0, created_at BIGINT DEFAULT 0, updated_at BIGINT DEFAULT 0
+);`
 
 // `?` → `$1,$2,...`（Postgres系）
 export function pgConv(sql) {
@@ -220,6 +230,19 @@ async function backfillOrgNames(driver) {
   }
 }
 
+// 既定ルール「入門編 標準」を1回だけ入れる。
+// rules_json が空オブジェクトなのは「src/lib/rules.ts の DEFAULT_RULES をそのまま使う」という意味。
+// 値をサーバ側にも書くと二重管理になり、エンジンの既定値と食い違う余地が生まれるため持たせない。
+async function seedBuiltinRuleset(driver) {
+  const row = await driver.get('SELECT id FROM rulesets WHERE is_builtin = 1', [])
+  if (row) return
+  const t = now()
+  await driver.run(
+    'INSERT INTO rulesets (name, description, rules_json, is_builtin, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
+    ['入門編 標準', '現行の既定値。研修の基準として残すため編集できません。', '{}', t, t],
+  )
+}
+
 async function migrate(driver) {
   for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
     const have = await columnNames(driver, table)
@@ -228,6 +251,7 @@ async function migrate(driver) {
     }
   }
   await backfillOrgNames(driver)
+  await seedBuiltinRuleset(driver)
 }
 
 let D = null
@@ -468,4 +492,62 @@ export async function deleteOrg(code) {
 export async function removeOrg(code) {
   await D.run('DELETE FROM companies WHERE org = ?', [code])
   await D.run('DELETE FROM orgs WHERE code = ?', [code])
+}
+
+// ---- ルール（数値ルールのマスタ）----
+// ルール名は重複可。既定ルール（is_builtin=1）は編集・削除できない。
+const rulesetMap = (r) =>
+  r && {
+    id: Number(r.id),
+    name: r.name,
+    description: r.description || '',
+    isBuiltin: !!Number(r.is_builtin),
+    rules: safeParse(r.rules_json, {}),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  }
+
+export async function listRulesets() {
+  const rows = await D.all(
+    'SELECT id, name, description, rules_json, is_builtin, created_at, updated_at FROM rulesets ORDER BY is_builtin DESC, updated_at DESC',
+    [],
+  )
+  return rows.map(rulesetMap)
+}
+
+export async function getRuleset(id) {
+  const r = await D.get('SELECT * FROM rulesets WHERE id = ?', [id])
+  return r ? rulesetMap(r) : null
+}
+
+export async function createRuleset({ name, description = '', rules = {} }) {
+  const t = now()
+  await D.run(
+    'INSERT INTO rulesets (name, description, rules_json, is_builtin, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)',
+    [name, description, JSON.stringify(rules), t, t],
+  )
+  const r = await D.get('SELECT * FROM rulesets WHERE is_builtin = 0 ORDER BY id DESC LIMIT 1', [])
+  return rulesetMap(r)
+}
+
+export async function updateRuleset(id, { name, description, rules }) {
+  const cur = await D.get('SELECT id, is_builtin FROM rulesets WHERE id = ?', [id])
+  if (!cur) return { error: 'not_found' }
+  if (Number(cur.is_builtin)) return { error: 'builtin' }
+  await D.run('UPDATE rulesets SET name = ?, description = ?, rules_json = ?, updated_at = ? WHERE id = ?', [
+    name,
+    description || '',
+    JSON.stringify(rules || {}),
+    now(),
+    id,
+  ])
+  return { ok: true, ruleset: await getRuleset(id) }
+}
+
+export async function deleteRuleset(id) {
+  const cur = await D.get('SELECT id, is_builtin FROM rulesets WHERE id = ?', [id])
+  if (!cur) return { error: 'not_found' }
+  if (Number(cur.is_builtin)) return { error: 'builtin' }
+  await D.run('DELETE FROM rulesets WHERE id = ?', [id])
+  return { ok: true }
 }

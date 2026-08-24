@@ -8,6 +8,7 @@ export default function App() {
   if (path.endsWith('/admin/session')) {
     return <AdminSession org={(new URLSearchParams(location.search).get('org') || '').trim()} />
   }
-  if (path.endsWith('/admin')) return <Admin />
+  // 管理画面（研修一覧・ルール一覧/作成/確認/編集）。画面ごとにURLを持つ。
+  if (/\/admin(\/rules(\/.*)?)?$/.test(path)) return <Admin />
   return <Participant />
 }

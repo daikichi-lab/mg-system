@@ -65,6 +65,7 @@ npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集
 npm run test:rules  # 数値ルールの差し替えが計算に効くか（rules.ts / setRules）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
 npm run test:orgs   # 研修（組織）のマイグレーション・改名・研修URL変更
+npm run test:rulesets # 数値ルールのマスタ（既定ルール・CRUD・編集不可の担保）
 npm run test:pgssl  # 接続先ごとの TLS 判定（Render Internal URL / FQDN / sslmode）
 npm run test:e2e    # Playwright（:3021・毎回 e2e.db を消してクリーン起動）
 ```
@@ -147,9 +148,19 @@ npm run test:calc
 
 | パス | 画面 |
 |---|---|
-| `/admin` | サイドメニュー（研修一覧／ルール一覧）＋ 研修一覧（`Admin.tsx` ＋ `SessionList.tsx`） |
+| `/admin` | 研修一覧（`Admin.tsx` ＋ `SessionList.tsx`） |
+| `/admin/rules` | ルール一覧（`RulesList.tsx`） |
+| `/admin/rules/new` ／ `/admin/rules/<id>/edit` | ルール作成・編集（`RuleEditor.tsx`） |
+| `/admin/rules/<id>` | ルール確認（読み取り専用・`RuleView.tsx`） |
 | `/admin/session?org=<コード>` | 研修1件の管理画面。研修一覧から**別タブ**で開く（`AdminSession.tsx`） |
 | それ以外 | 参加者（`Participant.tsx`） |
+
+管理画面のサイドメニューはリンクで、選択状態は `location.pathname` から決まる（`Admin.tsx` の `routeOf()`）。
+
+**数値ルールのマスタ**：`rulesets` テーブル。`ruleFields.ts` が「ゲームの流れ順6グループ」と
+各数値が効く勘定科目を定義し、確認画面と編集画面が同じ定義を共有する。
+既定ルール「入門編 標準」は `is_builtin=1` で編集・削除できない（`rules_json` は空オブジェクト＝
+`DEFAULT_RULES` をそのまま使う、という意味。値を二重に持たないため）。
 
 講師ログインは `adminAuth.tsx` に集約（`useAdminToken()` / `<AdminLogin>`）。トークンは sessionStorage。
 
