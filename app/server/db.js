@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS period_results (
   UNIQUE(company_id, period),
   FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS orgs (
+  code TEXT PRIMARY KEY, name TEXT DEFAULT '',
+  rules_json TEXT DEFAULT '', ruleset_name TEXT DEFAULT '', status TEXT DEFAULT 'preparing',
+  created_at INTEGER DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS rulesets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, description TEXT DEFAULT '', rules_json TEXT NOT NULL,
@@ -60,7 +64,11 @@ CREATE TABLE IF NOT EXISTS period_results (
   turns INTEGER, decisions INTEGER, result_json TEXT DEFAULT '{}',
   UNIQUE(company_id, period)
 );
-CREATE TABLE IF NOT EXISTS orgs (code TEXT PRIMARY KEY, name TEXT DEFAULT '', created_at BIGINT DEFAULT 0);
+CREATE TABLE IF NOT EXISTS orgs (
+  code TEXT PRIMARY KEY, name TEXT DEFAULT '',
+  rules_json TEXT DEFAULT '', ruleset_name TEXT DEFAULT '', status TEXT DEFAULT 'preparing',
+  created_at BIGINT DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS rulesets (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name TEXT NOT NULL, description TEXT DEFAULT '', rules_json TEXT NOT NULL,
@@ -204,8 +212,18 @@ export async function makePgliteDriver(pglite) {
 // ここで不足している列だけを ALTER TABLE ADD COLUMN で追加する。**追加のみ**で、
 // 列の削除・型変更・データの破壊は行わない（本番データが入っているため）。
 const ADDED_COLUMNS = {
-  orgs: [['name', "TEXT DEFAULT ''"]],
+  orgs: [
+    ['name', "TEXT DEFAULT ''"],
+    // 研修ごとのルールのコピー。空なら DEFAULT_RULES（＝入門編 標準）。
+    ['rules_json', "TEXT DEFAULT ''"],
+    ['ruleset_name', "TEXT DEFAULT ''"],
+    ['status', "TEXT DEFAULT 'preparing'"],
+  ],
 }
+
+/** 研修のステータス。講師が手動で切り替える（参加者の有無では自動判定しない） */
+export const ORG_STATUSES = ['preparing', 'running', 'closed']
+const cleanStatus = (v) => (ORG_STATUSES.includes(v) ? v : 'preparing')
 
 async function columnNames(driver, table) {
   if (driver.kind === 'sqlite') {
@@ -429,9 +447,11 @@ export async function listOrg(code) {
 export async function listOrgs() {
   const ts = new Map()
   const names = new Map()
-  for (const r of await D.all('SELECT code AS org, name, created_at FROM orgs', [])) {
+  const meta = new Map()
+  for (const r of await D.all('SELECT code AS org, name, ruleset_name, status, created_at FROM orgs', [])) {
     ts.set(r.org, Number(r.created_at) || 0)
     names.set(r.org, r.name || '')
+    meta.set(r.org, { rulesetName: r.ruleset_name || '', status: cleanStatus(r.status) })
   }
   // orgs に登録が無く会社だけ存在する組織（旧データ）も拾う
   for (const r of await D.all('SELECT org, MIN(updated_at) AS t FROM companies GROUP BY org', [])) {
@@ -439,28 +459,56 @@ export async function listOrgs() {
   }
   return [...ts.keys()]
     .sort((x, y) => ts.get(y) - ts.get(x) || (x < y ? 1 : x > y ? -1 : 0))
-    .map((code) => ({ code, name: names.get(code) || code, createdAt: ts.get(code) }))
+    .map((code) => ({
+      code,
+      name: names.get(code) || code,
+      createdAt: ts.get(code),
+      // orgs に登録が無い旧データは既定（入門編 標準・準備中）として扱う
+      rulesetName: meta.get(code)?.rulesetName || '',
+      status: meta.get(code)?.status || 'preparing',
+    }))
 }
 
 // ---- 組織コードの登録（講師が発行）／存在チェック ----
 // 研修名（name）は重複可。組織コード（code）は主キーなので一意。
-export async function registerOrg(code, name = '') {
-  await D.run('INSERT INTO orgs (code, name, created_at) VALUES (?, ?, ?) ON CONFLICT (code) DO NOTHING', [
-    code,
-    name,
-    now(),
-  ])
+export async function registerOrg(code, name = '', { rules, rulesetName = '' } = {}) {
+  // ルールは「参照」ではなく作成時点の値の「コピー」。マスタを後から編集・削除しても
+  // 既存の研修の数値は動かない（進行中の盤面が遡って壊れるのを構造的に防ぐ）。
+  await D.run(
+    `INSERT INTO orgs (code, name, rules_json, ruleset_name, status, created_at)
+     VALUES (?, ?, ?, ?, 'preparing', ?) ON CONFLICT (code) DO NOTHING`,
+    [code, name, rules == null ? '' : JSON.stringify(rules), rulesetName, now()],
+  )
 }
 
 /**
- * 研修名・組織コードの変更。
+ * 参加者アプリが使う、その研修の数値ルール。
+ * rules_json が空（既存データ・既定ルール）なら {} を返し、画面側が DEFAULT_RULES で埋める。
+ */
+export async function getOrgRules(code) {
+  const r = await D.get('SELECT rules_json, ruleset_name, status FROM orgs WHERE code = ?', [code])
+  if (!r) return null
+  return {
+    rules: r.rules_json ? safeParse(r.rules_json, {}) : {},
+    rulesetName: r.ruleset_name || '',
+    status: cleanStatus(r.status),
+  }
+}
+
+/**
+ * 研修名・組織コード・ステータス・数値ルールの変更。
  * コードを変えるときは orgs と companies を同一トランザクションで移す（データは失わない）。
  * すでに使われているコードには変更できない（'duplicate' を返す）。
+ *
+ * ルールの差し替えは **準備中（preparing）のときだけ**許す（それ以外は 'locked'）。
+ * 開催中・終了後に数値が動くと、保存済みの記帳行を recompute() が別の単価で再生してしまい、
+ * 盤面と保存済み amount が食い違って B/S が壊れるため。
  */
-export async function updateOrg(code, { name, newCode } = {}) {
+export async function updateOrg(code, { name, newCode, status, rules, rulesetName } = {}) {
   return await D.tx(async (t) => {
-    const cur = await t.get('SELECT code FROM orgs WHERE code = ?', [code])
+    const cur = await t.get('SELECT code, status FROM orgs WHERE code = ?', [code])
     if (!cur) return { error: 'not_found' }
+    if (rules !== undefined && cleanStatus(cur.status) !== 'preparing') return { error: 'locked' }
     const next = typeof newCode === 'string' ? newCode.trim() : ''
     if (next && next !== code) {
       const dupOrg = await t.get('SELECT code FROM orgs WHERE code = ?', [next])
@@ -471,8 +519,24 @@ export async function updateOrg(code, { name, newCode } = {}) {
     }
     const finalCode = next && next !== code ? next : code
     if (typeof name === 'string') await t.run('UPDATE orgs SET name = ? WHERE code = ?', [name.trim(), finalCode])
-    const row = await t.get('SELECT code, name FROM orgs WHERE code = ?', [finalCode])
-    return { ok: true, org: { code: row.code, name: row.name || row.code } }
+    if (status !== undefined)
+      await t.run('UPDATE orgs SET status = ? WHERE code = ?', [cleanStatus(status), finalCode])
+    if (rules !== undefined)
+      await t.run('UPDATE orgs SET rules_json = ?, ruleset_name = ? WHERE code = ?', [
+        rules == null ? '' : JSON.stringify(rules),
+        rulesetName || '',
+        finalCode,
+      ])
+    const row = await t.get('SELECT code, name, ruleset_name, status FROM orgs WHERE code = ?', [finalCode])
+    return {
+      ok: true,
+      org: {
+        code: row.code,
+        name: row.name || row.code,
+        rulesetName: row.ruleset_name || '',
+        status: cleanStatus(row.status),
+      },
+    }
   })
 }
 export async function orgExists(code) {

@@ -18,6 +18,8 @@ import {
   registerOrg,
   updateOrg,
   orgExists,
+  getOrgRules,
+  ORG_STATUSES,
   listRulesets,
   getRuleset,
   createRuleset,
@@ -128,6 +130,16 @@ app.get(
   }),
 )
 
+// その研修の数値ルール（無認証）。参加者アプリが起動時に取得して setRules() する。
+// 登録が無い旧データは既定（入門編 標準）として返す。
+app.get(
+  '/api/org/:code/rules',
+  wrap(async (req, res) => {
+    const r = await getOrgRules(req.params.code)
+    res.json(r || { rules: {}, rulesetName: '', status: 'preparing' })
+  }),
+)
+
 // 組織コードの存在確認（参加者がURLの有効性を確認）
 app.get(
   '/api/org-exists',
@@ -159,6 +171,19 @@ app.get(
   }),
 )
 
+// 研修に適用するルールを解決する。id 未指定なら「入門編 標準」＝ rules 空（DEFAULT_RULES を使う意味）。
+// ここで値を「コピー」して研修へ渡す。マスタを後で編集・削除しても既存の研修は動かない。
+async function resolveRuleset(rulesetId) {
+  if (rulesetId === undefined || rulesetId === null || rulesetId === '') return { rules: {}, rulesetName: '' }
+  const id = Number(rulesetId)
+  if (!Number.isInteger(id)) return { error: 'ルールの指定が正しくありません' }
+  const rs = await getRuleset(id)
+  if (!rs) return { error: '指定されたルールが見つかりません' }
+  const bad = badRules(rs.rules)
+  if (bad) return { error: bad }
+  return { rules: rs.rules, rulesetName: rs.name }
+}
+
 // 研修を開始（＝組織コードを発行）。研修名は重複可、組織コードは一意。
 app.post(
   '/api/admin/org',
@@ -169,12 +194,17 @@ app.post(
     const name = String(body.name || '').trim().slice(0, 100)
     if (!code) return res.status(400).json({ error: '研修URL（組織コード）を指定してください' })
     if (await orgExists(code)) return res.status(409).json({ error: 'この研修URLはすでに使われています' })
-    await registerOrg(code, name)
-    res.json({ ok: true, org: { code, name: name || code } })
+    const rs = await resolveRuleset(body.rulesetId)
+    if (rs.error) return res.status(400).json({ error: rs.error })
+    await registerOrg(code, name, { rules: rs.rules, rulesetName: rs.rulesetName })
+    res.json({
+      ok: true,
+      org: { code, name: name || code, rulesetName: rs.rulesetName, status: 'preparing' },
+    })
   }),
 )
 
-// 研修名・研修URL（組織コード）の変更
+// 研修名・研修URL（組織コード）・ステータス・数値ルールの変更
 app.put(
   '/api/admin/org/:code',
   requireAdmin,
@@ -182,9 +212,22 @@ app.put(
     const body = req.body || {}
     const name = typeof body.name === 'string' ? body.name.slice(0, 100) : undefined
     const newCode = typeof body.newCode === 'string' ? body.newCode : undefined
-    const r = await updateOrg(req.params.code, { name, newCode })
+    const status = typeof body.status === 'string' ? body.status : undefined
+    if (status !== undefined && !ORG_STATUSES.includes(status))
+      return res.status(400).json({ error: 'ステータスの指定が正しくありません' })
+    // ルールの差し替えは準備中のときだけ（db 層でも同じ判定をして 'locked' を返す）
+    let rules, rulesetName
+    if (body.rulesetId !== undefined) {
+      const rs = await resolveRuleset(body.rulesetId)
+      if (rs.error) return res.status(400).json({ error: rs.error })
+      rules = rs.rules
+      rulesetName = rs.rulesetName
+    }
+    const r = await updateOrg(req.params.code, { name, newCode, status, rules, rulesetName })
     if (r.error === 'not_found') return res.status(404).json({ error: '研修が見つかりません' })
     if (r.error === 'duplicate') return res.status(409).json({ error: 'この研修URLはすでに使われています' })
+    if (r.error === 'locked')
+      return res.status(409).json({ error: '開催中・終了した研修のルールは変更できません' })
     res.json(r)
   }),
 )

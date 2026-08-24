@@ -64,7 +64,7 @@ npm run test:calc   # golden-master：TSエンジンが mock と数値厳密一�
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
 npm run test:rules  # 数値ルールの差し替えが計算に効くか（rules.ts / setRules）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
-npm run test:orgs   # 研修（組織）のマイグレーション・改名・研修URL変更
+npm run test:orgs   # 研修（組織）のマイグレーション・改名・研修URL変更・ルールのコピー・ステータス
 npm run test:rulesets # 数値ルールのマスタ（既定ルール・CRUD・編集不可の担保）
 npm run test:pgssl  # 接続先ごとの TLS 判定（Render Internal URL / FQDN / sslmode）
 npm run test:e2e    # Playwright（:3021・毎回 e2e.db を消してクリーン起動）
@@ -118,6 +118,11 @@ npm run test:calc
 - 記帳フォームは数値ルールに連動するため `ui/actions.ts` の **`getForms()`** から取る（`FORMS` という静的オブジェクトはもう無い）。
 - 差し替えが効くことは `npm run test:rules`、既定値のままなら数値が変わらないことは `npm run test:calc`（golden-master）が担保する。
 
+**研修への適用**：数値ルールは研修（`orgs`）へ**コピー**される。参照ではないので、マスタを後から編集・削除しても
+既存の研修の数値は動かない。参加者アプリは `state/useGame.ts` の初期ロードで `/api/org/:code/rules` を取り、
+**`applyApiState()`（＝`recompute()`）より前に `setRules()` する**。逆順にすると保存済みの記帳行が既定の単価で
+再生され、什器評価額や在庫がその研修の数値とずれる。
+
 法人税率0.3・最低税額5・開発売価32・特売10・景気12・広告10・最終期5 は、まだ式に直書きのまま（issue #5 第2ゴールの続き）。
 
 ### 動かしてはいけない前提
@@ -132,7 +137,7 @@ npm run test:calc
 
 ### サーバ（`app/server/`）
 
-- `index.js` … Express の REST API ＋ `dist` 配信。API は11本。参加者系は無認証、`/api/admin/*` のみトークン必須。
+- `index.js` … Express の REST API ＋ `dist` 配信。参加者系は無認証、`/api/admin/*` のみトークン必須。
 - `db.js` … スキーマ＋クエリ層。SQL は `?` プレースホルダで書き、pg ドライバ側で `$1..` へ変換する。テーブルは `companies` / `entries` / `period_results` / `orgs`。
 - **スキーマ変更は `migrate()` に足す。** スキーマ本体は `CREATE TABLE IF NOT EXISTS` なので、既存DB（本番）のテーブルには列が増えない。
   `ADDED_COLUMNS` に `[テーブル, [列名, 型]]` を書くと、不足している列だけ `ALTER TABLE … ADD COLUMN` される。**追加のみ**で、削除・型変更はしない。
@@ -165,6 +170,8 @@ npm run test:calc
 講師ログインは `adminAuth.tsx` に集約（`useAdminToken()` / `<AdminLogin>`）。トークンは sessionStorage。
 
 **研修（組織）**：`orgs.code` が研修URLの元になる一意なコード（主キー）で、`orgs.name` が研修名。**研修名は重複可、コードは一意**。
+`orgs.rules_json`（ルールのコピー。空なら `DEFAULT_RULES`）／`orgs.ruleset_name`（表示用）／`orgs.status`（`preparing`／`running`／`closed`）を持つ。
+**ルールの差し替えは準備中のときだけ許す**（進行中・終了は 409）。開催中に数値が動くと、記帳済みの盤面が遡って作り直され決算書と食い違うため。
 コードを変更すると `orgs` と `companies` を同一トランザクションで移すため参加者データは失われないが、配布済みURLは無効になる。
 
 - `state/useGame.ts` … 参加者の状態を保持し、記帳・決算のたびに DB へ同期。リロード・別端末でも「組織コード＋会社名」で復元。

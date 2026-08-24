@@ -81,6 +81,10 @@ e2e/
 | GET | `/api/company?org=&name=` | 状態取得（リロード復元） |
 | PUT | `/api/company/:id/state` | 状態保存（記帳/決算のたび） |
 | GET | `/api/org/:code` | 組織比較（参加者/管理者） |
+| GET | `/api/org/:code/rules` | その研修の数値ルール（無認証・参加者アプリが起動時に取得） |
 | POST | `/api/admin/login` | 講師ログイン→トークン |
-| GET | `/api/admin/orgs` | 組織一覧（要認証） |
+| GET | `/api/admin/orgs` | 研修一覧（ステータス・ルール名を含む・要認証） |
+| POST | `/api/admin/org` | 研修を開始（`rulesetId` のルールを研修へコピー・要認証） |
+| PUT | `/api/admin/org/:code` | 研修名/研修URL/ステータス/ルールの変更（要認証） |
+| GET/POST/PUT/DELETE | `/api/admin/rulesets[/:id]` | 数値ルールのマスタ（要認証） |
 | DELETE | `/api/admin/company/:id` / `/api/admin/org/:code` | リセット/全消去（要認証） |

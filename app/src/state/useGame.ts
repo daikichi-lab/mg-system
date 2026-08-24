@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { newState, recompute, settleBlockReason, type St, type Result } from '../lib/calc'
+import { newState, recompute, setRules, settleBlockReason, type St, type Result } from '../lib/calc'
 import { api, type ApiOrgCompany } from '../lib/api'
+import type { Rules } from '../lib/rules'
 import {
   applyApiState,
   payloadFromState,
@@ -21,6 +22,25 @@ import {
 } from '../lib/game'
 
 const IDENT_KEY = 'mgIdentity'
+
+/**
+ * その研修の数値ルールを計算エンジンへ適用する。
+ * **盤面の復元（applyApiState → recompute）より必ず前に呼ぶこと。** 後だと保存済みの記帳行が
+ * 既定の単価で再生され、什器評価額や在庫が実際の研修の数値とずれる。
+ * 取得できないときは既定（入門編 標準）で続行する。
+ */
+async function applyOrgRules(code: string) {
+  if (!code) {
+    setRules(null)
+    return
+  }
+  try {
+    const r = await api.orgRules(code)
+    setRules(r.rules as Partial<Rules>)
+  } catch {
+    setRules(null)
+  }
+}
 
 export interface Game {
   ready: boolean
@@ -91,6 +111,7 @@ export function useGame(): Game {
       if (vorg && vco) {
         const vedit = q.get('vedit') === '1'
         try {
+          await applyOrgRules(vorg)
           const data = await api.get(vorg, vco)
           if (!alive) return
           idRef.current = data.company.id
@@ -117,6 +138,7 @@ export function useGame(): Game {
       }
       if (ident && ident.name && (!joinOrg || ident.org === joinOrg)) {
         try {
+          await applyOrgRules(ident.org)
           const data = await api.get(ident.org, ident.name)
           if (!alive) return
           idRef.current = data.company.id
@@ -132,6 +154,7 @@ export function useGame(): Game {
       // 新規参加：講師が発行したURL(?org=)で、かつ登録済みの組織のみ開始できる
       if (joinOrg) {
         stRef.current.org = joinOrg
+        await applyOrgRules(joinOrg)
         try {
           const r = await api.orgExists(joinOrg)
           if (!alive) return

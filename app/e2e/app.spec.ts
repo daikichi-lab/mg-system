@@ -625,4 +625,57 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     expect((page as any)._mgErrors).toEqual([])
   })
+
+  test('研修にルールを適用：選んだ数値が参加者の計算に効き、開催中は変更できない', async ({ page }) => {
+    // --- 1. ルールを作る（機械価格 100 → 120）---
+    await page.goto('/admin/rules')
+    await page.getByTestId('admin-pw').fill('mg')
+    await page.getByTestId('admin-login').click()
+    await page.getByTestId('new-ruleset').click()
+    await page.getByTestId('rule-name-input').fill('E2E 機械高騰')
+    await page.getByTestId('f-machinePrice').fill('120')
+    await page.getByTestId('rule-save').click()
+    await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
+
+    // --- 2. そのルールを選んで研修を開始する ---
+    const code = 'E2E-RULES'
+    await page.goto('/admin')
+    await page.getByTestId('start-session').click()
+    await page.getByTestId('new-name').fill('ルール適用の研修')
+    await page.getByTestId('new-code').fill(code)
+    await page.getByTestId('new-org-ruleset').selectOption({ label: 'E2E 機械高騰' })
+    // 取り違え防止の要約に、選んだ機械価格が出る
+    await expect(page.getByTestId('new-org-ruleset-summary')).toContainText('機械 120')
+    await page.getByTestId('create-session').click()
+    await page.getByTestId('created-close').click()
+
+    // 一覧にルール名とステータスが出る
+    await expect(page.getByTestId(`ruleset-${code}`)).toHaveText('E2E 機械高騰')
+    await expect(page.getByTestId(`status-${code}`)).toHaveValue('preparing')
+
+    // --- 3. 参加者：機械購入が 120 で記帳される（既定なら 100）---
+    await page.goto(`/?org=${code}`)
+    await page.getByTestId('c-name').fill('ルール製菓')
+    await page.getByTestId('c-pres').fill('適用太郎')
+    await page.getByTestId('start').click()
+    await page.getByTestId('tab-play').click()
+    await act(page, 'kikai', { n: 1 })
+    await expect(page.getByTestId('ledger')).toContainText('120')
+    await expect(page.getByTestId('hd-cash')).toHaveText('180') // 資本金300 − 機械120
+
+    // リロードしても、その研修のルールで盤面が組み直される
+    await page.reload()
+    await expect(page.getByTestId('hd-cash')).toHaveText('180')
+
+    // --- 4. 進行中にするとルールは変更できない ---
+    await page.goto('/admin')
+    await page.getByTestId(`status-${code}`).selectOption('running')
+    await expect(page.getByTestId(`status-${code}`)).toHaveValue('running')
+    await page.getByTestId(`edit-${code}`).click()
+    await expect(page.getByTestId('edit-org-ruleset-locked')).toContainText('E2E 機械高騰')
+    await expect(page.getByTestId('edit-org-ruleset')).toHaveCount(0)
+
+    expect((page as any)._mgErrors).toEqual([])
+  })
+
 })
