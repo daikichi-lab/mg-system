@@ -50,11 +50,23 @@ export interface ApiRuleset {
   createdAt: number
   updatedAt: number
 }
+/** 研修のステータス。講師が手動で切り替える */
+export type OrgStatus = 'preparing' | 'running' | 'closed'
+
+export const ORG_STATUS_LABEL: Record<OrgStatus, string> = {
+  preparing: '準備中',
+  running: '進行中',
+  closed: '終了',
+}
+
 /** 研修（組織）。code が研修URLの元になる一意なコード、name は講師が付けた研修名（重複可） */
 export interface ApiOrg {
   code: string
   name: string
   createdAt: number
+  /** コピー元のルール名（表示用。マスタとは連動しない）。空なら入門編 標準 */
+  rulesetName: string
+  status: OrgStatus
 }
 
 export const api = {
@@ -67,15 +79,24 @@ export const api = {
   org: (code: string) =>
     jf<{ org: string; companies: ApiOrgCompany[] }>(`/api/org/${encodeURIComponent(code)}`),
   orgExists: (code: string) => jf<{ exists: boolean }>(`/api/org-exists?code=${encodeURIComponent(code)}`),
+  // その研修の数値ルール（無認証）。参加者アプリが起動時に取得して setRules() する
+  orgRules: (code: string) =>
+    jf<{ rules: Record<string, unknown>; rulesetName: string; status: OrgStatus }>(
+      `/api/org/${encodeURIComponent(code)}/rules`,
+    ),
   adminLogin: (password: string) => jf<{ token: string }>('/api/admin/login', jsonPost({ password })),
   // 研修を開始（＝組織コードを発行）。研修名は重複可、組織コードは一意。
-  adminCreateOrg: (token: string, code: string, name: string) =>
+  adminCreateOrg: (token: string, code: string, name: string, rulesetId?: number) =>
     jf<{ ok: boolean; org: ApiOrg }>('/api/admin/org', {
-      ...jsonPost({ code, name }),
+      ...jsonPost({ code, name, rulesetId }),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     }),
   // 研修名・研修URL（組織コード）の変更
-  adminUpdateOrg: (token: string, code: string, body: { name?: string; newCode?: string }) =>
+  adminUpdateOrg: (
+    token: string,
+    code: string,
+    body: { name?: string; newCode?: string; status?: OrgStatus; rulesetId?: number },
+  ) =>
     jf<{ ok: boolean; org: ApiOrg }>(`/api/admin/org/${encodeURIComponent(code)}`, {
       ...jsonPost(body),
       method: 'PUT',

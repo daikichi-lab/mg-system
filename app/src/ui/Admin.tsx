@@ -74,7 +74,10 @@ export default function Admin() {
   const page = route.page
   useEffect(() => {
     if (!token) return
-    if (page === 'sessions') void loadOrgs(token)
+    if (page === 'sessions') {
+      void loadOrgs(token)
+      void loadRulesets(token) // 研修の作成・編集でルールを選ぶために使う
+    }
     if (page === 'rules') void loadRulesets(token)
   }, [token, page, loadOrgs, loadRulesets])
 
@@ -117,7 +120,13 @@ export default function Admin() {
 
       <main className="bg-canvas min-w-0">
         {route.page === 'sessions' && (
-          <SessionList token={token} orgs={orgs} reload={() => loadOrgs(token)} toast={toast} />
+          <SessionList
+            token={token}
+            orgs={orgs}
+            rulesets={rulesets}
+            reload={() => loadOrgs(token)}
+            toast={toast}
+          />
         )}
         {route.page === 'rules' && (
           <RulesList token={token} rulesets={rulesets} reload={() => loadRulesets(token)} toast={toast} />

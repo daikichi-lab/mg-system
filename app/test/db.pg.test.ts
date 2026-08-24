@@ -6,6 +6,7 @@ import { PGlite } from '@electric-sql/pglite'
 import {
   initDb,
   makePgliteDriver,
+  getOrgRules,
   joinCompany,
   saveState,
   fullState,
@@ -90,6 +91,52 @@ test('Postgres(pglite) 方式で DB round-trip が成立する', async () => {
   assert.equal(await fullState(id), null)
   assert.equal(await getCompanyRow('PGORG', 'A社'), undefined)
   assert.equal((await listOrg('PGORG')).length, 1) // B社のみ残る
+
+  await pg.close()
+})
+
+
+// 本番（Render Postgres）は列が増える前のスキーマで動いている。
+// デプロイ時に migrate() が ALTER TABLE を流して既存データを壊さないことを、
+// **一番古い形**（orgs に name も無い）から確認する。#18 と #19 をまとめて出しても通る。
+test('Postgres：旧スキーマの orgs に列が追加され、既存の研修・参加者データが壊れない', async () => {
+  const pg = new PGlite()
+  await pg.exec(`
+    CREATE TABLE companies (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      org TEXT NOT NULL, name TEXT NOT NULL, president TEXT DEFAULT '',
+      period INTEGER DEFAULT 1, started INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
+      opening_json TEXT DEFAULT '{}', seq INTEGER DEFAULT 1, updated_at BIGINT DEFAULT 0,
+      UNIQUE(org, name)
+    );
+    CREATE TABLE orgs (code TEXT PRIMARY KEY, created_at BIGINT DEFAULT 0);
+    INSERT INTO orgs (code, created_at) VALUES ('PG-OLD-A', 1000), ('PG-OLD-B', 2000);
+    INSERT INTO companies (org, name, president, period, started, opening_json, seq, updated_at)
+      VALUES ('PG-OLD-A', 'あ社', '社長あ', 3, 1, '{"openingCapital":300}', 7, 5000);
+  `)
+
+  await initDb(await makePgliteDriver(pg))
+
+  const orgs: any[] = await listOrgs()
+  assert.equal(orgs.length, 2, '既存の研修が残る')
+  const a = orgs.find((o: any) => o.code === 'PG-OLD-A')
+  assert.equal(a.name, '組織1', 'name 列が追加され backfill される')
+  assert.equal(a.status, 'preparing', 'status 列の既定は準備中')
+  assert.equal(a.rulesetName, '')
+
+  // 既存の研修は「入門編 標準」で動く（rules_json は空）
+  assert.deepEqual((await getOrgRules('PG-OLD-A')).rules, {})
+
+  // 参加者データが無傷
+  const co = (await pg.query<any>(`SELECT name, period, seq FROM companies WHERE org='PG-OLD-A'`)).rows[0]
+  assert.equal(co.name, 'あ社')
+  assert.equal(co.period, 3)
+  assert.equal(Number(co.seq), 7)
+
+  // 再起動しても増えない・振り直されない
+  await initDb(await makePgliteDriver(pg))
+  assert.equal((await listOrgs()).length, 2)
+  assert.equal((await listOrgs()).find((o: any) => o.code === 'PG-OLD-A').name, '組織1')
 
   await pg.close()
 })

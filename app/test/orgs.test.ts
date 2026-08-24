@@ -24,7 +24,18 @@ const dbPath = join(mkdtempSync(join(tmpdir(), 'mg-orgs-')), 'old.db')
 }
 process.env.MG_DB = dbPath
 
-const { initDb, listOrgs, updateOrg, registerOrg, joinCompany, listOrg, orgExists } = await import('../server/db.js')
+const {
+  initDb,
+  listOrgs,
+  updateOrg,
+  registerOrg,
+  joinCompany,
+  listOrg,
+  orgExists,
+  getOrgRules,
+  createRuleset,
+  updateRuleset,
+} = await import('../server/db.js')
 
 before(async () => {
   await initDb()
@@ -93,4 +104,69 @@ test('研修URLの変更：すでに使われているコードには変更で�
 test('研修URLの変更：存在しない研修は not_found', async () => {
   const r = await updateOrg('MG-NOPE', { name: 'x' })
   assert.equal(r.error, 'not_found')
+})
+
+
+// ---- 研修へのルールのコピーとステータス（issue #19）----
+
+test('migrate：旧スキーマに status / ruleset_name が追加され、既定は「準備中・入門編 標準」', async () => {
+  const orgs = await listOrgs()
+  const a = orgs.find((o: any) => o.code === 'MG-OLD-A')
+  assert.equal(a.status, 'preparing')
+  assert.equal(a.rulesetName, '', '空＝入門編 標準として扱う')
+})
+
+test('既存の研修（rules_json なし）は空のルールを返す＝入門編 標準で動く', async () => {
+  const r = await getOrgRules('MG-OLD-A')
+  assert.deepEqual(r.rules, {})
+  assert.equal(r.status, 'preparing')
+})
+
+test('研修の作成時に、選んだルールの値がコピーされる', async () => {
+  const rs = await createRuleset({ name: '短期決戦', description: '', rules: { machinePrice: 120, loanRate: 0.08 } })
+  await registerOrg('MG-R1', '第1回', { rules: rs.rules, rulesetName: rs.name })
+  const r = await getOrgRules('MG-R1')
+  assert.equal(r.rules.machinePrice, 120)
+  assert.equal(r.rules.loanRate, 0.08)
+  assert.equal(r.rulesetName, '短期決戦')
+  assert.equal((await listOrgs()).find((o: any) => o.code === 'MG-R1').rulesetName, '短期決戦')
+})
+
+test('マスタを後から編集しても、作成済みの研修の数値は変わらない（参照ではなくコピー）', async () => {
+  const rs = await createRuleset({ name: '据え置き検証', description: '', rules: { machinePrice: 130 } })
+  await registerOrg('MG-R2', '第2回', { rules: rs.rules, rulesetName: rs.name })
+  await updateRuleset(rs.id, { name: '据え置き検証', description: '', rules: { machinePrice: 999 } })
+  const r = await getOrgRules('MG-R2')
+  assert.equal(r.rules.machinePrice, 130, 'マスタ側の変更は既存の研修に波及しない')
+})
+
+test('ステータス：準備中 → 進行中 → 終了 と切り替えられる', async () => {
+  await registerOrg('MG-S1', 'ステータス検証')
+  assert.equal((await updateOrg('MG-S1', { status: 'running' })).org.status, 'running')
+  assert.equal((await updateOrg('MG-S1', { status: 'closed' })).org.status, 'closed')
+})
+
+test('準備中のあいだはルールを差し替えられる', async () => {
+  await registerOrg('MG-S2', '差し替え可')
+  const r = await updateOrg('MG-S2', { rules: { machinePrice: 140 }, rulesetName: '別ルール' })
+  assert.equal(r.ok, true)
+  assert.equal((await getOrgRules('MG-S2')).rules.machinePrice, 140)
+})
+
+test('進行中・終了の研修はルールを差し替えられない（locked）', async () => {
+  await registerOrg('MG-S3', 'ロック検証', { rules: { machinePrice: 150 }, rulesetName: '元ルール' })
+  await updateOrg('MG-S3', { status: 'running' })
+  assert.equal((await updateOrg('MG-S3', { rules: { machinePrice: 900 } })).error, 'locked')
+  await updateOrg('MG-S3', { status: 'closed' })
+  assert.equal((await updateOrg('MG-S3', { rules: { machinePrice: 900 } })).error, 'locked')
+  assert.equal((await getOrgRules('MG-S3')).rules.machinePrice, 150, '数値は元のまま')
+})
+
+test('ロック中でも研修名とステータスは変えられる', async () => {
+  await registerOrg('MG-S4', '名前だけ')
+  await updateOrg('MG-S4', { status: 'running' })
+  const r = await updateOrg('MG-S4', { name: '名前を変えた', status: 'closed' })
+  assert.equal(r.ok, true)
+  assert.equal(r.org.name, '名前を変えた')
+  assert.equal(r.org.status, 'closed')
 })
