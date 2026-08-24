@@ -1016,14 +1016,18 @@
     }
     if(errs.length) return errs;
     // ★ ルールBは1ターンに1度まで：直近のルールA・イベント（手番の主行動）以降に既にルールBがあれば不可
+    //   ただし第2期以降の「1週目」（その期でルールA・イベントをまだ1件も記帳していない間）だけは2度まで
     if(a.rule==='B'){
-      let tailB=0;
+      let tailB=0, firstWeek=true;
       for(let i=st.tx.length-1;i>=0;i--){ const x=st.tx[i]; if(x.id===editId) continue;
         const AA=x.key&&ACTIONS[x.key]; if(!AA) continue;            // 自動行（金利/納税/給料等）は無視
-        if(AA.rule==='A'||AA.rule==='X') break;                       // 直近の手番に到達→走査終了
+        if(AA.rule==='A'||AA.rule==='X'){ firstWeek=false; break; }   // 直近の手番に到達→走査終了
         if(AA.rule==='B') tailB++;                                    // 今の手番のルールB
       }
-      if(tailB>=1) errs.push('ルールBは1ターンに1度までです（ルールA・イベントを記帳してから次のルールBへ）');
+      const limit = (firstWeek && st.period>=2) ? 2 : 1;              // 第2期以降の1週目のみ2回
+      if(tailB>=limit) errs.push(limit===2
+        ? 'ルールBは1週目でも2回までです（ルールA・イベントを記帳してから次のルールBへ）'
+        : 'ルールBは1ターンに1度までです（ルールA・イベントを記帳してから次のルールBへ）');
     }
     // ② 在庫・陳列・能力（ブロック）
     const b=baseCounts(editId), c=caps();

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as calc from '../src/lib/calc.ts'
 import * as game from '../src/lib/game.ts'
-import type { St } from '../src/lib/calc.ts'
+import type { St, Result } from '../src/lib/calc.ts'
 
 function newGame(): St {
   const st = calc.newState()
@@ -168,6 +168,65 @@ test('決算取り消し：結果と履歴を破棄し、記帳→再決算で�
 test('決算取り消し：未決算では拒否される', () => {
   const st = newGame()
   assert.ok(game.undoSettle(st, []))
+})
+
+// ---- ④ ルールBの回数制限（第2期以降の1週目のみ2回） ----
+
+// 第1期を決算して第2期の期首まで進める
+function toPeriod2(st: St): void {
+  const history: Result[] = []
+  setupProduced(st, 4)
+  assert.deepEqual(game.recordAction(st, 'hanbai', { qty: 4, unit: 30 }), [])
+  calc.doClosingPrep(st)
+  game.doSettle(st, history)
+  game.goNext(st)
+  assert.equal(st.period, 2)
+}
+
+const B_LIMIT_1 = 'ルールBは1ターンに1度までです（ルールA/イベントを挟んでください）。'
+const B_LIMIT_2 = 'ルールBは1週目でも2回までです（ルールA/イベントを挟んでください）。'
+
+test('④ 第1期の1週目：ルールBは1回まで（2回目は拒否）', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [B_LIMIT_1])
+})
+
+test('④ 第2期の1週目：ルールBは2回まで記帳でき、3回目は拒否される', () => {
+  const st = newGame()
+  toPeriod2(st)
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [], '1週目の2回目は通る')
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [B_LIMIT_2])
+})
+
+test('④ 第2期でもルールAを挟んだ後は1回まで（1週目の緩和は最初の手番だけ）', () => {
+  const st = newGame()
+  toPeriod2(st)
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 1 }), [], 'ルールAで手番が進む')
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [B_LIMIT_1], '2週目以降は1回まで')
+})
+
+test('④ 期首の自動行（法人税納付・支払金利）は手番に数えず、1週目の判定を壊さない', () => {
+  const st = newGame()
+  // 借入を作って第1期を利益ありで終える → 第2期の期首に自動行が積まれる
+  setupProduced(st, 4)
+  assert.deepEqual(game.recordAction(st, 'hanbai', { qty: 4, unit: 60 }), [])
+  const history: Result[] = []
+  calc.doClosingPrep(st)
+  game.doSettle(st, history)
+  game.goNext(st)
+  assert.equal(st.period, 2)
+  assert.ok(
+    st.tx.some((t) => t.isOpeningTax || t.isOpeningInterest),
+    '期首の自動行が積まれている',
+  )
+  // 自動行が先頭にあっても 1週目として2回まで通る
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [B_LIMIT_2])
 })
 
 test('②+③ 通し：削除ガードにより決算後もB/Sの在庫がマイナスにならない', () => {

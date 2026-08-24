@@ -101,16 +101,28 @@ export function startCompany(
   recompute(st)
 }
 
-// ルールB は1ターンに1度まで（直近の A/イベント以降に B が無いこと）
-function ruleBBlocked(st: St): boolean {
+// ルールB の回数制限。原則は1ターンに1度まで（直近の A/イベント以降に B が無いこと）。
+// ただし第2期以降の「1週目」＝その期でルールA・イベントカードをまだ1件も記帳していない間だけは2度まで。
+// 第1期を除くのは「第1期は借入関連なし」という前提と揃えるため。
+// 戻り値：記帳できないときのエラーメッセージ、記帳できるなら null。
+function ruleBError(st: St): string | null {
+  let tailB = 0 // 直近の手番（A/イベント）以降に記帳済みのルールB件数
+  let firstWeek = true // A・イベントに当たらず先頭まで到達したら1週目
   for (let i = st.tx.length - 1; i >= 0; i--) {
     const t = st.tx[i]
     const a = t.key ? ACTIONS[t.key] : undefined
-    if (!a) continue
-    if (a.rule === 'A' || a.rule === 'X') return false
-    if (a.rule === 'B') return true
+    if (!a) continue // 期首の自動行（法人税納付・支払金利）などは手番に数えない
+    if (a.rule === 'A' || a.rule === 'X') {
+      firstWeek = false
+      break
+    }
+    if (a.rule === 'B') tailB++
   }
-  return false
+  const limit = firstWeek && st.period >= 2 ? 2 : 1
+  if (tailB < limit) return null
+  return limit === 2
+    ? 'ルールBは1週目でも2回までです（ルールA/イベントを挟んでください）。'
+    : 'ルールBは1ターンに1度までです（ルールA/イベントを挟んでください）。'
 }
 
 const rowsOf = (f: Fvals): Fvals[] => (f && f.items && f.items.length ? f.items : [{ qty: f?.qty, unit: f?.unit }])
@@ -319,7 +331,10 @@ export function recordAction(st: St, key: string, fvals: Fvals): string[] {
   if (!a) return ['不明なアクションです']
   if (st.settled) return ['この期は決算済みです。決算書から次の期へ進んでください。']
   if (st.closingPrep) return ['期末処理を計上済みです。「記帳に戻る」を押してください。']
-  if (a.rule === 'B' && ruleBBlocked(st)) return ['ルールBは1ターンに1度までです（ルールA/イベントを挟んでください）。']
+  if (a.rule === 'B') {
+    const e = ruleBError(st)
+    if (e) return [e]
+  }
   const errs = validate(st, key, fvals)
   if (errs.length) return errs
   st.tx.push({

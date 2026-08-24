@@ -134,7 +134,7 @@ function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty: f
 - 販売販売の `unit`（売価P）は0以上でも可。`qty` は1以上（バリデーション）。
 - `saiyo` の `fail` は費用は取られるがスタッフは増えない。
 
-### 3.2 ルールB（1ターン1度まで — §7）
+### 3.2 ルールB（1ターン1度まで。第2期以降の1週目のみ2度まで — §7）
 
 | key | label | rule | col | side | badge | fields | amount | apply | rownote |
 |---|---|---|---|---|---|---|---|---|---|
@@ -679,6 +679,9 @@ loss = max(0, −G)                    (損失)
 - **数値フォーマット**: 数量系は整数≥1、金額系（`a`, `hanbai.unit`）は整数≥0。`fl.min`/`fl.max` があればそれを優先。`choice` はスキップ。
 - **複数行（shiire/hanbai）**: 各行フォーマット＋合計判定。`shiire`: `baseRawCubes + Σqty ≤ 15`。`hanbai`: `Σqty ≤ salesCap` かつ `Σqty ≤ products`。
 - **ルールB 1ターン1回**: 直近のルールA/イベント（手番主行動）以降に既にルールBがあれば不可（自動行は無視、L985–992）。
+  - **例外：第2期以降の「1週目」は2回まで**。1週目＝その期でルールA・イベントカードをまだ1件も記帳していない状態
+    （走査がルールA/イベントに当たらず先頭まで到達する）。期首の自動行（法人税納付・支払金利）は手番に数えないため、
+    1週目の判定には影響しない。第1期は従来どおり1回まで（「第1期は借入関連なし」の前提と揃える）。
 - **単票アクション別**:
   - `shiire`: `rawCubes + qty ≤ 15`
   - `seizo`: `machines>0` かつ `staffMfg>0` かつ `qty ≤ mfgCap` かつ `qty ≤ rawCubes` かつ `products + qty ≤ 15`
