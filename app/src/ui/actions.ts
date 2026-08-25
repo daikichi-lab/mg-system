@@ -1,7 +1,7 @@
 // 記帳モーダルのフォーム定義（キー→入力欄）と、アクションのグループ分け。
 // 数値ルールに依存する欄（仕入単価の選択肢・上限や単価の説明文）があるため、
 // 定義は getRules() から組み立てる。参照は FORMS ではなく getForms() を使うこと。
-import { getRules, type Rules } from '../lib/calc'
+import { getRules, type Rules } from '../lib/calc.ts'
 
 export interface Field {
   name: string
@@ -151,3 +151,50 @@ export const EVENTS: EventDef[] = [
   { key: 'fuhyo', cat: '手番のみ', label: '風評被害発生' },
   { key: 'gyaku', cat: '手番のみ', label: '逆回り' },
 ]
+
+// ---- 記帳ボタンのヒント（金額の目安）----
+// 数値ルールに依存しないヒント。ここにある金額は Rules に無い直書き定数
+// （採用5・広告10・商品開発20・保険5・教育20・配置転換5）。#5 第2ゴールの続きで外出しする。
+const FIXED_TAGS: Record<string, string> = {
+  saiyo: '−5',
+  koukoku: '−10',
+  kaihatsu: '−20',
+  hanbai: '＋ 売上',
+  seizo: '材料→製品',
+  hoken: '−5',
+  kyoiku: '−20',
+  haichi: '−5',
+  kariire: '＋ 借入',
+  hensai: '− 返済',
+}
+
+// 数値ルールに追従するヒントを組み立てる。仕入単価は選択肢の最小〜最大を出す
+// （1つしか無ければ範囲にしない）。
+function buildTags(r: Rules): Record<string, string> {
+  const ps = r.materialPrices
+  const lo = Math.min(...ps)
+  const hi = Math.max(...ps)
+  return {
+    ...FIXED_TAGS,
+    shiire: lo === hi ? `−${lo}` : `−${lo}〜${hi}`,
+    kikai: `−${r.machinePrice}`,
+  }
+}
+
+let tagsFor: Rules | null = null
+let cachedTags: Record<string, string> | null = null
+
+/**
+ * いまの数値ルールに対応した記帳ボタンのヒント。
+ * **モジュールスコープに文言を退避しないこと**（`setRules()` の差し替え後も古い値を
+ * 掴み続け、表示だけが既定値のまま実際の記帳額とずれる。これが issue #23）。
+ * `getForms()` と同じく Rules の同一性でキャッシュする。
+ */
+export function getTags(): Record<string, string> {
+  const r = getRules()
+  if (!cachedTags || tagsFor !== r) {
+    tagsFor = r
+    cachedTags = buildTags(r)
+  }
+  return cachedTags
+}

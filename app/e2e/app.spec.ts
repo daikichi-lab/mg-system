@@ -659,6 +659,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('c-pres').fill('適用太郎')
     await page.getByTestId('start').click()
     await page.getByTestId('tab-play').click()
+    // 記帳ボタンのヒントもルールに追従する（表示だけ既定値のままだと取り違える・issue #23）
+    await page.getByTestId('sub-A').click()
+    await expect(page.getByTestId('act-kikai')).toContainText('−120')
     await act(page, 'kikai', { n: 1 })
     await expect(page.getByTestId('ledger')).toContainText('120')
     await expect(page.getByTestId('hd-cash')).toHaveText('180') // 資本金300 − 機械120

@@ -116,6 +116,7 @@ npm run test:calc
 - 参照は必ず **`getRules()` 経由**で行う。モジュールスコープに値を退避すると `setRules()` の差し替え後も古い値を掴み続ける。
 - 数値を1つ足すときは `Rules` / `DEFAULT_RULES` / `normalizeRules()` の3つに追加する。`calc.ts` に定数を直書きしない。
 - 記帳フォームは数値ルールに連動するため `ui/actions.ts` の **`getForms()`** から取る（`FORMS` という静的オブジェクトはもう無い）。
+  記帳ボタンのヒント文言も同じ理由で **`getTags()`** から取る（`Participant.tsx` の `TAGS` という静的オブジェクトはもう無い）。
 - 差し替えが効くことは `npm run test:rules`、既定値のままなら数値が変わらないことは `npm run test:calc`（golden-master）が担保する。
 
 **研修への適用**：数値ルールは研修（`orgs`）へ**コピー**される。参照ではないので、マスタを後から編集・削除しても

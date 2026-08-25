@@ -34,7 +34,7 @@ import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS 
 import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
 import { savePdf } from '../lib/pdf'
-import { getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
+import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
 import { useToast, Toaster } from './Toast'
 
@@ -659,7 +659,7 @@ function OpeningTab({
 }
 
 // ------- 記帳 -------
-// アクションのアイコン・色（mock STY）とヒント（mock TAGS）
+// アクションのアイコン・色（mock STY）。ヒントの文言は数値ルールに連動するため actions.ts の getTags() から取る
 const STY: Record<string, { c: string; i: string }> = {
   shiire: { c: '#8b5e3c', i: '📦' },
   seizo: { c: '#d98324', i: '🍰' },
@@ -690,20 +690,6 @@ const STY: Record<string, { c: string; i: string }> = {
   fuhyo: { c: '#5b6472', i: '📉' },
   gyaku: { c: '#5b6472', i: '🔄' },
 }
-const TAGS: Record<string, string> = {
-  shiire: '−10〜16',
-  kikai: '−100',
-  saiyo: '−5',
-  koukoku: '−10',
-  kaihatsu: '−20',
-  hanbai: '＋ 売上',
-  seizo: '材料→製品',
-  hoken: '−5',
-  kyoiku: '−20',
-  haichi: '−5',
-  kariire: '＋ 借入',
-  hensai: '− 返済',
-}
 
 function ActBtn({ k, disabled, onOpen }: { k: string; disabled: boolean; onOpen: (k: string) => void }) {
   const a = ACTIONS[k]
@@ -722,7 +708,7 @@ function ActBtn({ k, disabled, onOpen }: { k: string; disabled: boolean; onOpen:
         <div className="font-bold text-sm leading-tight" style={{ color: col }}>
           {a.label}
         </div>
-        <div className="text-[11px] text-ink-400 leading-tight">{TAGS[k] || ''}</div>
+        <div className="text-[11px] text-ink-400 leading-tight">{getTags()[k] || ''}</div>
       </div>
     </button>
   )

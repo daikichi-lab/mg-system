@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_RULES, normalizeRules } from '../src/lib/rules.ts'
 import { ACTIONS, doClosingPrep, newState, setRules, getRules } from '../src/lib/calc.ts'
+import { getTags, getForms } from '../src/ui/actions.ts'
 
 // 各テストの後に既定へ戻す（モジュールスコープの共有状態のため）
 const reset = () => setRules(null)
@@ -81,4 +82,75 @@ test('setRules(null) で既定に戻る', () => {
   assert.equal(getRules().rent, 99)
   reset()
   assert.deepEqual(getRules(), DEFAULT_RULES)
+})
+
+
+// ---- 記帳ボタンのヒント（issue #23）----
+// 実際の記帳額は getRules() を見ていたのに、ボタンの表示だけ静的な文言のままで
+// ずれていた。表示と記帳額が食い違わないことをここで担保する。
+
+test('ヒント：既定ルールでは現行の文言（−100 / −10〜16）のまま', () => {
+  reset()
+  const t = getTags()
+  assert.equal(t.kikai, '−100')
+  assert.equal(t.shiire, '−10〜16')
+})
+
+test('ヒント：機械価格を差し替えると表示も追従し、実際の記帳額と一致する', () => {
+  setRules({ machinePrice: 200 })
+  try {
+    assert.equal(getTags().kikai, '−200')
+    // 表示（−200）と実際の記帳額（200）が一致していること
+    assert.equal(ACTIONS.kikai.amount({ n: 1 }), 200)
+  } finally {
+    reset()
+  }
+})
+
+test('ヒント：仕入単価の選択肢に追従する（最小〜最大）', () => {
+  setRules({ materialPrices: [20, 21, 22] })
+  try {
+    assert.equal(getTags().shiire, '−20〜22')
+    // モーダルの単価プルダウンと同じ選択肢を指していること
+    const unit = getForms().shiire.rowFields!.find((f) => f.name === 'unit')!
+    assert.deepEqual(
+      unit.options!.map((o) => Number(o.value)),
+      [20, 21, 22],
+    )
+  } finally {
+    reset()
+  }
+})
+
+test('ヒント：仕入単価が1種類なら範囲にしない', () => {
+  setRules({ materialPrices: [12] })
+  try {
+    assert.equal(getTags().shiire, '−12')
+  } finally {
+    reset()
+  }
+})
+
+test('ヒント：Rules に無い直書き定数はそのまま', () => {
+  setRules({ machinePrice: 200, materialPrices: [20] })
+  try {
+    const t = getTags()
+    assert.equal(t.saiyo, '−5')
+    assert.equal(t.koukoku, '−10')
+    assert.equal(t.kaihatsu, '−20')
+    assert.equal(t.hanbai, '＋ 売上')
+  } finally {
+    reset()
+  }
+})
+
+test('ヒント：setRules() のたびに作り直され、古い文言を掴み続けない', () => {
+  reset()
+  assert.equal(getTags().kikai, '−100')
+  setRules({ machinePrice: 150 })
+  assert.equal(getTags().kikai, '−150', '差し替え後は新しい値')
+  setRules({ machinePrice: 180 })
+  assert.equal(getTags().kikai, '−180', '続けて差し替えても追従する')
+  reset()
+  assert.equal(getTags().kikai, '−100', '既定へ戻せば元の文言')
 })
