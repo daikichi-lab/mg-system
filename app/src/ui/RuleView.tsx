@@ -1,6 +1,6 @@
 // ルール確認（/admin/rules/<id>）。読み取り専用。
 // 編集画面と同じ6グループで並べるが、入力欄ではなく数字として見せる。
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, type ApiRuleset } from '../lib/api'
 import { normalizeRules, type Rules } from '../lib/rules'
 import { GROUPS, COL_NAMES, COL_STYLE, SALARY_PERIODS, type Field } from './ruleFields'
@@ -68,6 +68,9 @@ function Value({ field, rules }: { field: Field; rules: Rules }) {
 export default function RuleView({ token, id, toast }: { token: string; id: number; toast: (m: string) => void }) {
   const [rs, setRs] = useState<ApiRuleset | null>(null)
   const [err, setErr] = useState('')
+  const [dup, setDup] = useState(false)
+  // 二重送信ガード。state だけだと連打の2回目が更新前の値を見てしまう
+  const dupRef = useRef(false)
 
   useEffect(() => {
     api
@@ -77,14 +80,22 @@ export default function RuleView({ token, id, toast }: { token: string; id: numb
   }, [token, id])
 
   async function duplicate() {
-    if (!rs) return
-    const d = await api.adminCreateRuleset(token, {
-      name: `${rs.name} のコピー`,
-      description: rs.description,
-      rules: rs.rules,
-    })
-    toast('複製しました')
-    location.assign(`/admin/rules/${d.ruleset.id}/edit`)
+    if (!rs || dupRef.current) return
+    dupRef.current = true
+    setDup(true)
+    try {
+      const d = await api.adminCreateRuleset(token, {
+        name: `${rs.name} のコピー`,
+        description: rs.description,
+        rules: rs.rules,
+      })
+      toast('複製しました')
+      location.assign(`/admin/rules/${d.ruleset.id}/edit`)
+    } catch (e: any) {
+      dupRef.current = false
+      setDup(false)
+      alert(e.message)
+    }
   }
 
   if (err) return <NotFound message={err} />
@@ -96,10 +107,14 @@ export default function RuleView({ token, id, toast }: { token: string; id: numb
     <div className="p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0">
-          <a href="/admin/rules" className="text-ink-400 text-xs hover:underline">
+          <a
+            data-testid="rule-back"
+            href="/admin/rules"
+            className="inline-grid place-items-center h-8 px-3 rounded-lg border border-line bg-white text-ink-600 text-xs font-bold hover:bg-canvas"
+          >
             ← ルール一覧へ
           </a>
-          <h1 className="font-black text-lg mt-1 flex items-center gap-2 flex-wrap" data-testid="rule-name">
+          <h1 className="font-black text-lg mt-2 flex items-center gap-2 flex-wrap" data-testid="rule-name">
             {rs.name}
             {rs.isBuiltin && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-canvas border border-line text-ink-400">
@@ -113,9 +128,10 @@ export default function RuleView({ token, id, toast }: { token: string; id: numb
           <button
             data-testid="rule-duplicate"
             onClick={duplicate}
-            className="h-10 px-4 rounded-xl border border-line text-ink-600 text-sm font-bold hover:bg-white whitespace-nowrap"
+            disabled={dup}
+            className="h-10 px-4 rounded-xl border border-line text-ink-600 text-sm font-bold hover:bg-white whitespace-nowrap disabled:opacity-40"
           >
-            複製
+            {dup ? '複製中…' : '複製'}
           </button>
           {rs.isBuiltin ? (
             <span className="text-ink-300 text-xs max-w-[260px] leading-snug">
