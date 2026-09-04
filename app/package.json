@@ -15,6 +15,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "seed:15": "node test/seed-15.mjs",
+    "gen:golden": "node test/gen-golden.ts",
     "test:calc": "node --test test/calc.test.ts",
     "test:game": "node --test test/game.test.ts",
     "test:rules": "node --test test/rules.test.ts",

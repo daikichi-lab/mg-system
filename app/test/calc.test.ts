@@ -1,51 +1,14 @@
-// golden-master parity: TS 計算エンジンが実 mock と同一の数値を出すことを検証。
+// golden-master：TS 計算エンジンの出力が golden.json（期待値スナップショット）と厳密一致することを検証。
+// golden.json は元々プロトタイプ（mock、2026-09 に削除）から生成した値で、今は現行エンジンのスナップショットとして扱う。
+// 意図して数値を変えるときは gen-golden.ts で作り直す（CLAUDE.md「計算エンジンを変更したとき」参照）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { scenarios } from './scenarios.mjs'
-import * as calc from '../src/lib/calc.ts'
-import type { Result, St } from '../src/lib/calc.ts'
+import { runScenario, type Sc } from './run-scenario.ts'
 
 type Golden = { name: string; results: Record<string, unknown>[] }[]
 const golden: Golden = JSON.parse(readFileSync(new URL('./golden.json', import.meta.url), 'utf8'))
-
-type Sc = {
-  name: string
-  capital: number
-  loanMult?: number
-  repayRate?: number
-  periods: { key: string; fvals?: Record<string, unknown> }[][]
-}
-
-function runScenario(sc: Sc): Result[] {
-  const st: St = calc.newState()
-  st.name = 'X'
-  st.president = 'P'
-  st.org = 'O'
-  st.started = true
-  if (sc.loanMult != null) st.loanMult = sc.loanMult
-  if (sc.repayRate != null) st.repayRate = sc.repayRate
-  st.tx.push({ id: st.seq++, label: '資本金', col: 0, amount: sc.capital, isCapital: true })
-  const results: Result[] = []
-  sc.periods.forEach((acts, pi) => {
-    acts.forEach((a) => {
-      const def = calc.ACTIONS[a.key]
-      st.tx.push({
-        id: st.seq++,
-        key: a.key,
-        fvals: a.fvals || {},
-        col: def.col,
-        amount: def.amount(a.fvals || {}) || 0,
-      })
-    })
-    calc.recompute(st)
-    calc.doClosingPrep(st)
-    const res = calc.settle(st)!
-    results.push(JSON.parse(JSON.stringify(res)))
-    if (pi < sc.periods.length - 1) calc.nextPeriod(st)
-  })
-  return results
-}
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9
 
@@ -65,14 +28,14 @@ for (const sc of scenarios as Sc[]) {
         if (typeof gv === 'number') {
           assert.ok(
             near(mv as number, gv),
-            `${sc.name} P${res.period} .${k}: TS=${mv} vs mock=${gv}`,
+            `${sc.name} P${res.period} .${k}: TS=${mv} vs golden=${gv}`,
           )
         } else if (Array.isArray(gv)) {
           const ma = mv as number[]
           gv.forEach((gx, j) =>
             assert.ok(
               typeof gx !== 'number' || near(ma[j], gx),
-              `${sc.name} P${res.period} .${k}[${j}]: TS=${ma[j]} vs mock=${gx}`,
+              `${sc.name} P${res.period} .${k}[${j}]: TS=${ma[j]} vs golden=${gx}`,
             ),
           )
         } else if (typeof gv === 'string') {

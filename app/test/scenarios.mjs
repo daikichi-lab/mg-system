@@ -1,4 +1,4 @@
-// mock と TS エンジンの数値一致を検証する共有シナリオ。
+// golden-master（calc.test.ts / gen-golden.ts）で使う共有シナリオ。TS エンジンの出力を golden.json と突き合わせる。
 // 各シナリオ: { name, capital, loanMult?, repayRate?, periods: [ [ {key,fvals}, ... ], ... ] }
 // イベントの動的 fvals（suigai/ibutsu の discard/payout/insuredUsed）は、その時点の盤面から手計算で固定。
 export const scenarios = [
