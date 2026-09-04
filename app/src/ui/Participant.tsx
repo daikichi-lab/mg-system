@@ -13,6 +13,8 @@ import {
   equityNow,
   fmRatio,
   flows,
+  getRules,
+  salaryFor,
   IN_COLS,
   type St,
   type Result,
@@ -495,6 +497,11 @@ function OpeningTab({
   const room = loanRoom(st)
   const interest = Math.round(st.openingLoan * 0.05)
   const repayPlan = Math.round((st.openingLoan * st.repayRate) / 100)
+  // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
+  // 給料は期末処理と同じ salaryFor() を通し、在籍人数は期首の盤面（採用・退職で期中に変わる）
+  const rent = getRules().rent
+  const salaryPer = salaryFor(st.period)
+  const headcount = st.openingStaffMfg + st.openingStaffSales
   const kv = (l: string, v: string, accent?: boolean) => (
     <div className="flex justify-between border-b border-line/70 py-1.5">
       <span className="text-ink-500">{l}</span>
@@ -644,6 +651,38 @@ function OpeningTab({
           </div>
         </div>
       )}
+
+      {/* この期末に支払うもの：家賃・1人あたり人件費・元本返済率（第1期は借入なしなので返済は「なし」） */}
+      <div data-testid="opening-costs" className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
+        <h2 className="font-bold mb-0.5">この期末に支払うもの（期末処理で自動計上）</h2>
+        <p className="text-ink-400 text-xs mb-3">記帳を始める前に、期末に出ていく金額を頭に入れておきましょう。</p>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">家賃</div>
+            <div data-testid="oc-rent" className="num font-black text-lg">
+              {fmt(rent)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">人件費（1人あたり）</div>
+            <div data-testid="oc-salary" className="num font-black text-lg">
+              {fmt(salaryPer)}
+            </div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">
+              期首 {headcount}人なら {fmt(headcount * salaryPer)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">元本返済率</div>
+            <div data-testid="oc-repay" className="num font-black text-lg">
+              {first ? '—' : `${st.repayRate}%`}
+            </div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">
+              {first ? '第1期は借入なし' : `期首残高 ${fmt(st.openingLoan)} → 返済 ${fmt(repayPlan)}`}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="flex">
         <button
