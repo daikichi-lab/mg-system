@@ -10,14 +10,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. **マージは必ず人間が行う。** `gh pr merge` は実行しない。push と PR 作成までで止め、レビュー依頼を出して終わる。
 5. **本番へのデプロイも人間が行う。** 自動デプロイは無効（`render.yaml` の `autoDeploy: false`）。
    **main にマージしても本番は変わらない。** 反映は Render の Manual Deploy による手動操作。
+6. **コードには日本語でコメントを書く。** 関数・主要な分岐・ガード（早期 return／409 など）には「何をする処理か」「どの条件で動くか（前提・境界・例外）」を書く。
+   コードをなぞるだけのコメント（「i を 1 増やす」等）は書かない。数式・定数には根拠（`docs/仕様書.md` や `docs/calc-spec.md` の該当箇所）を添える。
+7. **mock は起点にしない。** `mock/` は凍結済み（2026-09）。新しい機能・修正は main からブランチを作り `app/` で実装し、PR で人間が確認する。
+   「mock で作ってから app に移植する」流れは使わない。
 
 ### 作業順序
 
 ```
-issue 作成 → main からブランチ作成（issue番号） → 実装 → lint + テスト → コミット → push → PR 作成
-                                                        → （人間がマージ）→ （人間が Render で手動デプロイ）
+issue 作成 → main からブランチ作成（issue番号） → 実装（コメント込み） → lint + テスト → コミット → push → PR 作成
+                                                        → 人間が確認（PR レビュー＋ブランチで動作確認）→ 人間がマージ → 人間が Render で手動デプロイ
 ```
 
+- PR 本文には「変更内容」「確認手順（どの画面で何をするとどう変わるか）」「`Closes #<issue番号>`」を書く。人間はこれを見てブランチを checkout し動作確認する。
 - 1 PR = 1 ゴール。まとめて出さない。過去に一括開発して本番検証が不能になった経緯がある（issue #5）。
 - issue・PR・コミットメッセージ・コード内コメント・ドキュメントはすべて**日本語**。
 - 依頼やタスクは **GitHub issue で管理する**。`docs/` にチェックリスト形式の消化リストを作らない。
@@ -60,7 +65,7 @@ npm run lint     # oxlint
 ### テスト
 
 ```bash
-npm run test:calc   # golden-master：TSエンジンが mock と数値厳密一致するか
+npm run test:calc   # golden-master：TSエンジンの出力が golden.json（期待値スナップショット）と厳密一致するか
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
 npm run test:rules  # 数値ルールの差し替えが計算に効くか（rules.ts / setRules）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
@@ -80,22 +85,24 @@ npx playwright test e2e/app.spec.ts -g '<テスト名>'
 Playwright の Chromium は `$HOME/.cache/ms-playwright` 固定（`playwright.config.ts` と `test/gen-golden.mjs` にパスが直書き）。未取得なら
 `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright npx playwright install chromium`。
 
-### 計算エンジンを変更したとき（★必ず両方直す）
+### 計算エンジンを変更したとき（golden.json の扱い）
 
-```bash
-node test/gen-golden.mjs   # mock/index.html をヘッドレス実行して golden.json を再生成
-npm run test:calc
-```
+`app/test/golden.json` は**現行エンジンの期待値スナップショット**で、`npm run test:calc` が `calc.ts` の出力と突き合わせる。
+計算の仕様は `docs/calc-spec.md` が正で、`calc.ts` がその実装。**`mock/index.html` はもう直さない**（凍結）。
 
-`mock/index.html` が計算の**原典**で、`gen-golden.mjs` はそれを実際にブラウザで走らせて期待値（`test/golden.json`）を作る。
-したがってルールや計算を変えるときは **`app/src/lib/calc.ts` と `mock/index.html` の両方**を直し、golden.json を再生成する。片方だけ直すとテストが落ちる。
+- **数値を変えない変更**（リファクタ・UI・API）：golden.json は触らない。`npm run test:calc` が通ることを確認する。
+- **意図して数値を変える変更**（ルール・計算式）：先に `docs/calc-spec.md` を直し、変わる値を golden.json で更新する（手で直す。TS エンジンから再生成するスクリプトは未整備）。
+  PR 本文に「どのシナリオのどの値が、なぜ変わるか」を書く。テストが落ちたまま golden.json を書き換えて通すだけの PR は出さない。
+- `test/gen-golden.mjs` は mock をヘッドレス実行して golden.json を作る**旧手順**。mock と `calc.ts` の数値がずれた後は使えないので、実行しない。
 
 ## アーキテクチャ
 
 ### 全体の形
 
-`mock/`（単一HTMLのプロトタイプ・ビルド不要）と `app/`（本番実装）の2本立て。両者は golden-master テストで数値的に結ばれている。
-`mock/index.html` が参加者アプリ、`mock/admin.html` が講師用。ビルド不要で `python3 -m http.server 8770 --directory mock` で動く。
+開発対象は `app/`（本番実装）だけ。`mock/`（単一HTMLのプロトタイプ・`index.html` が参加者、`admin.html` が講師用）は
+**2026-09 に凍結**した：読んで参考にするのは可、編集しない、新機能の起点にしない。
+`app/test/golden.json` はもともとこの mock から生成した期待値で、今は TS エンジンのスナップショットとして扱う（上記「計算エンジンを変更したとき」参照）。
+mock を見るだけなら `python3 -m http.server 8770 --directory mock` で開ける。
 
 ### tx 再生エンジン（`app/src/lib/calc.ts`）
 
