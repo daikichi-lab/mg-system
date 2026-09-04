@@ -498,11 +498,10 @@ function OpeningTab({
   const interest = Math.round(st.openingLoan * 0.05)
   const repayPlan = Math.round((st.openingLoan * st.repayRate) / 100)
   // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
-  // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わる。
-  // 単価は期末処理と同じ salaryFor() を通す。見込み額は今の盤面の人数で出し、0 人（第1期の期首）なら出さない
+  // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わるため、
+  // ここでは単価（期末処理と同じ salaryFor()）と計上ルールだけを示し、人数での見込み額は出さない
   const rent = getRules().rent
   const salaryPer = salaryFor(st.period)
-  const headcount = st.staffMfg + st.staffSales
   const kv = (l: string, v: string, accent?: boolean) => (
     <div className="flex justify-between border-b border-line/70 py-1.5">
       <span className="text-ink-500">{l}</span>
@@ -669,9 +668,7 @@ function OpeningTab({
             <div data-testid="oc-salary" className="num font-black text-lg">
               {fmt(salaryPer)}
             </div>
-            <div className="text-[10px] text-ink-400 whitespace-nowrap">
-              {headcount > 0 ? `いま${headcount}人なら ${fmt(headcount * salaryPer)}` : '期末の在籍人数 × 単価'}
-            </div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">期末の在籍人数 × 単価</div>
           </div>
           <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
             <div className="text-[10px] text-ink-500 whitespace-nowrap">元本返済率</div>
