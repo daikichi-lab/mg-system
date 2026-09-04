@@ -502,7 +502,7 @@ function OpeningTab({
   // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
   // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わるため、
   // ここでは単価（期末処理と同じ salaryFor()）と計上ルールだけを示し、人数での見込み額は出さない。
-  // 返済率も率だけを示す（返済額は⑨に出ている）
+  // 返済率も率と計上ルールだけを示す（返済額は⑨に出ている。第1期は借入がないので率は「—」）
   const rent = getRules().rent
   const salaryPer = salaryFor(st.period)
   const kv = (l: string, v: string, accent?: boolean) => (
@@ -684,7 +684,7 @@ function OpeningTab({
             <div data-testid="oc-repay" className="num font-black text-lg">
               {first ? '—' : `${st.repayRate}%`}
             </div>
-            {first && <div className="text-[10px] text-ink-400 whitespace-nowrap">第1期は借入なし</div>}
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">期首の借入残高 × 返済率</div>
           </div>
         </div>
       </div>
