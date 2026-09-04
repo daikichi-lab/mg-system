@@ -428,6 +428,8 @@ function CompanyTab({
 }
 
 // ------- 期首処理 -------
+/** 元本返済率（期末返済率）の選択肢（%）。講師が段階的に上げていく運用のため5段階に固定 */
+const REPAY_RATE_OPTIONS = [0, 5, 10, 15, 20]
 type BoardVals = { mfg: number; sales: number; mat: number; prod: number; dev: number; ads: number; mach: number }
 
 function BoardEditForm({ st, onSave, onCancel }: { st: St; onSave: (b: BoardVals) => void; onCancel: () => void }) {
@@ -608,15 +610,21 @@ function OpeningTab({
             <div className="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 bg-m-bg gap-2 flex-wrap">
               <span className="font-bold text-m-ink">
                 期末返済（期首残高 ×
-                <input
+                <select
                   data-testid="op-repayrate"
-                  type="number"
-                  min={0}
-                  max={100}
-                  defaultValue={st.repayRate}
-                  onBlur={(e) => game.setInstr(st.loanMult, Number(e.target.value) || 0)}
-                  className="w-12 h-7 border border-line rounded px-1 mx-1 text-right num"
-                />
+                  value={st.repayRate}
+                  onChange={(e) => game.setInstr(st.loanMult, Number(e.target.value) || 0)}
+                  className="h-7 border border-line rounded px-1 mx-1 num bg-white"
+                >
+                  {/* 5段階（0/5/10/15/20）。保存済みの率がこれ以外（旧データ）のときは、その値も選択肢に含めて勝手に変えない */}
+                  {[...new Set([...REPAY_RATE_OPTIONS, st.repayRate])]
+                    .sort((a, b) => a - b)
+                    .map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                </select>
                 %）
               </span>
               <b className="num text-m-ink">▲{fmt(repayPlan)}</b>
