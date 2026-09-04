@@ -204,6 +204,11 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
   return { openingCash: st.openingCash, openingAuto, rows, closingAuto, closingDetail, endBalance: bal + closingAuto }
 }
 
+/** 経営計画書タブを出すか。数値ルール planFromPeriod の期から（それより前の期はタブ自体を出さない） */
+export function planVisible(st: St): boolean {
+  return st.period >= getRules().planFromPeriod
+}
+
 export type PlanActuals = Pick<Result, 'PQ' | 'vPQ' | 'mPQ' | 'F' | 'G'>
 
 /** 7. その期の実績（決算後にだけ入る）。当期が決算済みなら st.result、過去期は履歴から取る */

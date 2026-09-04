@@ -13,7 +13,6 @@ import {
   equityNow,
   fmRatio,
   flows,
-  getRules,
   IN_COLS,
   type St,
   type Result,
@@ -35,6 +34,7 @@ import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS 
 import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
+import { planVisible } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
@@ -101,7 +101,7 @@ export default function Participant() {
     setTab(t)
   }
   // 経営計画書タブは数値ルール planFromPeriod の期から出す（それより前の期はタブ自体を出さない）
-  const planOn = st.period >= getRules().planFromPeriod
+  const planOn = planVisible(st)
   const tabs = TABS.filter(([k]) => k !== 'plan' || planOn)
 
   // 会社情報の「期の選択」：現在＝最新に戻る／過去＝その期の決算書を閲覧
