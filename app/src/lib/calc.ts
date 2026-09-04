@@ -1,5 +1,6 @@
-// 戦略MG 計算エンジン（mock/index.html の純関数を TypeScript 移植）。
-// docs/calc-spec.md に忠実。数値は mock と厳密一致（golden-master テストで検証）。
+// 戦略MG 計算エンジン（純関数）。仕様は docs/calc-spec.md が正で、このファイルがその実装。
+// 数値は test/golden.json（期待値スナップショット）と厳密一致することを golden-master テスト（test/calc.test.ts）で検証する。
+// （元は単一HTMLのプロトタイプ mock/index.html から移植したもの。mock は 2026-09 に削除済み）
 
 import { normalizeRules, type Rules } from './rules.ts'
 

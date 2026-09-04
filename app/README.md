@@ -1,10 +1,10 @@
 # 戦略MG 研修システム（本番実装）
 
-`mock/` のプロトタイプを本番構成で実装したフルスタックアプリ。
+戦略MG研修の参加者アプリ＋講師管理画面（フルスタック）。
 
 - **フロント**: React 19 + Vite + TypeScript + Tailwind v4
 - **バックエンド**: Node(Express) の REST API。DBは**二刀流**＝既定 **node:sqlite（実SQLite・ファイル永続）**／`DATABASE_URL` 設定時は **PostgreSQL（pg・Supabase等）**。同一のクエリ層で切替。
-- **計算エンジン**: `src/lib/calc.ts`（純関数）。mock と**数値が厳密一致**（golden-master 検証済み）
+- **計算エンジン**: `src/lib/calc.ts`（純関数）。`test/golden.json`（期待値スナップショット）と**数値が厳密一致**（golden-master 検証）
 - **参加者はログイン不要**（組織コード付きURLで参加）／**講師のみログイン**（デモPW `mg`）
 - 状態はサーバ（DB）保存 → **リロード・再訪でも復元**。表示値はすべて DB 由来。
 
@@ -34,7 +34,8 @@ npm start       # Express が dist と API を :3001 で配信
 
 ## テスト
 ```bash
-npm run test:calc   # 計算エンジンの golden-master（実mockと数値一致）7シナリオ
+npm run test:calc   # 計算エンジンの golden-master（golden.json と数値一致）7シナリオ
+npm run gen:golden  # 意図して計算を変えたときだけ：TS エンジンで golden.json を作り直す
 npm run test:db     # Postgres 方言の検証（pglite=WASM版Postgresで round-trip）
 npm run test:e2e    # Playwright E2E（実DBでlocalhost起動→全ボタン/全処理を検証）
 ```
@@ -69,7 +70,7 @@ src/
   ui/Participant.tsx … 参加者UI（会社情報/期首/記帳/期末/決算書/履歴/組織＋記帳モーダル）
   ui/Admin.tsx … 管理者UI（ログイン/成績一覧/CSV/リセット）
 test/
-  calc.test.ts / scenarios.mjs / gen-golden.mjs / golden.json … 数値一致検証
+  calc.test.ts / run-scenario.ts / scenarios.mjs / golden.json … 数値一致検証（gen-golden.ts が golden.json を生成）
 e2e/
   app.spec.ts / global-setup.ts … E2E
 ```

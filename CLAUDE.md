@@ -12,8 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    **main にマージしても本番は変わらない。** 反映は Render の Manual Deploy による手動操作。
 6. **コードには日本語でコメントを書く。** 関数・主要な分岐・ガード（早期 return／409 など）には「何をする処理か」「どの条件で動くか（前提・境界・例外）」を書く。
    コードをなぞるだけのコメント（「i を 1 増やす」等）は書かない。数式・定数には根拠（`docs/仕様書.md` や `docs/calc-spec.md` の該当箇所）を添える。
-7. **mock は起点にしない。** `mock/` は凍結済み（2026-09）。新しい機能・修正は main からブランチを作り `app/` で実装し、PR で人間が確認する。
-   「mock で作ってから app に移植する」流れは使わない。
+7. **mock はもう無い。** 単一HTMLのプロトタイプ `mock/` は 2026-09 に削除した（issue #27）。新しい機能・修正は main からブランチを作り `app/` で実装し、PR で人間が確認する。
+   プロトタイプを別に作ってから移植する流れは使わない。
 
 ### 作業順序
 
@@ -82,27 +82,32 @@ node --test --test-name-pattern '幽霊販売' test/game.test.ts
 npx playwright test e2e/app.spec.ts -g '<テスト名>'
 ```
 
-Playwright の Chromium は `$HOME/.cache/ms-playwright` 固定（`playwright.config.ts` と `test/gen-golden.mjs` にパスが直書き）。未取得なら
+Playwright の Chromium は `$HOME/.cache/ms-playwright` 固定（`playwright.config.ts` にパスが直書き）。未取得なら
 `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright npx playwright install chromium`。
 
 ### 計算エンジンを変更したとき（golden.json の扱い）
 
 `app/test/golden.json` は**現行エンジンの期待値スナップショット**で、`npm run test:calc` が `calc.ts` の出力と突き合わせる。
-計算の仕様は `docs/calc-spec.md` が正で、`calc.ts` がその実装。**`mock/index.html` はもう直さない**（凍結）。
+計算の仕様は `docs/calc-spec.md` が正で、`calc.ts` がその実装。
 
 - **数値を変えない変更**（リファクタ・UI・API）：golden.json は触らない。`npm run test:calc` が通ることを確認する。
-- **意図して数値を変える変更**（ルール・計算式）：先に `docs/calc-spec.md` を直し、変わる値を golden.json で更新する（手で直す。TS エンジンから再生成するスクリプトは未整備）。
-  PR 本文に「どのシナリオのどの値が、なぜ変わるか」を書く。テストが落ちたまま golden.json を書き換えて通すだけの PR は出さない。
-- `test/gen-golden.mjs` は mock をヘッドレス実行して golden.json を作る**旧手順**。mock と `calc.ts` の数値がずれた後は使えないので、実行しない。
+- **意図して数値を変える変更**（ルール・計算式）：先に `docs/calc-spec.md` を直し、`calc.ts` を変えてから期待値を作り直す。
+
+```bash
+npm run gen:golden   # TS エンジンで test/scenarios.mjs を走らせ、golden.json を上書き
+npm run test:calc
+```
+
+  PR 本文に「どのシナリオのどの値が、なぜ変わるか」を書く。**テストが落ちたから golden.json を作り直す、はしない**（それは回帰なので `calc.ts` を直す）。
 
 ## アーキテクチャ
 
 ### 全体の形
 
-開発対象は `app/`（本番実装）だけ。`mock/`（単一HTMLのプロトタイプ・`index.html` が参加者、`admin.html` が講師用）は
-**2026-09 に凍結**した：読んで参考にするのは可、編集しない、新機能の起点にしない。
-`app/test/golden.json` はもともとこの mock から生成した期待値で、今は TS エンジンのスナップショットとして扱う（上記「計算エンジンを変更したとき」参照）。
-mock を見るだけなら `python3 -m http.server 8770 --directory mock` で開ける。
+開発対象は `app/` だけ。かつて単一HTMLのプロトタイプ `mock/`（参加者 `index.html`・講師 `admin.html`）があり、`app/` はそこから移植したものだが、
+**2026-09 に削除した**（issue #27）。ソース内の「mock 準拠」「mock renderBoard の移植」といったコメントはその名残で、参照先はもう無い。
+`app/test/golden.json` はもともと mock から生成した期待値で、今は TS エンジンのスナップショットとして扱う（上記「計算エンジンを変更したとき」参照）。
+削除前の内容が必要なら `git show 1ca0437:mock/index.html` で見られる。
 
 ### tx 再生エンジン（`app/src/lib/calc.ts`）
 
@@ -140,7 +145,7 @@ mock を見るだけなら `python3 -m http.server 8770 --directory mock` で開
 
 ### 表示層（`app/src/lib/figures*.ts`）
 
-決算書のビジュアル（STRAC 面積図／P/L・CF ウォーターフォール／B/S 図）は、mock の描画関数を移植したもので、
+決算書のビジュアル（STRAC 面積図／P/L・CF ウォーターフォール／B/S 図）は、プロトタイプ（削除済み）の描画関数を移植したもので、
 **インラインスタイルで HTML 文字列を組み立てる**。Tailwind クラスは使わない（文字列内のクラス名は purge で消えるため）。
 
 ### サーバ（`app/server/`）
