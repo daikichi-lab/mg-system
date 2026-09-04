@@ -1,6 +1,6 @@
 // ルール作成（/admin/rules/new）／編集（/admin/rules/<id>/edit）。
 // 確認画面と同じ6グループ・同じ順序で、値を入力欄にしたもの。
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { normalizeRules, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
@@ -146,8 +146,14 @@ export default function RuleEditor({
   const [rules, setRules] = useState<Rules>(() => normalizeRules(null))
   const [loaded, setLoaded] = useState(id === null)
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [notFound, setNotFound] = useState('')
+  // 未保存かどうかは ref でも持つ。state の更新は非同期なので、保存直後の
+  // location.assign までに beforeunload の解除が間に合わず離脱確認が出てしまう
+  const dirtyRef = useRef(false)
+  // 二重送信ガード。state だけだと連打の2回目が更新前の値を見てしまう
+  const savingRef = useRef(false)
 
   useEffect(() => {
     if (id === null) return
@@ -169,14 +175,21 @@ export default function RuleEditor({
   // 未保存のまま離れようとしたら止める
   useEffect(() => {
     if (!dirty) return
-    const h = (e: BeforeUnloadEvent) => e.preventDefault()
+    const h = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) e.preventDefault()
+    }
     window.addEventListener('beforeunload', h)
     return () => window.removeEventListener('beforeunload', h)
   }, [dirty])
 
+  const markDirty = () => {
+    dirtyRef.current = true
+    setDirty(true)
+  }
+
   const set = (patch: Partial<Rules>) => {
     setRules((r) => ({ ...r, ...patch }))
-    setDirty(true)
+    markDirty()
   }
 
   function validate(): string {
@@ -189,22 +202,30 @@ export default function RuleEditor({
   }
 
   async function save() {
+    if (savingRef.current) return // 送信中は受け付けない（二重送信でルールが2件できる）
     const msg = validate()
     setErr(msg)
     if (msg) return
+    savingRef.current = true
+    setSaving(true)
     const body = { name: name.trim(), description: description.trim(), rules }
     try {
       const d = id === null ? await api.adminCreateRuleset(token, body) : await api.adminUpdateRuleset(token, id, body)
+      dirtyRef.current = false
       setDirty(false)
       toast(id === null ? 'ルールを作成しました' : 'ルールを保存しました')
+      // 保存したルールの確認画面へ。遷移が終わるまで保存ボタンは無効のままにする
       location.assign(`/admin/rules/${d.ruleset.id}`)
     } catch (e: any) {
       setErr(e.message)
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
   function leave(url: string) {
-    if (dirty && !confirm('保存していない変更があります。破棄して移動しますか？')) return
+    if (dirtyRef.current && !confirm('保存していない変更があります。破棄して移動しますか？')) return
+    dirtyRef.current = false
     location.assign(url)
   }
 
@@ -215,25 +236,31 @@ export default function RuleEditor({
     <div className="p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <button onClick={() => leave('/admin/rules')} className="text-ink-400 text-xs hover:underline">
+          <button
+            data-testid="rule-back"
+            onClick={() => leave('/admin/rules')}
+            className="h-8 px-3 rounded-lg border border-line bg-white text-ink-600 text-xs font-bold hover:bg-canvas"
+          >
             ← ルール一覧へ
           </button>
-          <h1 className="font-black text-lg mt-1">{id === null ? 'ルールを作成' : 'ルールを編集'}</h1>
+          <h1 className="font-black text-lg mt-2">{id === null ? 'ルールを作成' : 'ルールを編集'}</h1>
           <p className="text-ink-400 text-xs mt-0.5">ゲームの流れ順に並んでいます。色の付いた印は、その数値が効く勘定科目です。</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => leave(id === null ? '/admin/rules' : `/admin/rules/${id}`)}
-            className="h-10 px-4 rounded-xl border border-line text-ink-600 text-sm font-bold hover:bg-white"
+            disabled={saving}
+            className="h-10 px-4 rounded-xl border border-line text-ink-600 text-sm font-bold hover:bg-white disabled:opacity-40"
           >
             やめる
           </button>
           <button
             data-testid="rule-save"
             onClick={save}
-            className="h-10 px-5 rounded-xl bg-ink text-white text-sm font-bold hover:bg-ink-600"
+            disabled={saving}
+            className="h-10 px-5 rounded-xl bg-ink text-white text-sm font-bold hover:bg-ink-600 disabled:opacity-40 disabled:hover:bg-ink"
           >
-            保存
+            {saving ? '保存中…' : '保存'}
           </button>
         </div>
       </div>
@@ -247,7 +274,7 @@ export default function RuleEditor({
               value={name}
               onChange={(e) => {
                 setName(e.target.value)
-                setDirty(true)
+                markDirty()
               }}
               placeholder="例：上級編（高金利）"
               className="w-full h-10 border border-line rounded-lg px-3 text-sm outline-none focus:border-ink/40"
@@ -260,7 +287,7 @@ export default function RuleEditor({
               value={description}
               onChange={(e) => {
                 setDescription(e.target.value)
-                setDirty(true)
+                markDirty()
               }}
               placeholder="どんな狙いの設定か"
               className="w-full h-10 border border-line rounded-lg px-3 text-sm outline-none focus:border-ink/40"
@@ -304,9 +331,10 @@ export default function RuleEditor({
         <button
           data-testid="rule-save-bottom"
           onClick={save}
-          className="h-10 px-5 rounded-xl bg-ink text-white text-sm font-bold hover:bg-ink-600"
+          disabled={saving}
+          className="h-10 px-5 rounded-xl bg-ink text-white text-sm font-bold hover:bg-ink-600 disabled:opacity-40 disabled:hover:bg-ink"
         >
-          保存
+          {saving ? '保存中…' : '保存'}
         </button>
       </div>
     </div>

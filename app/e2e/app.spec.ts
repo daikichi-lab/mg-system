@@ -567,7 +567,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('price-del-16').click()
     await page.getByTestId('price-new').fill('9')
     await page.getByTestId('price-add').click()
-    await page.getByTestId('rule-save').click()
+    // 保存は連打しても1回しか飛ばない（二重送信ガード）。同じタスクで2回押す
+    await page.getByTestId('rule-save').evaluate((el: HTMLElement) => {
+      el.click()
+      el.click()
+    })
 
     // 確認画面へ遷移し、入れた値が出る
     await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
@@ -578,8 +582,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(view).toContainText('9')
     await expect(view).not.toContainText('16')
 
-    // URL を直接開いても同じ画面（リロード耐性）
     const viewUrl = page.url()
+
+    // 連打しても2件できていない
+    await page.getByTestId('menu-rules').click()
+    await expect(page.locator('[data-testid^="ruleset-row-"]', { hasText: 'E2E 上級編' })).toHaveCount(1)
+
+    // URL を直接開いても同じ画面（リロード耐性）
     await page.goto(viewUrl)
     await expect(page.getByTestId('rule-name')).toContainText('E2E 上級編')
 

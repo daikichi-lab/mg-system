@@ -1,4 +1,5 @@
 // ルール一覧（/admin/rules）。数値ルールのマスタを並べる。
+import { useRef, useState } from 'react'
 import { api, type ApiRuleset } from '../lib/api'
 
 const fmtDate = (t: number) => {
@@ -19,13 +20,26 @@ export default function RulesList({
   reload: () => Promise<void>
   toast: (m: string) => void
 }) {
+  const [dup, setDup] = useState(false)
+  // 二重送信ガード。state だけだと連打の2回目が更新前の値を見てしまう
+  const dupRef = useRef(false)
+
   async function duplicate(r: ApiRuleset) {
-    const d = await api.adminCreateRuleset(token, {
-      name: `${r.name} のコピー`,
-      description: r.description,
-      rules: r.rules,
-    })
-    location.assign(`/admin/rules/${d.ruleset.id}/edit`)
+    if (dupRef.current) return // 送信中は受け付けない（二重送信でコピーが2件できる）
+    dupRef.current = true
+    setDup(true)
+    try {
+      const d = await api.adminCreateRuleset(token, {
+        name: `${r.name} のコピー`,
+        description: r.description,
+        rules: r.rules,
+      })
+      location.assign(`/admin/rules/${d.ruleset.id}/edit`)
+    } catch (e: any) {
+      dupRef.current = false
+      setDup(false)
+      alert(e.message)
+    }
   }
 
   async function remove(r: ApiRuleset) {
@@ -96,7 +110,8 @@ export default function RulesList({
                     <button
                       data-testid={`dup-${r.id}`}
                       onClick={() => duplicate(r)}
-                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas whitespace-nowrap shrink-0"
+                      disabled={dup}
+                      className="h-8 px-2.5 rounded-lg border border-line text-ink-600 text-xs font-bold hover:bg-canvas whitespace-nowrap shrink-0 disabled:opacity-40"
                     >
                       複製
                     </button>
