@@ -626,11 +626,20 @@ export function loanRoom(st: St, excl = 0): number {
   return Math.max(0, loanCap(st) - (st.loan - excl))
 }
 
+/**
+ * その期の1人あたり給料。給料表（rules.salaryTable）の添字は期−1。
+ * 表にない期（第6期以降）や値が 0 のときは 28 を使う。
+ * 期末処理の計上額と期首処理の事前表示が同じ値になるよう、必ずここを通す。
+ */
+export function salaryFor(period: number): number {
+  return getRules().salaryTable[period - 1] || 28
+}
+
 // ---- 期末処理 ----
 export function doClosingPrep(st: St) {
   if (st.settled || st.closingPrep) return
   recompute(st)
-  const SAL = getRules().salaryTable[st.period - 1] || 28
+  const SAL = salaryFor(st.period)
   const head = st.staffMfg + st.staffSales
   const retired = st.tx.filter((x) => x.key === 'taishoku_mfg' || x.key === 'taishoku_sales').length
   const halfPer = Math.ceil(SAL / 2)

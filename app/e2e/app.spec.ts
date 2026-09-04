@@ -83,6 +83,61 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('org-error')).toBeVisible()
   })
 
+  test('経営計画書：第3期からタブが出て、計画を入力すると必要個数が出てリロード後も残る', async ({ page }) => {
+    await registerOrg(page, 'E2EPLAN')
+    await page.goto('/?org=E2EPLAN')
+    await page.getByTestId('c-name').fill('E2E計画社')
+    await page.getByTestId('c-pres').fill('計画太郎')
+    await page.getByTestId('start').click()
+    await expect(page.getByTestId('hd-name')).toHaveText('E2E計画社')
+    // 既定ルール（planFromPeriod=3）：第1期・第2期はタブ自体が出ない
+    await expect(page.getByTestId('tab-play')).toBeVisible()
+    await expect(page.getByTestId('tab-plan')).toHaveCount(0)
+
+    // 第1期：水害テストデータ → 決算 → 次の期へ
+    await page.getByTestId('tab-play').click()
+    await page.getByTestId('seed-flood').click()
+    await closeAndSettle(page)
+    await page.getByTestId('next-period').click()
+    await expect(page.getByTestId('hd-period')).toHaveText('第2期')
+    await expect(page.getByTestId('tab-plan')).toHaveCount(0)
+
+    // 第2期：記帳なしで決算 → 次の期へ
+    await page.getByTestId('tab-play').click()
+    await closeAndSettle(page)
+    await page.getByTestId('next-period').click()
+    await expect(page.getByTestId('hd-period')).toHaveText('第3期')
+
+    // 第3期：経営計画書タブが出る。期首の盤面（製造1・販売1・機械1、第3期の給料 31）から F ＝ 31＋31＋10＋25 ＝ 97
+    await page.getByTestId('tab-plan').click()
+    await expect(page.getByTestId('plan')).toBeVisible()
+    await expect(page.getByTestId('plan-F')).toHaveText('97')
+    await setField(page, 'plan-g', 100)
+    await setField(page, 'plan-p', 32)
+    await setField(page, 'plan-v', 12)
+    // MQ ＝ 100＋97 ＝ 197、M ＝ 20、Q ＝ ⌈197÷20⌉ ＝ 10、PQ ＝ 320、VQ ＝ 120
+    await expect(page.getByTestId('plan-MQ')).toHaveText('197')
+    await expect(page.getByTestId('plan-M')).toHaveText('20')
+    await expect(page.getByTestId('plan-Q')).toContainText('10')
+    await expect(page.getByTestId('plan-PQ')).toHaveText('320')
+    await expect(page.getByTestId('plan-VQ')).toHaveText('120')
+    // アクションプラン：1行目に出金を入れると残高が減る
+    await setField(page, 'plan-act-text-0', '仕入 5個')
+    await setField(page, 'plan-act-amt-0', -60)
+    // 実績は決算前なので空
+    await expect(page.getByTestId('plan-actual-4')).toHaveText('—')
+
+    // 入力が落ち着いてから保存される → リロードしても残っている（DB 経由）
+    await page.waitForTimeout(1500)
+    await page.reload()
+    await expect(page.getByTestId('hd-period')).toHaveText('第3期')
+    await page.getByTestId('tab-plan').click()
+    await expect(page.getByTestId('plan-g')).toHaveValue('100')
+    await expect(page.getByTestId('plan-act-text-0')).toHaveValue('仕入 5個')
+    await expect(page.getByTestId('plan-act-amt-0')).toHaveValue('-60')
+    await expect(page.getByTestId('plan-Q')).toContainText('10')
+  })
+
   test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
     await registerOrg(page, ORG)
     await page.goto(`/?org=${ORG}`)

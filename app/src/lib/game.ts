@@ -33,7 +33,7 @@ const OPENING_KEYS = [
   'repayRate',
 ] as const
 
-export function payloadFromState(st: St, history: Result[]) {
+export function payloadFromState(st: St, history: Result[], plans: Record<string, unknown> = {}) {
   const opening: Record<string, number> = {}
   OPENING_KEYS.forEach((k) => (opening[k] = st[k] as number))
   return {
@@ -45,7 +45,14 @@ export function payloadFromState(st: St, history: Result[]) {
     seq: st.seq,
     entries: st.tx.filter((t) => !t.isBorrowInterest), // 金利派生行は保存しない（recomputeで再生成）
     results: history,
+    plans, // 経営計画書（期番号 → 入力）。記帳と同じ保存経路で companies.plans_json へ
   }
+}
+
+/** API の状態から経営計画書（期番号 → 入力）を取り出す。列が無い旧データは空 */
+export function plansFromApi(data: ApiState): Record<string, unknown> {
+  const p = data.company?.plans
+  return p && typeof p === 'object' && !Array.isArray(p) ? { ...p } : {}
 }
 
 export function applyApiState(st: St, data: ApiState): Result[] {
