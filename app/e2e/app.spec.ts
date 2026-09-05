@@ -124,8 +124,6 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // アクションプラン：1行目に出金を入れると残高が減る
     await setField(page, 'plan-act-text-0', '仕入 5個')
     await setField(page, 'plan-act-amt-0', -60)
-    // 実績は決算前なので空
-    await expect(page.getByTestId('plan-actual-4')).toHaveText('—')
 
     // 入力が落ち着いてから保存される → リロードしても残っている（DB 経由）
     await page.waitForTimeout(1500)

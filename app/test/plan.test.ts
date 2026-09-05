@@ -2,8 +2,8 @@
 // 単価はすべて数値ルールと記帳アクションから引くので、ルールを差し替えたときに追従することも見る。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newState, setRules, type St, type Result } from '../src/lib/calc.ts'
-import { defaultPlan, normalizePlan, fixedCosts, planFigures, cashPlan, actualsFor, PLAN_ROWS } from '../src/lib/plan.ts'
+import { newState, setRules, type St } from '../src/lib/calc.ts'
+import { defaultPlan, normalizePlan, fixedCosts, planFigures, cashPlan, PLAN_ROWS } from '../src/lib/plan.ts'
 
 const reset = () => setRules(null)
 
@@ -114,14 +114,4 @@ test('normalizePlan：壊れた保存値は初期値で埋め、行数は 25 に
   assert.equal(p.actions.length, PLAN_ROWS)
   assert.deepEqual(p.actions[0], { text: '仕入', amount: -50 })
   assert.deepEqual(p.actions[1], { text: '', amount: 0 })
-})
-
-test('actualsFor：当期は決算済みなら st.result、過去期は履歴から。無ければ null', () => {
-  const st = st3()
-  const r = { period: 3, PQ: 400, vPQ: 120, mPQ: 280, F: 164, G: 116 } as unknown as Result
-  assert.equal(actualsFor(3, st, []), null)
-  st.settled = true
-  st.result = r
-  assert.deepEqual(actualsFor(3, st, []), { PQ: 400, vPQ: 120, mPQ: 280, F: 164, G: 116 })
-  assert.equal(actualsFor(2, st, [{ ...r, period: 2, G: 50 } as Result])?.G, 50)
 })

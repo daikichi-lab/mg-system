@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA } from '../lib/calc'
 import type { Game } from '../state/useGame'
-import { normalizePlan, fixedCosts, planFigures, cashPlan, actualsFor, type Plan, type PlanAction } from '../lib/plan'
+import { normalizePlan, fixedCosts, planFigures, cashPlan, type Plan, type PlanAction } from '../lib/plan'
 
 /** 入力が止まってから保存するまでの待ち時間。1文字ごとに PUT を飛ばさないため */
 const SAVE_DELAY_MS = 700
@@ -64,7 +64,6 @@ export default function PlanTab({ game }: { game: Game }) {
   const fc = fixedCosts(plan, st)
   const fig = planFigures(plan, st)
   const cash = cashPlan(plan, st)
-  const actual = actualsFor(period, st, game.history)
   const n = (v: number | null | undefined) => (v == null ? '—' : fmt(v))
 
   // 数値入力（0 以上）。閲覧専用では無効
@@ -119,14 +118,6 @@ export default function PlanTab({ game }: { game: Game }) {
   )
   const u = fc.units
   const item = (key: string) => fc.items.find((x) => x.key === key)!
-  // 予算／実績の5項目
-  const pl: [string, number | null, number | undefined][] = [
-    ['①売上高（PQ）', fig.PQ, actual?.PQ],
-    ['②売上原価（VQ）', fig.VQ, actual?.vPQ],
-    ['③粗利益（MQ）', fig.MQ, actual?.mPQ],
-    ['④固定費（F）', fig.F, actual?.F],
-    ['⑤経常利益（G）', plan.g, actual?.G],
-  ]
 
   return (
     <div className="space-y-4" data-testid="plan">
@@ -298,7 +289,7 @@ export default function PlanTab({ game }: { game: Game }) {
           )}
         </div>
 
-        {/* 右：アクションプラン・予算実績 */}
+        {/* 右：アクションプラン */}
         <div className="space-y-4">
           {card(
             <span className="flex justify-between items-baseline">
@@ -371,34 +362,6 @@ export default function PlanTab({ game }: { game: Game }) {
             </div>,
           )}
 
-          {card(
-            '● 経営計画数値／目標実績管理',
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-ink-400 border-b border-line text-xs">
-                  <th className="text-left py-1 font-normal">損益計算書＜P/L＞</th>
-                  <th className="text-right py-1 px-2 font-normal">予算</th>
-                  <th className="text-right py-1 px-2 font-normal text-accent-ink">実績</th>
-                  <th className="text-right py-1 px-2 font-normal">予算対比</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pl.map(([label, budget, act], i) => (
-                  <tr key={label} className="border-b border-line/60">
-                    <td className="py-2 font-bold">{label}</td>
-                    <td className="py-2 px-2 text-right num" data-testid={`plan-budget-${i}`}>
-                      {n(budget)}
-                    </td>
-                    <td className="py-2 px-2 text-right num" data-testid={`plan-actual-${i}`}>
-                      {n(act)}
-                    </td>
-                    <td className="py-2 px-2 text-right num">{act == null || budget == null ? '—' : fmtA(act - budget)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>,
-          )}
-          {!actual && <p className="text-ink-400 text-xs">実績はこの期の決算後に自動で入ります。</p>}
         </div>
       </div>
     </div>

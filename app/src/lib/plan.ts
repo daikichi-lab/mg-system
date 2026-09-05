@@ -3,7 +3,7 @@
 // 参加者が書く値（Plan）だけを保存し、単価（給料・家賃・減価償却・チップ・金利）は保存しない。
 // 金額は毎回、数値ルール（getRules）と記帳アクションの定義（ACTIONS[key].amount）から引く。
 // → 研修のルールを差し替えても計画の金額が追従し、あとで記帳したときの金額と必ず一致する。
-import { ACTIONS, getRules, salaryFor, type St, type Result } from './calc.ts'
+import { ACTIONS, getRules, salaryFor, type St } from './calc.ts'
 
 /** アクションプランの1行。amount は現金の増減（＋入金／−出金）。未記入は text が空で amount 0 */
 export interface PlanAction {
@@ -222,12 +222,4 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
 /** 経営計画書タブを出すか。数値ルール planFromPeriod の期から（それより前の期はタブ自体を出さない） */
 export function planVisible(st: St): boolean {
   return st.period >= getRules().planFromPeriod
-}
-
-export type PlanActuals = Pick<Result, 'PQ' | 'vPQ' | 'mPQ' | 'F' | 'G'>
-
-/** 7. その期の実績（決算後にだけ入る）。当期が決算済みなら st.result、過去期は履歴から取る */
-export function actualsFor(period: number, st: St, history: Result[]): PlanActuals | null {
-  const r = st.settled && st.result && st.result.period === period ? st.result : history.find((h) => h.period === period)
-  return r ? { PQ: r.PQ, vPQ: r.vPQ, mPQ: r.mPQ, F: r.F, G: r.G } : null
 }
