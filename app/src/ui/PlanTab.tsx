@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA } from '../lib/calc'
 import type { Game } from '../state/useGame'
-import { normalizePlan, fixedCosts, planFigures, cashPlan, type Plan, type PlanAction } from '../lib/plan'
+import { normalizePlan, fixedCosts, planFigures, cashPlan, breakEvenG, type Plan, type PlanAction } from '../lib/plan'
 
 /** 入力が止まってから保存するまでの待ち時間。1文字ごとに PUT を飛ばさないため */
 const SAVE_DELAY_MS = 700
@@ -64,6 +64,7 @@ export default function PlanTab({ game }: { game: Game }) {
   const fc = fixedCosts(plan, st)
   const fig = planFigures(plan, st)
   const cash = cashPlan(plan, st)
+  const gHint = breakEvenG(st) // 期首の利益剰余金がマイナスのときだけ値が入る
   const n = (v: number | null | undefined) => (v == null ? '—' : fmt(v))
 
   // 数値入力（0 以上）。閲覧専用では無効
@@ -137,9 +138,29 @@ export default function PlanTab({ game }: { game: Game }) {
         <div className="space-y-4">
           {card(
             <span className="text-g-ink">1. 必要経常利益（G）を決定</span>,
-            <div className="flex items-center gap-3">
-              <span className="text-ink-500">経常利益目標</span>
-              {numIn('plan-g', plan.g, (v) => update({ g: v }), 'w-28 text-base font-bold text-g-ink border-g-base/50')}
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="text-ink-500">経常利益目標</span>
+                {numIn('plan-g', plan.g, (v) => update({ g: v }), 'w-28 text-base font-bold text-g-ink border-g-base/50')}
+              </div>
+              {/* 期首の利益剰余金がマイナスなら、期末にゼロへ戻す目安を出す（プラスなら何も出さない） */}
+              {gHint != null && (
+                <div data-testid="plan-g-hint" className="mt-2 rounded-lg bg-accent-bg border border-accent/30 px-3 py-2 text-xs text-ink-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>
+                    期首の利益剰余金が <b className="num text-accent-ink">▲{fmt(-st.retained)}</b> です。期末にプラスマイナスゼロへ戻すには、経常利益{' '}
+                    <b className="num text-ink">{fmt(gHint)}</b> 以上が目安です（法人税を引いた後で赤字を埋め切る額）。
+                  </span>
+                  {!ro && (
+                    <button
+                      data-testid="plan-g-hint-apply"
+                      onClick={() => update({ g: gHint })}
+                      className="h-7 px-2 rounded-md border border-line bg-white text-ink-600 font-bold"
+                    >
+                      この値を入れる
+                    </button>
+                  )}
+                </div>
+              )}
             </div>,
           )}
 

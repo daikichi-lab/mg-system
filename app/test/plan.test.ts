@@ -2,8 +2,8 @@
 // 単価はすべて数値ルールと記帳アクションから引くので、ルールを差し替えたときに追従することも見る。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newState, setRules, type St } from '../src/lib/calc.ts'
-import { defaultPlan, normalizePlan, fixedCosts, planFigures, cashPlan, PLAN_ROWS } from '../src/lib/plan.ts'
+import { newState, setRules, corporateTax, type St } from '../src/lib/calc.ts'
+import { defaultPlan, normalizePlan, fixedCosts, planFigures, cashPlan, breakEvenG, PLAN_ROWS } from '../src/lib/plan.ts'
 
 const reset = () => setRules(null)
 
@@ -114,4 +114,27 @@ test('normalizePlan：壊れた保存値は初期値で埋め、行数は 25 に
   assert.equal(p.actions.length, PLAN_ROWS)
   assert.deepEqual(p.actions[0], { text: '仕入', amount: -50 })
   assert.deepEqual(p.actions[1], { text: '', amount: 0 })
+})
+
+test('G の目安：期首の利益剰余金がマイナスなら、税引後でゼロへ戻す最小の G（＝赤字＋最低税額 5）。プラスなら出さない', () => {
+  const st = st3()
+  st.retained = -130
+  const g = breakEvenG(st)
+  assert.equal(g, 135) // 繰越損失があるので課税は赤字を埋めた残り 5 だけ → 最低税額 5 → 税引後 130
+  assert.equal(corporateTax(g!, st.retained), 5)
+  assert.equal(g! - corporateTax(g!, st.retained), 130)
+  // 1 少ないと届かない
+  assert.ok(134 - corporateTax(134, st.retained) < 130)
+  st.retained = 0
+  assert.equal(breakEvenG(st), null)
+  st.retained = 61
+  assert.equal(breakEvenG(st), null)
+})
+
+test('corporateTax：決算と同じ式（30%・最低 5・繰越損失は繰越後に課税）', () => {
+  assert.equal(corporateTax(116, 0), 35) // 116×0.3 ＝ 34.8 → 35
+  assert.equal(corporateTax(-10, 0), 5) // 赤字は最低税額
+  assert.equal(corporateTax(10, 0), 5) // 3 → 最低 5
+  assert.equal(corporateTax(200, -130), 21) // 繰越後 70×0.3 ＝ 21
+  assert.equal(corporateTax(100, -130), 5) // 繰越を含めてマイナス → 5
 })

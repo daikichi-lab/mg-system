@@ -3,7 +3,7 @@
 // 参加者が書く値（Plan）だけを保存し、単価（給料・家賃・減価償却・チップ・金利）は保存しない。
 // 金額は毎回、数値ルール（getRules）と記帳アクションの定義（ACTIONS[key].amount）から引く。
 // → 研修のルールを差し替えても計画の金額が追従し、あとで記帳したときの金額と必ず一致する。
-import { ACTIONS, getRules, salaryFor, type St } from './calc.ts'
+import { ACTIONS, getRules, salaryFor, corporateTax, type St } from './calc.ts'
 
 /** アクションプランの1行。amount は現金の増減（＋入金／−出金）。未記入は text が空で amount 0 */
 export interface PlanAction {
@@ -78,6 +78,21 @@ export function normalizePlan(input: unknown): Plan {
       return { text: typeof a?.text === 'string' ? a.text : '', amount: num0(a?.amount) }
     }),
   }
+}
+
+/**
+ * 1. 経常利益（G）の目安：期首の利益剰余金がマイナスのとき、期末にそれをゼロ以上へ戻すのに必要な最小の G。
+ * 決算と同じ法人税の式（corporateTax）で「G − 税 ≧ 赤字」となる最小の整数 G を探す
+ * （繰越損失があるときは赤字を埋めた残りだけに課税されるので、実質「赤字 ＋ 最低税額 5」になる）。
+ * 特別損益（保険金・廃棄損）は無いものとする。利益剰余金が 0 以上なら目安は出さない（null）。
+ */
+export function breakEvenG(st: St): number | null {
+  if (st.retained >= 0) return null
+  const deficit = -st.retained
+  for (let g = Math.ceil(deficit); g <= deficit + 1000; g++) {
+    if (g - corporateTax(g, st.retained) >= deficit) return g
+  }
+  return null
 }
 
 /** 固定費の1項目。col は様式の列：now＝現況（最低限必要）／new＝戦略的投資（新規） */
