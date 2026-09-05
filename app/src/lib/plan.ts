@@ -114,7 +114,7 @@ const pct = (rate: number) => Math.round(rate * 1000) / 10
  * 2. 固定費（F）の内訳を数値ルールと盤面から算出する。
  * - 現況（最低限必要・読み取り専用）：期首の会社盤から必ず出る費用。
  *   製造／販売スタッフの給料（期首人数 × 当期給料）、減価償却（期首台数 × 単価）、家賃、期首借入残高の金利
- * - 新規（戦略的投資・入力）：採用（採用費と採用者の給料）、機械購入（減価償却）、教育・保険・広告・商品開発（枚数 × 単価）、新規借入の金利。
+ * - 新規（戦略的投資・入力）：採用（採用費と期末で追加の給料）、機械購入（減価償却）、教育・保険・広告・商品開発（枚数 × 単価）、新規借入の金利。
  *   単価は記帳アクションの amount と同じ式から引く。
  * 金利の丸めは記帳側（期首行・借入の派生行）と同じ Math.round。
  */
@@ -147,7 +147,7 @@ export function fixedCosts(plan: Plan, st: St): FixedCosts {
     { key: 'intOpen', label: '営業外費用', detail: `借入金の期首残高 ${st.openingLoan}×金利${units.ratePct}%`, amount: interestOpen, col: 'now' },
     // 新規（入力から）
     { key: 'hire', label: '一般管理費', detail: `社員採用 ${units.hire}×${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
-    { key: 'hireSalary', label: '人件費', detail: `採用者の給料 ${sal}×${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
+    { key: 'hireSalary', label: '人件費', detail: `期末で追加の給料 ${sal}×${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
     { key: 'depNew', label: '減価償却費', detail: `機械購入 ${R.depPerMachine}×${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
     { key: 'edu', label: '一般管理費', detail: `教育 ${units.edu}×${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
     { key: 'ins', label: '一般管理費', detail: `保険加入 ${units.ins}×${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
