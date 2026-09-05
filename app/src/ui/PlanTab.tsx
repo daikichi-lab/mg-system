@@ -106,6 +106,17 @@ export default function PlanTab({ game }: { game: Game }) {
       <td className="py-1.5 pl-2 text-right num whitespace-nowrap">{fmt(amount)}</td>
     </tr>
   )
+  // 入力欄のない行（上の入力から決まる費用。例：採用者の給料）
+  const derivedRow = (key: string, label: string, name: string, formula: string, amount: number) => (
+    <tr key={key} className="border-b border-line/60">
+      <td className="py-1.5 pr-2 text-ink-500 whitespace-nowrap">{label}</td>
+      <td className="py-1.5 pr-2 whitespace-nowrap">{name}</td>
+      <td className="py-1.5 pr-1 w-24"></td>
+      <td className="py-1.5 pr-3 w-6"></td>
+      <td className="py-1.5 pr-2 text-ink-400 whitespace-nowrap">{formula}</td>
+      <td className="py-1.5 pl-2 text-right num whitespace-nowrap">{fmt(amount)}</td>
+    </tr>
+  )
   const u = fc.units
   const item = (key: string) => fc.items.find((x) => x.key === key)!
   // 予算／実績の5項目
@@ -194,8 +205,8 @@ export default function PlanTab({ game }: { game: Game }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {invRow('hire', '一般管理費', '社員採用', plan.hire, (v) => update({ hire: v }), '人',
-                        `採用費 ${u.hire}×${plan.hire} ＋ 給料 ${u.sal}×${plan.hire}`, item('hire').amount + item('hireSalary').amount)}
+                      {invRow('hire', '一般管理費', '社員採用', plan.hire, (v) => update({ hire: v }), '人', `採用費 ${u.hire}×${plan.hire}`, item('hire').amount)}
+                      {derivedRow('hireSalary', '人件費', '採用者の給料', `${u.sal}×${plan.hire}人`, item('hireSalary').amount)}
                       {invRow('machinesNew', '減価償却費', '機械購入', plan.machinesNew, (v) => update({ machinesNew: v }), '台',
                         `減価償却 ${u.dep}×${plan.machinesNew}`, item('depNew').amount)}
                       {invRow('edu', '一般管理費', '教育', plan.edu, (v) => update({ edu: v }), '枚', `${u.edu}×${plan.edu}`, item('edu').amount)}
