@@ -14,17 +14,17 @@ export interface PlanAction {
 export interface Plan {
   /** 1. 必要経常利益（G）の目標 */
   g: number
-  /** 2. 固定費の前提：期末時点の予定人数・台数（採用する分も含めて書く。給料は期末の在籍人数で決まるため） */
-  staffMfg: number
-  staffSales: number
-  machines: number
-  /** 2. 戦略的投資（新規）：今期に買う予定の人数・枚数・新規借入額 */
-  hire: number
+  /**
+   * 2. 戦略的投資（新規）：今期に行う予定の投資。
+   * 現況（期首の会社盤にいる人・機械・家賃・期首借入残高の金利）は入力せず、盤面から自動で出す。
+   */
+  hire: number // 採用人数（採用費と、その人の期末給料が固定費に乗る）
+  machinesNew: number // 機械購入台数（減価償却が増える）
   edu: number
   ins: number
   ads: number
   dev: number
-  loanNew: number
+  loanNew: number // 新規借入額（金利が固定費に乗る）
   /** 4. 単価目標：販売単価 P と売上原価（仕入単価）V */
   p: number
   v: number
@@ -39,14 +39,12 @@ export const PLAN_ROWS = 25
 const num0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const int0 = (v: unknown): number => Math.max(0, Math.round(num0(v)))
 
-/** 期首の盤面から計画の初期値を作る。人数・台数は今の盤面、投資と単価は未記入（0） */
-export function defaultPlan(st: St): Plan {
+/** 計画の初期値（すべて未記入＝0）。現況は盤面から出すので Plan には持たない */
+export function defaultPlan(): Plan {
   return {
     g: 0,
-    staffMfg: st.openingStaffMfg,
-    staffSales: st.openingStaffSales,
-    machines: st.openingMachines,
     hire: 0,
+    machinesNew: 0,
     edu: 0,
     ins: 0,
     ads: 0,
@@ -59,18 +57,15 @@ export function defaultPlan(st: St): Plan {
 }
 
 /** 保存データ（不明な形）を Plan に整える。欠けている項目は初期値、行数は PLAN_ROWS に揃える */
-export function normalizePlan(input: unknown, st: St): Plan {
-  const d = defaultPlan(st)
+export function normalizePlan(input: unknown): Plan {
+  const d = defaultPlan()
   if (!input || typeof input !== 'object' || Array.isArray(input)) return d
   const o = input as Record<string, unknown>
   const acts = Array.isArray(o.actions) ? o.actions : []
   return {
     g: num0(o.g),
-    // 人数・台数は「未保存なら盤面の値」「保存済みならその値」。0 が保存されていれば 0 のまま
-    staffMfg: o.staffMfg == null ? d.staffMfg : int0(o.staffMfg),
-    staffSales: o.staffSales == null ? d.staffSales : int0(o.staffSales),
-    machines: o.machines == null ? d.machines : int0(o.machines),
     hire: int0(o.hire),
+    machinesNew: int0(o.machinesNew),
     edu: int0(o.edu),
     ins: int0(o.ins),
     ads: int0(o.ads),
@@ -93,8 +88,20 @@ export interface FixedCostItem {
   amount: number
   col: 'now' | 'new'
 }
+/** 表示用の単価（数値ルール・記帳アクションから引いたもの） */
+export interface FixedCostUnits {
+  sal: number // 1人あたり給料（当期）
+  dep: number // 減価償却（1台）
+  hire: number // 採用費（1人）
+  edu: number
+  ins: number
+  ads: number
+  dev: number
+  ratePct: number // 借入金利（%）
+}
 export interface FixedCosts {
   items: FixedCostItem[]
+  units: FixedCostUnits
   now: number
   next: number
   total: number
@@ -105,45 +112,53 @@ const pct = (rate: number) => Math.round(rate * 1000) / 10
 
 /**
  * 2. 固定費（F）の内訳を数値ルールと盤面から算出する。
- * - 現況：給料（予定人数 × 当期給料）、減価償却（台数 × 単価）、家賃、期首借入残高の金利
- * - 新規：採用・教育・保険・広告・商品開発（枚数 × 単価は記帳アクションの amount と同じ式）、新規借入の金利
+ * - 現況（最低限必要・読み取り専用）：期首の会社盤から必ず出る費用。
+ *   製造／販売スタッフの給料（期首人数 × 当期給料）、減価償却（期首台数 × 単価）、家賃、期首借入残高の金利
+ * - 新規（戦略的投資・入力）：採用（採用費と採用者の給料）、機械購入（減価償却）、教育・保険・広告・商品開発（枚数 × 単価）、新規借入の金利。
+ *   単価は記帳アクションの amount と同じ式から引く。
  * 金利の丸めは記帳側（期首行・借入の派生行）と同じ Math.round。
  */
 export function fixedCosts(plan: Plan, st: St): FixedCosts {
   const R = getRules()
   const sal = salaryFor(st.period)
-  // 単価は ACTIONS の amount から「1単位のとき」を引いて表示に使う（定数を二重に持たない）
+  // 単価は ACTIONS の amount から「1単位のとき」を引く（定数を二重に持たない）
   const unit = (key: string, f: Record<string, number>) => ACTIONS[key].amount(f)
-  const hireUnit = unit('saiyo', { mfg: 1 })
-  const eduUnit = unit('kyoiku', { n: 1 })
-  const insUnit = unit('hoken', { n: 1 })
-  const adsUnit = unit('koukoku', { n: 1 })
-  const devUnit = unit('kaihatsu', { n: 1 })
+  const units: FixedCostUnits = {
+    sal,
+    dep: R.depPerMachine,
+    hire: unit('saiyo', { mfg: 1 }),
+    edu: unit('kyoiku', { n: 1 }),
+    ins: unit('hoken', { n: 1 }),
+    ads: unit('koukoku', { n: 1 }),
+    dev: unit('kaihatsu', { n: 1 }),
+    ratePct: pct(R.loanRate),
+  }
+  const mfg = st.openingStaffMfg
+  const sales = st.openingStaffSales
+  const mach = st.openingMachines
   const interestOpen = Math.round(st.openingLoan * R.loanRate)
   const interestNew = Math.round(plan.loanNew * R.loanRate)
   const items: FixedCostItem[] = [
-    { key: 'salaryMfg', label: '労務費', detail: `製造スタッフ給与 ${sal}×${plan.staffMfg}人`, amount: sal * plan.staffMfg, col: 'now' },
-    { key: 'salarySales', label: '人件費', detail: `販売スタッフ給与 ${sal}×${plan.staffSales}人`, amount: sal * plan.staffSales, col: 'now' },
-    { key: 'dep', label: '減価償却費', detail: `${R.depPerMachine}×${plan.machines}台`, amount: R.depPerMachine * plan.machines, col: 'now' },
+    // 現況
+    { key: 'salaryMfg', label: '労務費', detail: `製造スタッフ給与 ${sal}×${mfg}人`, amount: sal * mfg, col: 'now' },
+    { key: 'salarySales', label: '人件費', detail: `販売スタッフ給与 ${sal}×${sales}人`, amount: sal * sales, col: 'now' },
+    { key: 'dep', label: '減価償却費', detail: `${R.depPerMachine}×${mach}台`, amount: R.depPerMachine * mach, col: 'now' },
     { key: 'rent', label: '家賃', detail: '期末に必ず計上', amount: R.rent, col: 'now' },
-    { key: 'hire', label: '一般管理費', detail: `社員採用 ${hireUnit}×${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
-    { key: 'edu', label: '一般管理費', detail: `教育 ${eduUnit}×${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
-    { key: 'ins', label: '一般管理費', detail: `保険加入 ${insUnit}×${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
-    { key: 'ads', label: '販売費', detail: `広告 ${adsUnit}×${plan.ads}枚`, amount: unit('koukoku', { n: plan.ads }), col: 'new' },
-    { key: 'dev', label: '研究開発費', detail: `商品開発 ${devUnit}×${plan.dev}枚`, amount: unit('kaihatsu', { n: plan.dev }), col: 'new' },
-    {
-      key: 'intOpen',
-      label: '営業外費用',
-      detail: `借入金の期首残高 ${st.openingLoan}×金利${pct(R.loanRate)}%`,
-      amount: interestOpen,
-      col: 'now',
-    },
-    { key: 'intNew', label: '営業外費用', detail: `今期新規借入 ${plan.loanNew}×金利${pct(R.loanRate)}%`, amount: interestNew, col: 'new' },
+    { key: 'intOpen', label: '営業外費用', detail: `借入金の期首残高 ${st.openingLoan}×金利${units.ratePct}%`, amount: interestOpen, col: 'now' },
+    // 新規（入力から）
+    { key: 'hire', label: '一般管理費', detail: `社員採用 ${units.hire}×${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
+    { key: 'hireSalary', label: '人件費', detail: `採用者の給料 ${sal}×${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
+    { key: 'depNew', label: '減価償却費', detail: `機械購入 ${R.depPerMachine}×${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
+    { key: 'edu', label: '一般管理費', detail: `教育 ${units.edu}×${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
+    { key: 'ins', label: '一般管理費', detail: `保険加入 ${units.ins}×${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
+    { key: 'ads', label: '販売費', detail: `広告 ${units.ads}×${plan.ads}枚`, amount: unit('koukoku', { n: plan.ads }), col: 'new' },
+    { key: 'dev', label: '研究開発費', detail: `商品開発 ${units.dev}×${plan.dev}枚`, amount: unit('kaihatsu', { n: plan.dev }), col: 'new' },
+    { key: 'intNew', label: '営業外費用', detail: `今期新規借入 ${plan.loanNew}×金利${units.ratePct}%`, amount: interestNew, col: 'new' },
   ]
   const sum = (col: 'now' | 'new') => items.filter((x) => x.col === col).reduce((s, x) => s + x.amount, 0)
   const now = sum('now')
   const next = sum('new')
-  return { items, now, next, total: now + next }
+  return { items, units, now, next, total: now + next }
 }
 
 export interface PlanFigures {
@@ -185,7 +200,7 @@ export interface CashPlan {
 /**
  * 6. アクションプラン：前期繰越残高 → 期首処理 → 各行の入出金 → 期末処理 の順に現金残高を累計する。
  * 期首処理は記帳済みの自動行（法人税納付・支払金利）の金額をそのまま使う。
- * 期末処理は「予定人数 × 当期給料 ＋ 家賃 ＋ 期首借入残高 × 返済率」（期末処理の式と同じ）。
+ * 期末処理は「（期首人数＋採用予定）× 当期給料 ＋ 家賃 ＋ 期首借入残高 × 返済率」（期末処理の式と同じ）。
  */
 export function cashPlan(plan: Plan, st: St): CashPlan {
   const R = getRules()
@@ -197,7 +212,7 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
     bal += a.amount || 0
     return { text: a.text, amount: a.amount || 0, balance: bal }
   })
-  const salary = (plan.staffMfg + plan.staffSales) * salaryFor(st.period)
+  const salary = (st.openingStaffMfg + st.openingStaffSales + plan.hire) * salaryFor(st.period)
   const repay = Math.round((st.openingLoan * st.repayRate) / 100)
   const closingAuto = -(salary + R.rent + repay)
   const closingDetail = `給料 ${salary}＋家賃 ${R.rent}${repay > 0 ? `＋返済 ${repay}` : ''}`

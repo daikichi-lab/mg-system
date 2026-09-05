@@ -24,33 +24,36 @@ function st3(): St {
   return st
 }
 
-test('defaultPlan：人数・台数は期首の盤面、投資と単価は未記入（0）、行数は 25', () => {
-  const p = defaultPlan(st3())
-  assert.equal(p.staffMfg, 2)
-  assert.equal(p.staffSales, 2)
-  assert.equal(p.machines, 1)
+test('defaultPlan：投資と単価は未記入（0）、行数は 25。現況は Plan に持たない', () => {
+  const p = defaultPlan()
   assert.equal(p.g, 0)
+  assert.equal(p.hire, 0)
+  assert.equal(p.machinesNew, 0)
   assert.equal(p.p, 0)
   assert.equal(p.actions.length, PLAN_ROWS)
+  assert.equal('staffMfg' in p, false)
 })
 
-test('固定費：既定ルールで 現況（給料・減価償却・家賃・期首金利）と新規（採用・チップ・新規借入金利）', () => {
+test('固定費：現況は期首の盤面から（給料・減価償却・家賃・期首金利）、新規は入力から（採用費＋採用者の給料・機械の減価償却・チップ・新規借入金利）', () => {
   const st = st3()
-  const plan = { ...defaultPlan(st), hire: 1, edu: 1, ins: 1, ads: 2, dev: 1, loanNew: 100 }
+  const plan = { ...defaultPlan(), hire: 1, machinesNew: 1, edu: 1, ins: 1, ads: 2, dev: 1, loanNew: 100 }
   const fc = fixedCosts(plan, st)
   // 現況：給料 31×2 ＋ 31×2、減価償却 10×1、家賃 25、期首残高 100×5% ＝ 5
   assert.equal(fc.now, 62 + 62 + 10 + 25 + 5)
-  // 新規：採用 5×1、教育 20×1、保険 5×1、広告 10×2、商品開発 20×1、新規借入 100×5% ＝ 5
-  assert.equal(fc.next, 5 + 20 + 5 + 20 + 20 + 5)
+  // 新規：採用費 5×1 ＋ 採用者の給料 31×1、機械購入の減価償却 10×1、教育 20、保険 5、広告 10×2、商品開発 20、新規借入 100×5% ＝ 5
+  assert.equal(fc.next, 5 + 31 + 10 + 20 + 5 + 20 + 20 + 5)
   assert.equal(fc.total, fc.now + fc.next)
   // 表示用の内訳文に単価と数量が入る
   assert.equal(fc.items.find((x) => x.key === 'ads')?.detail, '広告 10×2枚')
+  assert.equal(fc.items.find((x) => x.key === 'salaryMfg')?.detail, '製造スタッフ給与 31×2人')
+  // 表示用の単価
+  assert.deepEqual(fc.units, { sal: 31, dep: 10, hire: 5, edu: 20, ins: 5, ads: 10, dev: 20, ratePct: 5 })
   reset()
 })
 
 test('図：MQ＝G＋F、M＝P−V、Q は切り上げ、PQ・VQ はその個数で', () => {
   const st = st3()
-  const plan = { ...defaultPlan(st), g: 100, p: 32, v: 12 }
+  const plan = { ...defaultPlan(), g: 100, p: 32, v: 12 }
   const f = planFigures(plan, st)
   assert.equal(f.F, 62 + 62 + 10 + 25 + 5) // 164
   assert.equal(f.MQ, 264)
@@ -63,7 +66,7 @@ test('図：MQ＝G＋F、M＝P−V、Q は切り上げ、PQ・VQ はその個数
 
 test('図：粗利単価 M が 0 以下なら Q・PQ・VQ は計算不能（null）', () => {
   const st = st3()
-  const f = planFigures({ ...defaultPlan(st), g: 100, p: 12, v: 12 }, st)
+  const f = planFigures({ ...defaultPlan(), g: 100, p: 12, v: 12 }, st)
   assert.equal(f.M, 0)
   assert.equal(f.Q, null)
   assert.equal(f.PQ, null)
@@ -74,7 +77,7 @@ test('図：粗利単価 M が 0 以下なら Q・PQ・VQ は計算不能（null
 test('ルール差し替えに追従：家賃・給料表・減価償却・金利を変えると固定費が変わる', () => {
   setRules({ rent: 40, salaryTable: [20, 20, 20], depPerMachine: 15, loanRate: 0.1 })
   const st = st3()
-  const fc = fixedCosts({ ...defaultPlan(st), loanNew: 50 }, st)
+  const fc = fixedCosts({ ...defaultPlan(), loanNew: 50 }, st)
   // 現況：給料 20×4、減価償却 15、家賃 40、期首金利 100×10% ＝ 10
   assert.equal(fc.now, 80 + 15 + 40 + 10)
   // 新規：新規借入 50×10% ＝ 5
@@ -84,7 +87,7 @@ test('ルール差し替えに追従：家賃・給料表・減価償却・金�
 
 test('アクションプラン：前期繰越 → 期首処理 → 各行 → 期末処理 の順に現金残高を累計する', () => {
   const st = st3()
-  const plan = defaultPlan(st)
+  const plan = defaultPlan()
   plan.actions[0] = { text: '仕入 5個', amount: -50 }
   plan.actions[1] = { text: '販売 3個', amount: 80 }
   const c = cashPlan(plan, st)
@@ -96,18 +99,18 @@ test('アクションプラン：前期繰越 → 期首処理 → 各行 → �
   // 期末処理：給料 31×4 ＋ 家賃 25 ＋ 返済 100×10% ＝ 10
   assert.equal(c.closingAuto, -(124 + 25 + 10))
   assert.equal(c.endBalance, 251 - 159)
+  // 採用予定が 1 人なら期末の給料も 1 人分増える
+  assert.equal(cashPlan({ ...plan, hire: 1 }, st).closingAuto, -(124 + 31 + 25 + 10))
   reset()
 })
 
 test('normalizePlan：壊れた保存値は初期値で埋め、行数は 25 に揃える', () => {
-  const st = st3()
-  assert.deepEqual(normalizePlan(null, st), defaultPlan(st))
-  assert.deepEqual(normalizePlan('x', st), defaultPlan(st))
-  const p = normalizePlan({ g: 100, hire: 'a', staffMfg: 0, actions: [{ text: '仕入', amount: -50 }, { text: 5 }] }, st)
+  assert.deepEqual(normalizePlan(null), defaultPlan())
+  assert.deepEqual(normalizePlan('x'), defaultPlan())
+  const p = normalizePlan({ g: 100, hire: 'a', machinesNew: 2.4, actions: [{ text: '仕入', amount: -50 }, { text: 5 }] })
   assert.equal(p.g, 100)
   assert.equal(p.hire, 0) // 型崩れは 0
-  assert.equal(p.staffMfg, 0) // 0 が保存されていればそのまま
-  assert.equal(p.staffSales, 2) // 未保存なら盤面の値
+  assert.equal(p.machinesNew, 2) // 人数・台数は整数に丸める
   assert.equal(p.actions.length, PLAN_ROWS)
   assert.deepEqual(p.actions[0], { text: '仕入', amount: -50 })
   assert.deepEqual(p.actions[1], { text: '', amount: 0 })

@@ -15,7 +15,7 @@ export default function PlanTab({ game }: { game: Game }) {
   const st = game.st
   const period = st.period
   const ro = game.spectator // 閲覧専用（講師ビュー）では入力できない
-  const [plan, setPlan] = useState<Plan>(() => normalizePlan(game.plans[String(period)], st))
+  const [plan, setPlan] = useState<Plan>(() => normalizePlan(game.plans[String(period)]))
   const dirty = useRef(false)
   // 最新の入力と保存関数を ref に持つ（アンマウント時の即保存と、依存配列の肥大化を避けるため）
   const latest = useRef({ period, plan })
@@ -25,7 +25,7 @@ export default function PlanTab({ game }: { game: Game }) {
 
   // 期が変わったら（次の期へ進んだ）その期の保存値から作り直す
   useEffect(() => {
-    setPlan(normalizePlan(game.plans[String(period)], st))
+    setPlan(normalizePlan(game.plans[String(period)]))
     dirty.current = false
   }, [period]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -85,25 +85,32 @@ export default function PlanTab({ game }: { game: Game }) {
       {body}
     </div>
   )
-  // 固定費の1行（人数・枚数が編集できる項目は入力欄を出す）
-  const costRow = (
+  // 投資の1行：項目／名称＋入力欄＋単位／固定費の式／金額。閲覧専用では入力できない
+  const invRow = (
     key: string,
     label: string,
-    detail: ReactNode,
+    name: string,
+    value: number,
+    onChange: (v: number) => void,
+    unitLabel: string,
+    formula: string,
     amount: number,
-    col: 'now' | 'new',
+    cls = 'w-16',
   ) => (
     <tr key={key} className="border-b border-line/60">
       <td className="py-1.5 pr-2 text-ink-500 whitespace-nowrap">{label}</td>
-      <td className="py-1.5 pr-2">{detail}</td>
-      <td className={`py-1.5 px-2 text-right num ${col === 'now' ? '' : 'bg-canvas text-ink-300'}`}>
-        {col === 'now' ? fmt(amount) : ''}
+      <td className="py-1.5 pr-2 whitespace-nowrap">
+        <span className="inline-flex items-center gap-1">
+          {name}
+          {numIn(`plan-${key}`, value, (v) => onChange(Math.round(v)), `${cls} h-7`)}
+          {unitLabel}
+        </span>
       </td>
-      <td className={`py-1.5 px-2 text-right num ${col === 'new' ? '' : 'bg-canvas text-ink-300'}`}>
-        {col === 'new' ? fmt(amount) : ''}
-      </td>
+      <td className="py-1.5 pr-2 text-ink-400 whitespace-nowrap">{formula}</td>
+      <td className="py-1.5 pl-2 text-right num whitespace-nowrap">{fmt(amount)}</td>
     </tr>
   )
+  const u = fc.units
   const item = (key: string) => fc.items.find((x) => x.key === key)!
   // 予算／実績の5項目
   const pl: [string, number | null, number | undefined][] = [
@@ -140,133 +147,80 @@ export default function PlanTab({ game }: { game: Game }) {
 
           {card(
             <span className="text-f-ink">2. 固定費（F）を算出</span>,
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[520px]">
-                <thead>
-                  <tr className="text-ink-400 border-b border-line">
-                    <th className="text-left py-1 pr-2 font-normal">項目</th>
-                    <th className="text-left py-1 pr-2 font-normal">詳細内訳（人数・枚数は予定）</th>
-                    <th className="text-right py-1 px-2 font-normal whitespace-nowrap">
-                      現況
-                      <br />
-                      <span className="text-[10px]">（最低限必要）</span>
-                    </th>
-                    <th className="text-right py-1 px-2 font-normal whitespace-nowrap">
-                      戦略的投資
-                      <br />
-                      <span className="text-[10px]">（新規）</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {costRow(
-                    'salaryMfg',
-                    '労務費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      製造スタッフ給与 {item('salaryMfg').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-staffMfg', plan.staffMfg, (v) => update({ staffMfg: Math.round(v) }), 'w-14 h-7')}人
-                    </span>,
-                    item('salaryMfg').amount,
-                    'now',
-                  )}
-                  {costRow(
-                    'salarySales',
-                    '人件費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      販売スタッフ給与 {item('salarySales').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-staffSales', plan.staffSales, (v) => update({ staffSales: Math.round(v) }), 'w-14 h-7')}人
-                    </span>,
-                    item('salarySales').amount,
-                    'now',
-                  )}
-                  {costRow(
-                    'dep',
-                    '減価償却費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('dep').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-machines', plan.machines, (v) => update({ machines: Math.round(v) }), 'w-14 h-7')}台
-                    </span>,
-                    item('dep').amount,
-                    'now',
-                  )}
-                  {costRow('rent', '家賃', item('rent').detail, item('rent').amount, 'now')}
-                  {costRow(
-                    'hire',
-                    '一般管理費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('hire').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-hire', plan.hire, (v) => update({ hire: Math.round(v) }), 'w-14 h-7')}人
-                    </span>,
-                    item('hire').amount,
-                    'new',
-                  )}
-                  {costRow(
-                    'edu',
-                    '',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('edu').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-edu', plan.edu, (v) => update({ edu: Math.round(v) }), 'w-14 h-7')}枚
-                    </span>,
-                    item('edu').amount,
-                    'new',
-                  )}
-                  {costRow(
-                    'ins',
-                    '',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('ins').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-ins', plan.ins, (v) => update({ ins: Math.round(v) }), 'w-14 h-7')}枚
-                    </span>,
-                    item('ins').amount,
-                    'new',
-                  )}
-                  {costRow(
-                    'ads',
-                    '販売費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('ads').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-ads', plan.ads, (v) => update({ ads: Math.round(v) }), 'w-14 h-7')}枚
-                    </span>,
-                    item('ads').amount,
-                    'new',
-                  )}
-                  {costRow(
-                    'dev',
-                    '研究開発費',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      {item('dev').detail.replace(/×.*$/, '×')}
-                      {numIn('plan-dev', plan.dev, (v) => update({ dev: Math.round(v) }), 'w-14 h-7')}枚
-                    </span>,
-                    item('dev').amount,
-                    'new',
-                  )}
-                  {costRow('intOpen', '営業外費用', item('intOpen').detail, item('intOpen').amount, 'now')}
-                  {costRow(
-                    'intNew',
-                    '（借入金利息）',
-                    <span className="inline-flex items-center gap-1 flex-wrap">
-                      今期新規借入
-                      {numIn('plan-loanNew', plan.loanNew, (v) => update({ loanNew: Math.round(v) }), 'w-20 h-7')}
-                      {item('intNew').detail.replace(/^今期新規借入 \d+/, '')}
-                    </span>,
-                    item('intNew').amount,
-                    'new',
-                  )}
-                  <tr className="font-bold">
-                    <td className="py-2 pr-2" colSpan={2}>
-                      固定費合計
-                    </td>
-                    <td className="py-2 px-2 text-right num" data-testid="plan-F-now">
-                      {fmt(fc.now)}
-                    </td>
-                    <td className="py-2 px-2 text-right num" data-testid="plan-F-new">
-                      {fmt(fc.next)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <div className="flex justify-between items-center mt-2 rounded-lg bg-f-bg px-3 py-2">
-                <span className="font-bold text-f-ink">★ 固定費（F）合計</span>
+            <div className="space-y-3">
+              {/* 上：現況（最低限必要）。期首の会社盤から必ず出る費用なので入力欄は無い */}
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-xs font-bold text-ink-600">現況（最低限必要）</span>
+                  <span className="text-[10px] text-ink-400">期首の会社盤から自動で計算</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {fc.items
+                        .filter((x) => x.col === 'now')
+                        .map((x) => (
+                          <tr key={x.key} className="border-b border-line/60" data-testid={`plan-now-${x.key}`}>
+                            <td className="py-1.5 pr-2 text-ink-500 whitespace-nowrap">{x.label}</td>
+                            <td className="py-1.5 pr-2 whitespace-nowrap">{x.detail}</td>
+                            <td className="py-1.5 pl-2 text-right num whitespace-nowrap">{fmt(x.amount)}</td>
+                          </tr>
+                        ))}
+                      <tr className="font-bold">
+                        <td className="py-1.5 pr-2" colSpan={2}>
+                          現況 小計
+                        </td>
+                        <td className="py-1.5 pl-2 text-right num" data-testid="plan-F-now">
+                          {fmt(fc.now)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 下：戦略的投資（新規）。これからの投資を入力すると、それに伴う固定費が出る */}
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-xs font-bold text-ink-600">戦略的投資（新規）</span>
+                  <span className="text-[10px] text-ink-400">これからの投資を入力</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-ink-400 border-b border-line">
+                        <th className="text-left py-1 pr-2 font-normal">項目</th>
+                        <th className="text-left py-1 pr-2 font-normal">予定</th>
+                        <th className="text-left py-1 pr-2 font-normal">固定費の式</th>
+                        <th className="text-right py-1 pl-2 font-normal">金額</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invRow('hire', '一般管理費', '社員採用', plan.hire, (v) => update({ hire: v }), '人',
+                        `採用費 ${u.hire}×${plan.hire} ＋ 給料 ${u.sal}×${plan.hire}`, item('hire').amount + item('hireSalary').amount)}
+                      {invRow('machinesNew', '減価償却費', '機械購入', plan.machinesNew, (v) => update({ machinesNew: v }), '台',
+                        `減価償却 ${u.dep}×${plan.machinesNew}`, item('depNew').amount)}
+                      {invRow('edu', '一般管理費', '教育', plan.edu, (v) => update({ edu: v }), '枚', `${u.edu}×${plan.edu}`, item('edu').amount)}
+                      {invRow('ins', '', '保険加入', plan.ins, (v) => update({ ins: v }), '枚', `${u.ins}×${plan.ins}`, item('ins').amount)}
+                      {invRow('ads', '販売費', '広告', plan.ads, (v) => update({ ads: v }), '枚', `${u.ads}×${plan.ads}`, item('ads').amount)}
+                      {invRow('dev', '研究開発費', '商品開発', plan.dev, (v) => update({ dev: v }), '枚', `${u.dev}×${plan.dev}`, item('dev').amount)}
+                      {invRow('loanNew', '営業外費用', '新規借入', plan.loanNew, (v) => update({ loanNew: v }), '',
+                        `借入額 × 金利${u.ratePct}%`, item('intNew').amount, 'w-24')}
+                      <tr className="font-bold">
+                        <td className="py-1.5 pr-2" colSpan={3}>
+                          投資 小計
+                        </td>
+                        <td className="py-1.5 pl-2 text-right num" data-testid="plan-F-new">
+                          {fmt(fc.next)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center rounded-lg bg-f-bg px-3 py-2">
+                <span className="font-bold text-f-ink">★ 固定費（F）合計　現況 ＋ 投資</span>
                 <b className="num text-f-ink text-lg" data-testid="plan-F">
                   {fmt(fig.F)}
                 </b>
