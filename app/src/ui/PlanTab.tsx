@@ -85,7 +85,8 @@ export default function PlanTab({ game }: { game: Game }) {
       {body}
     </div>
   )
-  // 投資の1行：項目／名称＋入力欄＋単位／固定費の式／金額。閲覧専用では入力できない
+  // 投資の1行：項目／名称／入力欄／単位／固定費の式／金額。
+  // 名称・入力欄・単位は別の列にして縦に揃える（入力欄の幅はすべて同じ）。閲覧専用では入力できない
   const invRow = (
     key: string,
     label: string,
@@ -95,17 +96,12 @@ export default function PlanTab({ game }: { game: Game }) {
     unitLabel: string,
     formula: string,
     amount: number,
-    cls = 'w-16',
   ) => (
     <tr key={key} className="border-b border-line/60">
       <td className="py-1.5 pr-2 text-ink-500 whitespace-nowrap">{label}</td>
-      <td className="py-1.5 pr-2 whitespace-nowrap">
-        <span className="inline-flex items-center gap-1">
-          {name}
-          {numIn(`plan-${key}`, value, (v) => onChange(Math.round(v)), `${cls} h-7`)}
-          {unitLabel}
-        </span>
-      </td>
+      <td className="py-1.5 pr-2 whitespace-nowrap">{name}</td>
+      <td className="py-1.5 pr-1 w-24">{numIn(`plan-${key}`, value, (v) => onChange(Math.round(v)), 'w-20 h-7')}</td>
+      <td className="py-1.5 pr-3 text-ink-500 whitespace-nowrap w-6">{unitLabel}</td>
       <td className="py-1.5 pr-2 text-ink-400 whitespace-nowrap">{formula}</td>
       <td className="py-1.5 pl-2 text-right num whitespace-nowrap">{fmt(amount)}</td>
     </tr>
@@ -190,7 +186,9 @@ export default function PlanTab({ game }: { game: Game }) {
                     <thead>
                       <tr className="text-ink-400 border-b border-line">
                         <th className="text-left py-1 pr-2 font-normal">項目</th>
-                        <th className="text-left py-1 pr-2 font-normal">予定</th>
+                        <th className="text-left py-1 pr-2 font-normal" colSpan={3}>
+                          予定
+                        </th>
                         <th className="text-left py-1 pr-2 font-normal">固定費の式</th>
                         <th className="text-right py-1 pl-2 font-normal">金額</th>
                       </tr>
@@ -205,9 +203,9 @@ export default function PlanTab({ game }: { game: Game }) {
                       {invRow('ads', '販売費', '広告', plan.ads, (v) => update({ ads: v }), '枚', `${u.ads}×${plan.ads}`, item('ads').amount)}
                       {invRow('dev', '研究開発費', '商品開発', plan.dev, (v) => update({ dev: v }), '枚', `${u.dev}×${plan.dev}`, item('dev').amount)}
                       {invRow('loanNew', '営業外費用', '新規借入', plan.loanNew, (v) => update({ loanNew: v }), '',
-                        `借入額 × 金利${u.ratePct}%`, item('intNew').amount, 'w-24')}
+                        `借入額 × 金利${u.ratePct}%`, item('intNew').amount)}
                       <tr className="font-bold">
-                        <td className="py-1.5 pr-2" colSpan={3}>
+                        <td className="py-1.5 pr-2" colSpan={5}>
                           投資 小計
                         </td>
                         <td className="py-1.5 pl-2 text-right num" data-testid="plan-F-new">
