@@ -82,7 +82,7 @@ node --test --test-name-pattern '幽霊販売' test/game.test.ts
 npx playwright test e2e/app.spec.ts -g '<テスト名>'
 ```
 
-Playwright の Chromium は `$HOME/.cache/ms-playwright` 固定（`playwright.config.ts` にパスが直書き）。未取得なら
+Playwright の Chromium は `$HOME/.cache/ms-playwright`（`PLAYWRIGHT_BROWSERS_PATH` があればそこ）にある `chromium-*` を `playwright.config.ts` が自動で探す（PR #37）。未取得なら
 `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright npx playwright install chromium`。
 
 ### 計算エンジンを変更したとき（golden.json の扱い）
