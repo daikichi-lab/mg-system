@@ -80,7 +80,7 @@ e2e/
 |---|---|---|
 | POST | `/api/company/join` | 参加（org+会社名で作成/取得） |
 | GET | `/api/company?org=&name=` | 状態取得（リロード復元） |
-| PUT | `/api/company/:id/state` | 状態保存（記帳/決算のたび） |
+| PUT | `/api/company/:id/state` | 状態保存（記帳/決算/経営計画書のたび）。`plans`（経営計画書・期番号→入力）を含む。`plans` を送らない保存では計画を消さない |
 | GET | `/api/org/:code` | 組織比較（参加者/管理者） |
 | GET | `/api/org/:code/rules` | その研修の数値ルール（無認証・参加者アプリが起動時に取得） |
 | POST | `/api/admin/login` | 講師ログイン→トークン |

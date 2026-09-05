@@ -1,6 +1,6 @@
 // ルール編集・確認画面で共通に使う項目定義。
 //
-// 8項目を「ゲームの流れ順」の6グループに分けている。縦に8個並べるより、
+// 9項目を「ゲームの流れ順」の7グループに分けている。縦に並べるより、
 // 講師が盤面のどの場面の数字かを追いやすいため。
 // 各項目には効く先の勘定科目（記帳台帳の列）を持たせ、画面ではその列の色で示す。
 // 盤面の上限や決算でしか出てこないものは列を持たない（chip を出さない）。
@@ -11,7 +11,7 @@ export type ColRef = number | null
 
 export interface NumField {
   kind: 'num'
-  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap'
+  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap' | 'planFromPeriod'
   label: string
   desc: string
   unit?: string
@@ -50,7 +50,7 @@ export interface Group {
   fields: Field[]
 }
 
-/** ゲームの流れ順（仕入れ → 製造 → 販売 → 人材 → 金融 → 期末） */
+/** ゲームの流れ順（仕入れ → 製造 → 販売 → 人材 → 金融 → 期末 → 経営計画書） */
 export const GROUPS: Group[] = [
   {
     title: '仕入れ',
@@ -154,6 +154,22 @@ export const GROUPS: Group[] = [
         desc: '期末処理で必ず計上されます',
         min: 0,
         col: 8,
+      },
+    ],
+  },
+  {
+    title: '経営計画書',
+    lead: '計画を立ててから記帳に入る期',
+    fields: [
+      {
+        kind: 'num',
+        key: 'planFromPeriod',
+        label: '経営計画書タブを出す期',
+        desc: 'この期から参加者アプリに「経営計画書」タブが出ます。1 なら第1期から、6 以上なら出しません。計算には影響しません',
+        unit: '期から',
+        min: 1,
+        col: null,
+        colNote: '画面の表示',
       },
     ],
   },

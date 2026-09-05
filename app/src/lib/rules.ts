@@ -23,6 +23,11 @@ export interface Rules {
   matCap: number
   /** 店舗陳列（製品）の上限 */
   prodCap: number
+  /**
+   * 経営計画書タブを表示し始める期（1以上の整数）。この期より前の期ではタブを出さない。
+   * 計算には使わず画面の表示だけに効く。6 以上にすると（全5期なので）一度も出ない。
+   */
+  planFromPeriod: number
 }
 
 /** 既定ルール ＝ 入門編 標準。現行の計算結果を1円も変えないための基準値。 */
@@ -35,10 +40,15 @@ export const DEFAULT_RULES: Rules = {
   materialPrices: [10, 11, 12, 13, 14, 15, 16],
   matCap: 15,
   prodCap: 15,
+  planFromPeriod: 3,
 }
 
 const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
+
+// 期番号：1以上の整数だけを受け付ける（0・小数・文字列は既定に落とす）
+const periodNo = (v: unknown, fallback: number): number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : fallback
 
 const numList = (v: unknown, fallback: number[]): number[] =>
   Array.isArray(v) && v.length && v.every((x) => typeof x === 'number' && Number.isFinite(x))
@@ -61,5 +71,6 @@ export function normalizeRules(input?: Partial<Rules> | null): Rules {
     materialPrices: numList(input.materialPrices, d.materialPrices),
     matCap: num(input.matCap, d.matCap),
     prodCap: num(input.prodCap, d.prodCap),
+    planFromPeriod: periodNo(input.planFromPeriod, d.planFromPeriod),
   }
 }

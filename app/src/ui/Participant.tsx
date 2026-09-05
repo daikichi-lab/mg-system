@@ -33,6 +33,8 @@ import {
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS } from '../lib/figures-review'
 import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
+import PlanTab from './PlanTab'
+import { planVisible } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
@@ -46,6 +48,7 @@ function Figure({ html, testid }: { html: string; testid?: string }) {
 const TABS = [
   ['company', '会社情報'],
   ['opening', '期首処理'],
+  ['plan', '経営計画書'],
   ['play', '記帳'],
   ['closing', '期末処理'],
   ['statement', '決算書'],
@@ -97,6 +100,9 @@ export default function Participant() {
   const go = (t: TabKey) => {
     setTab(t)
   }
+  // 経営計画書タブは数値ルール planFromPeriod の期から出す（それより前の期はタブ自体を出さない）
+  const planOn = planVisible(st)
+  const tabs = TABS.filter(([k]) => k !== 'plan' || planOn)
 
   // 会社情報の「期の選択」：現在＝最新に戻る／過去＝その期の決算書を閲覧
   const curView = stmtView ? stmtView.period : st.period
@@ -127,8 +133,12 @@ export default function Participant() {
       )}
       <Header st={st} />
       <nav className="max-w-5xl mx-auto px-3 sm:px-6 pb-2 pt-3">
-        <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 bg-canvas border border-line rounded-xl p-1">
-          {TABS.map(([k, label]) => {
+        <div
+          className={`grid gap-1 bg-canvas border border-line rounded-xl p-1 ${
+            tabs.length > 8 ? 'grid-cols-3 sm:grid-cols-9' : 'grid-cols-4 sm:grid-cols-8'
+          }`}
+        >
+          {tabs.map(([k, label]) => {
             const locked = !st.started && k !== 'company'
             return (
               <button
@@ -162,6 +172,7 @@ export default function Participant() {
           <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
         )}
         {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} toast={toast} />}
+        {tab === 'plan' && planOn && <PlanTab game={game} />}
         {tab === 'play' && (
           <PlayTab
             game={game}

@@ -627,11 +627,20 @@ export function loanRoom(st: St, excl = 0): number {
   return Math.max(0, loanCap(st) - (st.loan - excl))
 }
 
+/**
+ * その期の1人あたり給料。給料表（rules.salaryTable）の添字は期−1。
+ * 表にない期（第6期以降）や値が 0 のときは 28 を使う。
+ * 期末処理の計上額と期首処理の事前表示が同じ値になるよう、必ずここを通す。
+ */
+export function salaryFor(period: number): number {
+  return getRules().salaryTable[period - 1] || 28
+}
+
 // ---- 期末処理 ----
 export function doClosingPrep(st: St) {
   if (st.settled || st.closingPrep) return
   recompute(st)
-  const SAL = getRules().salaryTable[st.period - 1] || 28
+  const SAL = salaryFor(st.period)
   const head = st.staffMfg + st.staffSales
   const retired = st.tx.filter((x) => x.key === 'taishoku_mfg' || x.key === 'taishoku_sales').length
   const halfPer = Math.ceil(SAL / 2)
@@ -673,6 +682,22 @@ export function settleBlockReason(st: St): string | null {
   return null
 }
 
+/**
+ * 法人税。税引前利益（pretax）と前期繰越利益剰余金（retained）から決める。
+ * - 税引前利益がマイナス、または繰越を含めた合計（pretax＋retained）がマイナスなら最低税額 5
+ * - 繰越損失（retained がマイナス）があるときは、繰越後の額（pretax＋retained）× 30%
+ * - それ以外は税引前利益 × 30%。いずれも最低 5
+ * 決算（settle）と経営計画書の目安（plan.ts）で同じ式を使う。
+ */
+export function corporateTax(pretax: number, retained: number): number {
+  const total4 = pretax + retained
+  let tax: number
+  if (pretax < 0 || total4 < 0) tax = 5
+  else if (retained < 0) tax = r(total4 * 0.3)
+  else tax = r(pretax * 0.3)
+  return Math.max(tax, 5)
+}
+
 // ---- 決算 ----
 export function settle(st: St): Result | null {
   if (st.settled) return st.result
@@ -699,11 +724,7 @@ export function settle(st: St): Result | null {
   const pretax = G + special
   const ret0b = st.retained
   const total4 = pretax + ret0b
-  let tax: number
-  if (pretax < 0 || total4 < 0) tax = 5
-  else if (ret0b < 0) tax = r(total4 * 0.3)
-  else tax = r(pretax * 0.3)
-  tax = Math.max(tax, 5)
+  const tax = corporateTax(pretax, ret0b)
   const net = pretax - tax
   const decisions = st.tx.filter((x) => x.key && ACTIONS[x.key] && ACTIONS[x.key].rule === 'A').length
   const events = st.tx.filter((x) => x.key && ACTIONS[x.key] && ACTIONS[x.key].rule === 'X').length

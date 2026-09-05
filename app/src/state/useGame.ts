@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { newState, recompute, setRules, settleBlockReason, type St, type Result } from '../lib/calc'
 import { api, type ApiOrgCompany } from '../lib/api'
 import type { Rules } from '../lib/rules'
+import type { Plan } from '../lib/plan'
 import {
   applyApiState,
+  plansFromApi,
   payloadFromState,
   startCompany,
   recordAction,
@@ -73,11 +75,16 @@ export interface Game {
   resetAll: () => void
   spectator: boolean
   instructorEdit: boolean
+  /** 経営計画書（期番号 → 入力）。表示側は normalizePlan() で整えて使う */
+  plans: Record<string, unknown>
+  /** その期の経営計画書を保存する（記帳と同じく DB へ同期） */
+  savePlan: (period: number, plan: Plan) => void
 }
 
 export function useGame(): Game {
   const stRef = useRef<St>(newState())
   const histRef = useRef<Result[]>([])
+  const plansRef = useRef<Record<string, unknown>>({}) // 経営計画書（期番号 → 入力）
   const idRef = useRef<number | null>(null)
   const [version, setVersion] = useState(0)
   const [ready, setReady] = useState(false)
@@ -93,7 +100,7 @@ export function useGame(): Game {
   const sync = useCallback(async () => {
     if (idRef.current == null) return
     try {
-      await api.save(idRef.current, payloadFromState(stRef.current, histRef.current))
+      await api.save(idRef.current, payloadFromState(stRef.current, histRef.current, plansRef.current))
     } catch (e: any) {
       setError(e.message)
     }
@@ -116,6 +123,7 @@ export function useGame(): Game {
           if (!alive) return
           idRef.current = data.company.id
           histRef.current = applyApiState(stRef.current, data)
+          plansRef.current = plansFromApi(data)
           spectatorRef.current = !vedit
           setSpectator(!vedit)
           setInstructorEdit(vedit)
@@ -143,6 +151,7 @@ export function useGame(): Game {
           if (!alive) return
           idRef.current = data.company.id
           histRef.current = applyApiState(stRef.current, data)
+          plansRef.current = plansFromApi(data)
           if (stRef.current.started) setResumed(true)
           setReady(true)
           bump()
@@ -181,6 +190,7 @@ export function useGame(): Game {
         const data = await api.join(org, name, president)
         idRef.current = data.company.id
         localStorage.setItem(IDENT_KEY, JSON.stringify({ org, name, companyId: data.company.id }))
+        plansRef.current = plansFromApi(data)
         if (data.company.started) {
           // 既存データ → 復元
           histRef.current = applyApiState(stRef.current, data)
@@ -367,6 +377,16 @@ export function useGame(): Game {
     [runMut],
   )
 
+  // 経営計画書の保存：その期の入力を差し替えて DB へ同期（閲覧専用ビューでは runMut が弾く）
+  const savePlan = useCallback(
+    (period: number, plan: Plan) => {
+      runMut(() => {
+        plansRef.current = { ...plansRef.current, [String(period)]: plan }
+      })
+    },
+    [runMut],
+  )
+
   const refreshOrg = useCallback(async (): Promise<ApiOrgCompany[]> => {
     if (!stRef.current.org) return []
     try {
@@ -416,5 +436,7 @@ export function useGame(): Game {
     resetAll,
     spectator,
     instructorEdit,
+    plans: plansRef.current,
+    savePlan,
   }
 }
