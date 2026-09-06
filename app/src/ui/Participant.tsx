@@ -13,6 +13,8 @@ import {
   equityNow,
   fmRatio,
   flows,
+  getRules,
+  salaryFor,
   IN_COLS,
   type St,
   type Result,
@@ -426,6 +428,8 @@ function CompanyTab({
 }
 
 // ------- 期首処理 -------
+/** 元本返済率（期末返済率）の選択肢（%）。講師が段階的に上げていく運用のため5段階に固定 */
+const REPAY_RATE_OPTIONS = [0, 5, 10, 15, 20]
 type BoardVals = { mfg: number; sales: number; mat: number; prod: number; dev: number; ads: number; mach: number }
 
 function BoardEditForm({ st, onSave, onCancel }: { st: St; onSave: (b: BoardVals) => void; onCancel: () => void }) {
@@ -495,6 +499,12 @@ function OpeningTab({
   const room = loanRoom(st)
   const interest = Math.round(st.openingLoan * 0.05)
   const repayPlan = Math.round((st.openingLoan * st.repayRate) / 100)
+  // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
+  // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わるため、
+  // ここでは単価（期末処理と同じ salaryFor()）と計上ルールだけを示し、人数での見込み額は出さない。
+  // 返済率も率と計上ルールだけを示す（返済額は⑨に出ている。第1期は借入がないので率は「—」）
+  const rent = getRules().rent
+  const salaryPer = salaryFor(st.period)
   const kv = (l: string, v: string, accent?: boolean) => (
     <div className="flex justify-between border-b border-line/70 py-1.5">
       <span className="text-ink-500">{l}</span>
@@ -600,15 +610,21 @@ function OpeningTab({
             <div className="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 bg-m-bg gap-2 flex-wrap">
               <span className="font-bold text-m-ink">
                 期末返済（期首残高 ×
-                <input
+                <select
                   data-testid="op-repayrate"
-                  type="number"
-                  min={0}
-                  max={100}
-                  defaultValue={st.repayRate}
-                  onBlur={(e) => game.setInstr(st.loanMult, Number(e.target.value) || 0)}
-                  className="w-12 h-7 border border-line rounded px-1 mx-1 text-right num"
-                />
+                  value={st.repayRate}
+                  onChange={(e) => game.setInstr(st.loanMult, Number(e.target.value) || 0)}
+                  className="h-7 border border-line rounded px-1 mx-1 num bg-white"
+                >
+                  {/* 5段階（0/5/10/15/20）。保存済みの率がこれ以外（旧データ）のときは、その値も選択肢に含めて勝手に変えない */}
+                  {[...new Set([...REPAY_RATE_OPTIONS, st.repayRate])]
+                    .sort((a, b) => a - b)
+                    .map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                </select>
                 %）
               </span>
               <b className="num text-m-ink">▲{fmt(repayPlan)}</b>
@@ -644,6 +660,34 @@ function OpeningTab({
           </div>
         </div>
       )}
+
+      {/* この期末に支払うもの：家賃・1人あたり人件費・元本返済率（第1期は借入なしなので返済は「なし」） */}
+      <div data-testid="opening-costs" className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
+        <h2 className="font-bold mb-0.5">この期末に支払うもの（期末処理で自動計上）</h2>
+        <p className="text-ink-400 text-xs mb-3">記帳を始める前に、期末に出ていく金額を頭に入れておきましょう。</p>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">家賃</div>
+            <div data-testid="oc-rent" className="num font-black text-lg">
+              {fmt(rent)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">人件費（1人あたり）</div>
+            <div data-testid="oc-salary" className="num font-black text-lg">
+              {fmt(salaryPer)}
+            </div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">期末の在籍人数 × 単価</div>
+          </div>
+          <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
+            <div className="text-[10px] text-ink-500 whitespace-nowrap">元本返済率</div>
+            <div data-testid="oc-repay" className="num font-black text-lg">
+              {first ? '—' : `${st.repayRate}%`}
+            </div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">期首の借入残高 × 返済率</div>
+          </div>
+        </div>
+      </div>
 
       <div className="flex">
         <button
