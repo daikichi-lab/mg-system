@@ -128,6 +128,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     // 記帳の削除ボタン（1件消して戻す確認だけ）: claim 行を消す代わりにここでは存在確認
     await expect(page.getByTestId('ledger')).toBeVisible()
+    // 行番号：1始まりで、最後の行の番号＝行数（いま何手目かがひと目でわかる）
+    const ledgerRows = page.getByTestId('ledger').locator('tbody tr')
+    const rowCount = await ledgerRows.count()
+    expect(rowCount).toBeGreaterThan(1)
+    await expect(ledgerRows.first().locator('[data-testid^="rownum-"]')).toHaveText('1')
+    await expect(ledgerRows.last().locator('[data-testid^="rownum-"]')).toHaveText(String(rowCount))
 
     // --- 期末処理（2段階）→ 決算 → 決算書 ---
     await closeAndSettle(page)

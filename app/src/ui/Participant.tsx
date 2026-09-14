@@ -1073,7 +1073,7 @@ function Ledger({
           <span className="text-[13px] font-medium">前期繰越</span>
           <span className="num text-[11px] text-ink-400">残高 {fmt(st.openingCash)}</span>
         </div>
-        {cardRows.map(({ t, bal: b, hasCol }) => {
+        {cardRows.map(({ t, bal: b, hasCol }, idx) => {
           const { showEdit, showDelete, label } = rowMeta(t)
           const dir = !hasCol ? 'none' : IN_COLS.includes(t.col as number) ? 'in' : 'out'
           const barColor = dir === 'in' ? '#0f766e' : dir === 'out' ? '#5b6472' : '#e4e7ec'
@@ -1097,6 +1097,10 @@ function Ledger({
               )}
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium leading-tight truncate">
+                  {/* 行番号：いま何行目（＝何手目）かがひと目でわかるように。前期繰越・合計は数えない */}
+                  <span data-testid={`crownum-${t.id}`} className="num text-[11px] text-ink-300 mr-1.5">
+                    {idx + 1}
+                  </span>
                   {label}
                   {t.note ? <span className="text-ink-300 text-[10px] ml-1">{t.note}</span> : null}
                 </div>
@@ -1174,14 +1178,17 @@ function Ledger({
             <th className="px-1 py-1"></th>
           </tr>
           <tr className="border-b border-line">
-            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">勘定科目</th>
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">
+              <span className="inline-block w-6 text-right text-ink-300 mr-1.5">No.</span>
+              勘定科目
+            </th>
             {LHEAD.map((_, i) => th(i))}
             <th className="px-2 py-1 text-right align-bottom font-semibold">残高</th>
             <th className="px-1 py-1"></th>
           </tr>
         </thead>
         <tbody>
-          {st.tx.map((t) => {
+          {st.tx.map((t, idx) => {
             const hasCol = t.col !== null && t.col !== undefined
             if (hasCol && IN_COLS.includes(t.col as number)) bal += t.amount
             else if (hasCol) bal -= t.amount
@@ -1189,6 +1196,10 @@ function Ledger({
             return (
               <tr key={t.id} className="border-b border-line/60">
                 <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
+                  {/* 行番号：いま何行目（＝何手目）かがひと目でわかるように。固定列（勘定科目）の中に置き、横スクロールしても見える */}
+                  <span data-testid={`rownum-${t.id}`} className="inline-block w-6 text-right num text-ink-300 mr-1.5">
+                    {idx + 1}
+                  </span>
                   {label}
                   {t.note ? <span className="text-ink-300 ml-1">{t.note}</span> : null}
                 </td>
@@ -1232,7 +1243,10 @@ function Ledger({
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-line font-bold bg-canvas">
-            <td className="sticky left-0 z-10 bg-canvas px-2 py-1.5">合計</td>
+            <td className="sticky left-0 z-10 bg-canvas px-2 py-1.5">
+              <span className="inline-block w-6 mr-1.5" />
+              合計
+            </td>
             {LHEAD.map((_, i) => (
               <td key={i} className={`px-1 py-1.5 text-right num ${i === 4 ? 'border-l-2 border-ink/25' : ''}`} style={{ color: LCOL[i].t }}>
                 {tot[i] ? fmt(tot[i]) : ''}
@@ -1244,7 +1258,10 @@ function Ledger({
             <td></td>
           </tr>
           <tr className="border-b border-line">
-            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">勘定科目</th>
+            <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">
+              <span className="inline-block w-6 text-right text-ink-300 mr-1.5">No.</span>
+              勘定科目
+            </th>
             {LHEAD.map((_, i) => th(i))}
             <th className="px-2 py-1 text-right align-bottom font-semibold">残高</th>
             <th className="px-1 py-1"></th>
