@@ -2074,9 +2074,17 @@ function ActionModal({
   const form = getForms()[keyName]
   const isCustomEvent = keyName === 'ibutsu' || keyName === 'suigai'
   const [errors, setErrors] = useState<string[]>([])
+  // 盤面から決まる入力上限（借入可能額など）。編集中は自分の行の金額が盤面に含まれているので、上限に戻して計算する
+  const ownAmount = editTx?.key === keyName ? editTx.amount : 0
+  const fieldMax = (fl: Field): number | undefined => (fl.maxOf ? fl.maxOf(st, ownAmount) : undefined)
   const [single, setSingle] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {}
-    form?.fields.forEach((fl) => (o[fl.name] = String(editTx?.fvals?.[fl.name] ?? fl.default)))
+    form?.fields.forEach((fl) => {
+      // 既定値や保存済みの値が上限を超えていたら上限に丸める（借入可能額が既定の100を下回る期など）
+      const v = editTx?.fvals?.[fl.name] ?? fl.default
+      const mx = fieldMax(fl)
+      o[fl.name] = String(mx != null && typeof v === 'number' && v > mx ? mx : v)
+    })
     return o
   })
   const [items, setItems] = useState<Record<string, string>[]>(() => {
@@ -2147,7 +2155,7 @@ function ActionModal({
             className="mb-3 flex items-center justify-between rounded-lg bg-f-bg text-f-ink px-3 py-2 text-sm font-bold"
           >
             <span>借入可能額</span>
-            <span className="num">{fmt(loanRoom(st))}</span>
+            <span className="num">{fmt(loanRoom(st, ownAmount))}</span>
           </div>
         )}
         {isCustomEvent && <p className="text-ink-500 text-sm mb-3">この盤面で記帳します。</p>}
@@ -2196,6 +2204,7 @@ function ActionModal({
                 <FieldInput
                   fl={fl}
                   value={single[fl.name]}
+                  max={fieldMax(fl)}
                   testid={`field-${fl.name}`}
                   onChange={(v) => {
                     setErrors([])
@@ -2285,11 +2294,13 @@ function AmountModal({ tx, onClose, onSave }: { tx: TxRow; onClose: () => void; 
 function FieldInput({
   fl,
   value,
+  max,
   onChange,
   testid,
 }: {
   fl: Field
   value: string
+  max?: number // 盤面から決まる上限（借入可能額など）。超えた入力は上限に丸める
   onChange: (v: string) => void
   testid: string
 }) {
@@ -2330,7 +2341,14 @@ function FieldInput({
     if (isNaN(v)) v = 0
     v += d
     if (fl.min != null && v < fl.min) v = fl.min
+    if (max != null && v > max) v = max
     onChange(String(v))
+  }
+  // 手入力で上限を超えたら上限に丸める（空欄は入力途中なのでそのまま）
+  const clampMax = (raw: string) => {
+    if (max == null || raw === '') return raw
+    const v = Number(raw)
+    return !isNaN(v) && v > max ? String(max) : raw
   }
   return (
     <div className="mt-1 flex items-stretch w-full rounded-lg border border-line overflow-hidden">
@@ -2347,8 +2365,9 @@ function FieldInput({
         type="number"
         inputMode="numeric"
         pattern="[0-9]*"
+        max={max}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange(clampMax(e.target.value))}
         className="h-11 flex-1 min-w-0 border-x border-line px-1 text-center num outline-none focus:bg-canvas/70"
       />
       <button

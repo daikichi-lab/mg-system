@@ -161,6 +161,16 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     // --- 第2期：借入を含む ---
     await page.getByTestId('tab-play').click()
+    // 借入の入力欄は借入可能額が上限：超える金額を入れても上限に丸められる（実行時エラーに頼らない）
+    await page.getByTestId('sub-B').click()
+    await page.getByTestId('act-kariire').click()
+    await expect(page.getByTestId('modal-ok')).toBeVisible()
+    const room = Number(((await page.getByTestId('loan-room').textContent()) || '').replace(/[^0-9]/g, ''))
+    expect(room).toBeGreaterThan(0)
+    await setField(page, 'field-a', room + 1000)
+    await expect(page.getByTestId('field-a')).toHaveValue(String(room))
+    await page.getByRole('button', { name: 'やめる' }).click()
+    await expect(page.getByTestId('modal-ok')).toBeHidden()
     await act(page, 'kariire', { a: 50 }) // 第2期は借入可
     await expect(page.getByTestId('ledger')).toContainText('借入') // 借入行が記帳された
     await act(page, 'koukoku', { n: 1 })
