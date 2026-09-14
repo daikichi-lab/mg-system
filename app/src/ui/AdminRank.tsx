@@ -1,5 +1,5 @@
 // 成績一覧（表形式・グラフ形式）と CSV 出力。Admin.tsx から切り出したもので、中身は変えていない。
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ApiOrgCompany } from '../lib/api'
 import { fmt, fmtA, fmRatio } from '../lib/calc'
 import { ORG_COLORS } from '../lib/figures-review'
@@ -38,7 +38,26 @@ export function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
   // クリック: 降順 → 昇順 → 解除（会社・期の順に戻る）
   const clickSort = (k: string) => setSort((s) => (s?.k !== k ? { k, dir: 'desc' } : s.dir === 'desc' ? { k, dir: 'asc' } : null))
 
-  if (!entries.length && !periods.length)
+  // ヘッダ2行（会社／期）は縦スクロールしても固定する。2行目の top は1行目の実際の高さ
+  // （社名＋社長名の2段でフォントにより変わる）を測って決める。表が無いときは測らない。
+  const hasTable = entries.length > 0 || periods.length > 0
+  const headRow = useRef<HTMLTableRowElement>(null)
+  const [headH, setHeadH] = useState(0)
+  useLayoutEffect(() => {
+    const el = headRow.current
+    if (!hasTable || !el) return
+    const update = () => setHeadH(el.getBoundingClientRect().height)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasTable])
+  // 固定セルは自分で背景を持たないと下の行が透けるので、行ではなくセルに背景を付ける。
+  // 罫線は border-collapse だと固定セルに追従しないため、2行目は box-shadow で下線を引く
+  const stickyTop = 'sticky top-0 z-20 bg-canvas'
+  const stickyTop2 = { top: headH, boxShadow: 'inset 0 -2px 0 var(--color-line)' }
+
+  if (!hasTable)
     return <p className="text-ink-300 text-sm p-6 text-center">成績データがありません。参加者が決算すると各期の成績が表示されます。</p>
   return (
     <div>
@@ -61,19 +80,23 @@ export function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
       </div>
       <table className="text-[12px] border-collapse" data-testid="admin-rank">
         <thead>
-          <tr className="text-ink-600 border-b border-line bg-canvas">
-            <th className="sticky left-0 z-10 bg-canvas px-2 py-1.5 text-left font-bold whitespace-nowrap">会社</th>
+          {/* 会社名の行：上に固定。左上のセルは左右・上下の両方に固定するので z を一段上げる */}
+          <tr ref={headRow} className="text-ink-600 border-b border-line bg-canvas">
+            <th className={`${stickyTop} left-0 z-30 px-2 py-1.5 text-left font-bold whitespace-nowrap`}>会社</th>
             {entries.map((e, i) => (
-              <th key={i} className="px-2 py-1.5 text-right font-bold whitespace-nowrap border-l border-line/60">
+              <th key={i} className={`${stickyTop} px-2 py-1.5 text-right font-bold whitespace-nowrap border-l border-line/60`}>
                 {e.c.name}
                 <div className="text-ink-400 text-[10px] font-normal">{e.c.president || '—'}</div>
               </th>
             ))}
           </tr>
+          {/* 期の行：会社名の行のすぐ下に固定（top は測った高さ） */}
           <tr className="text-ink-400 border-b-2 border-line bg-canvas">
-            <th className="sticky left-0 z-10 bg-canvas px-2 py-1 text-left font-bold">期</th>
+            <th className={`${stickyTop} left-0 z-30 px-2 py-1 text-left font-bold`} style={stickyTop2}>
+              期
+            </th>
             {entries.map((e, i) => (
-              <th key={i} className="px-2 py-1 text-right num font-bold whitespace-nowrap border-l border-line/60">
+              <th key={i} className={`${stickyTop} px-2 py-1 text-right num font-bold whitespace-nowrap border-l border-line/60`} style={stickyTop2}>
                 第{e.r.period}期
               </th>
             ))}
