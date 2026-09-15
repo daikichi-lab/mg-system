@@ -1,7 +1,7 @@
 // 決算書ビジュアル図（STRAC / P/L・CF ウォーターフォール / B/S）
 // mock/index.html の図描画関数を TypeScript 移植。
 // すべてインラインスタイルで組み立てる（Tailwind クラスは使わない — 文字列内クラスは purge されるため）。
-import { fmt, fmtA, type Result } from './calc.ts'
+import { cashflow, fmt, fmtA, type Result } from './calc.ts'
 import { isM } from './mq.ts'
 
 // .num 相当（等幅数字フォント）
@@ -188,10 +188,8 @@ export function plWaterfallHTML(r: Result): string {
 // CF ウォーターフォール：期首現金 → 営業CF → 投資CF → 財務CF → 期末現金
 // ============================================================
 export function cfWaterfallHTML(r: Result): string {
-  const c = r.colTot || Array(11).fill(0)
-  const opCF = c[2] + c[3] - c[5] - c[6] - c[7] - c[8] - c[10]
-  const invCF = -c[4]
-  const finCF = c[0] + c[1] - c[9]
+  // 区分の式は calc.cashflow に一本化（什器売却の代金は営業ではなく投資CF）
+  const { opCF, invCF, finCF } = cashflow({ ...r, colTot: r.colTot || Array(11).fill(0) })
   const open = r.openCash || 0
   const end = open + opCF + invCF + finCF
   let run = 0

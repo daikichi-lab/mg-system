@@ -243,3 +243,106 @@ test('②+③ 通し：削除ガードにより決算後もB/Sの在庫がマイ
   assert.ok(Math.abs(r.diff) < 1e-9, 'B/S 貸借一致')
   assert.equal(r.diffQty, 0, '盤面と帳簿の在庫個数が一致')
 })
+
+// ---- 什器売却（ルールB・簿価の半値）----
+test('⑤ 什器売却：簿価の半値が入金され、盤面の台数と簿価が減り、差額は特別損失になる', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 2 }), []) // 2台・簿価200
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), [])
+  const row = st.tx.find((t) => t.key === 'baikyaku')!
+  assert.equal(row.col, 3, '入金の A 列')
+  assert.equal(row.amount, 50, '1台の簿価100の半値')
+  assert.equal(st.machines, 1)
+  assert.equal(st.equipVal, 100)
+  assert.equal(st.equipSold, 100)
+  assert.equal(calc.cashNow(st), 300 - 200 + 50)
+  const r = calc.settle(st)!
+  assert.equal(r.special, 50 - 100, '特別損益 ＝ 売却代金 − 簿価（売却損）')
+  assert.equal(r.dep, 10, '減価償却は期末に残った1台分')
+  assert.equal(r.equipEnd, 90)
+  assert.equal(r.equipSold, 100)
+  assert.equal(r.equipSaleCash, 50)
+  assert.ok(Math.abs(r.diff) < 1e-9, 'B/S 貸借一致')
+  const cf = calc.cashflow(r)
+  assert.equal(cf.invCF, -200 + 50, '売却代金は投資CF')
+  assert.equal(cf.opCF, r.PQ - r.laborF - r.sellF - r.adminF, '営業CFには入らない')
+})
+
+test('⑤ 什器売却：保有台数を超える・什器なし・0台は拒否される', () => {
+  const st = newGame()
+  assert.ok(game.recordAction(st, 'baikyaku', { n: 1 }).length, '什器がないので不可')
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 1 }), [])
+  assert.ok(game.recordAction(st, 'baikyaku', { n: 2 }).length, '保有1台なので2台は不可')
+  assert.ok(game.recordAction(st, 'baikyaku', { n: 0 }).length, '0台は不可')
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), [])
+  assert.equal(st.machines, 0)
+})
+
+test('⑤ 什器売却はルールB：同じ手番でもう1つルールBを記帳すると拒否される', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), [])
+  assert.ok(game.recordAction(st, 'hoken', { n: 1 }).length, '1ターンに1度まで')
+})
+
+test('⑤ 什器売却：前の行が変わると売却額も「その時点の簿価の半値」に追従する', () => {
+  const st = newGame()
+  st.period = 2
+  st.openingMachines = 1
+  st.openingEquipVal = 90 // 前期に買った1台（100 − 減価償却10）
+  st.retained = 90 // 期首の B/S を釣り合わせる（什器90 ＝ 利益剰余金90）
+  calc.recompute(st)
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 1 }), []) // 2台・簿価190
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), [])
+  const sale = st.tx.find((t) => t.key === 'baikyaku')!
+  assert.equal(sale.amount, 48, '簿価 190/2台 = 95 の半値（四捨五入）')
+  assert.equal(st.equipVal, 95)
+  // 今期の機械購入を消すと、売れるのは前期の1台（簿価90）だけになり、売却額も 45 に変わる
+  const buy = st.tx.find((t) => t.key === 'kikai')!
+  assert.equal(game.deleteRow(st, buy.id), null)
+  assert.equal(sale.amount, 45)
+  assert.equal(st.machines, 0)
+  assert.equal(st.equipVal, 0)
+  assert.equal(st.equipSold, 90)
+  const r = calc.settle(st)!
+  assert.ok(Math.abs(r.diff) < 1e-9, 'B/S 貸借一致')
+})
+
+test('⑤ 什器売却：行の編集で台数を変えると金額も変わり、stateBeforeRow は売却前の盤面を返す', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 2 }), [])
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), [])
+  const sale = st.tx.find((t) => t.key === 'baikyaku')!
+  const before = game.stateBeforeRow(st, sale.id)
+  assert.equal(before.machines, 2, '売却前は2台')
+  assert.equal(st.machines, 1, '元の状態は変わらない')
+  assert.deepEqual(game.editActionRow(st, sale.id, { n: 2 }), [])
+  const edited = st.tx.find((t) => t.key === 'baikyaku')!
+  assert.equal(edited.amount, 100, '2台（簿価200）の半値')
+  assert.equal(st.machines, 0)
+  assert.ok(game.editActionRow(st, edited.id, { n: 3 }).length, '保有台数を超える編集は拒否')
+})
+
+test('⑥ 特別損益の内訳：保険金 − 廃棄損 − 什器売却損 ＝ 特別損益', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 2 }), [])
+  assert.deepEqual(game.recordAction(st, 'saiyo', { mfg: 2, sales: 2, fail: 0 }), [])
+  assert.deepEqual(game.recordAction(st, 'shiire', { qty: 4, unit: 10 }), [])
+  assert.deepEqual(game.recordAction(st, 'hoken', { n: 1 }), [])
+  assert.deepEqual(game.recordAction(st, 'seizo', { qty: 4 }), [])
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { n: 1 }), []) // 簿価100 → 代金50・売却損50
+  assert.deepEqual(game.recordAction(st, 'hanbai', { qty: 2, unit: 30 }), [])
+  assert.deepEqual(game.recordAction(st, 'ibutsu', game.eventFvals(st, 'ibutsu')), []) // 製品2個廃棄（単価10）・保険金20
+  const r = calc.settle(st)!
+  const b = calc.specialBreakdown(r)
+  assert.equal(b.insurance, 20)
+  assert.equal(b.scrapLoss, 20)
+  assert.equal(b.saleLoss, 50)
+  assert.equal(b.insurance - b.scrapLoss - b.saleLoss, r.special)
+  assert.ok(Math.abs(r.diff) < 1e-9, 'B/S 貸借一致')
+})
+
+test('⑥ 特別損益の内訳：什器売却の値が無い古い決算結果でも保険金と廃棄損だけで計算できる', () => {
+  const r = { colTot: [0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0], scrap: 1, avg: 12 } as unknown as Result
+  assert.deepEqual(calc.specialBreakdown(r), { insurance: 30, scrapLoss: 12, saleLoss: 0 })
+})

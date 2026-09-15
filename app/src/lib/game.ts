@@ -225,6 +225,11 @@ function validate(st: St, key: string, f: Fvals): string[] {
       if (!Number.isInteger(f.a) || f.a < 0) errs.push('返済額は0以上で入力してください')
       else if (f.a > st.loan) errs.push(`借入残高（${st.loan}）以上は返済できません`)
       break
+    case 'baikyaku':
+      if (!Number.isInteger(f.n) || f.n < 1) errs.push('売却する台数を入力してください')
+      else if (st.machines < 1) errs.push('売却できる什器がありません')
+      else if (f.n > st.machines) errs.push(`保有している什器（${st.machines}台）以上は売却できません`)
+      break
     case 'kaihatsu_win':
       if ((f.qty || 0) > 0) {
         if (f.qty > 2 * st.dev) errs.push(`商品開発チップ1枚につき2個までです（枠 ${2 * st.dev}）`)
@@ -283,6 +288,7 @@ function rownote(key: string, f: Fvals): string {
   if (key === 'saiyo') return `製造${f.mfg || 0}・販売${f.sales || 0}${f.fail ? '・失敗' + f.fail : ''}`
   if (key === 'seizo') return `製品+${f.qty}`
   if (key === 'kaihatsu') return f.result === '失敗' ? '開発 失敗' : `開発+${f.n}`
+  if (key === 'baikyaku') return `${f.n || 0}台・簿価の半値`
   // イベント：メモ枠に個数×単価を記載
   if (key === 'tokubai') return `${f.qty || 0}×10`
   if (key === 'keiki') return `${f.qty || 0}×12`
@@ -332,6 +338,18 @@ export function revalidateLedger(st: St): string[] {
   return [...new Set(errs)]
 }
 
+/**
+ * ある行を記帳した時点（その行より前の行だけを適用した状態）の盤面。
+ * 盤面に依存する金額（什器売却＝その時点の簿価の半値）を編集モーダルで見せるときに使う。元の st は変えない。
+ */
+export function stateBeforeRow(st: St, id: number): St {
+  const idx = st.tx.findIndex((x) => x.id === id)
+  const rows = idx < 0 ? st.tx : st.tx.slice(0, idx)
+  const copy: St = { ...st, tx: rows.map((t) => ({ ...t, fvals: { ...(t.fvals || {}) } })) }
+  recompute(copy)
+  return copy
+}
+
 // 記帳（成功で tx 追加＋recompute）。戻り値: エラーメッセージ配列（成功は空配列）。
 export function recordAction(st: St, key: string, fvals: Fvals): string[] {
   const a = ACTIONS[key]
@@ -349,7 +367,7 @@ export function recordAction(st: St, key: string, fvals: Fvals): string[] {
     key,
     fvals,
     col: a.col,
-    amount: a.amount(fvals) || 0,
+    amount: (a.amountOf ? a.amountOf(st, fvals) : a.amount(fvals)) || 0, // 盤面依存の金額は recompute でも決め直される
     note: rownote(key, fvals),
     noCash: a.noCash,
   })

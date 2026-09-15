@@ -180,7 +180,7 @@ export const COL_STYLE: { bg: string; fg: string }[] = [
   { bg: '#fdf1f6', fg: '#b03a6a' }, // ア 資本金
   { bg: '#fef9e6', fg: '#9a7d10' }, // イ 借入金
   { bg: '#fef3e6', fg: '#b5630f' }, // ウ 売上
-  { bg: '#fdf4f8', fg: '#b85c7e' }, // A 受取保険金
+  { bg: '#fdf4f8', fg: '#b85c7e' }, // A 保険金・その他
   { bg: '#f3eefb', fg: '#6b4fa0' }, // エ 什器
   { bg: '#eef7f0', fg: '#3f7d4f' }, // オ 材料仕入
   { bg: '#eef2fb', fg: '#3a5aa8' }, // カ 人件費
@@ -194,7 +194,7 @@ export const COL_NAMES = [
   'ア 資本金',
   'イ 借入金',
   'ウ 売上',
-  'A 受取保険金',
+  'A 保険金・その他',
   'エ 什器',
   'オ 材料仕入',
   'カ 人件費',

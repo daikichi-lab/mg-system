@@ -10,6 +10,8 @@ import {
   cashflow,
   loanCap,
   loanRoom,
+  equipSale,
+  specialBreakdown,
   equityNow,
   fmRatio,
   flows,
@@ -21,7 +23,7 @@ import {
   type Fvals,
   type TxRow,
 } from '../lib/calc'
-import { eventFvals } from '../lib/game'
+import { eventFvals, stateBeforeRow } from '../lib/game'
 import { mqMobile } from '../lib/mq'
 import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from '../lib/figures'
 import {
@@ -727,6 +729,7 @@ const STY: Record<string, { c: string; i: string }> = {
   kyoiku: { c: '#e8842a', i: '📚' },
   haichi: { c: '#5b6472', i: '🔁' },
   kariire: { c: '#0f766e', i: '🏦' },
+  baikyaku: { c: '#6b4fa0', i: '🏷️' },
   hensai: { c: '#5b6472', i: '↩️' },
   kaihatsu_win: { c: '#0f766e', i: '🎉' },
   dokusen: { c: '#0f766e', i: '👑' },
@@ -984,7 +987,7 @@ const LHEAD = [
   { s: 'ア', n: '資本金' },
   { s: 'イ', n: '借入金' },
   { s: 'ウ', n: '売上' },
-  { s: 'A', n: '保険金' },
+  { s: 'A', n: '保険金・その他' },
   { s: 'エ', n: '什器' },
   { s: 'オ', n: '材料仕入' },
   { s: 'カ', n: '人件費' },
@@ -1688,7 +1691,7 @@ function StatementTab({
               '#0f766e',
               <>
                 {cfItem('売上収入 (ウ)', c[2])}
-                {cfItem('受取保険金 (A)', c[3])}
+                {cfItem('受取保険金 (A)', c[3] - (r.equipSaleCash || 0))}
                 {cfItem('材料仕入 (オ)', -c[5])}
                 {cfItem('人件費 (カ)', -c[6])}
                 {cfItem('販売費 (キ)', -c[7])}
@@ -1699,7 +1702,18 @@ function StatementTab({
               cf.opCF,
               'cf-op',
             )}
-            {cfGroup('投資活動によるCF', '#6b4fa0', cfItem('什器の購入 (エ)', -c[4]), '投資CF', cf.invCF, 'cf-inv')}
+            {cfGroup(
+              '投資活動によるCF',
+              '#6b4fa0',
+              <>
+                {cfItem('什器の購入 (エ)', -c[4])}
+                {/* 什器売却の代金は A 列に記帳されるが、区分は投資。古い決算結果には無いので 0 */}
+                {cfItem('什器の売却 (A)', r.equipSaleCash || 0)}
+              </>,
+              '投資CF',
+              cf.invCF,
+              'cf-inv',
+            )}
             {cfGroup(
               '財務活動によるCF',
               '#9a7d10',
@@ -1737,6 +1751,20 @@ function StatementTab({
             <h2 className="font-bold mb-3">法人税・利益剰余金の計算</h2>
             <div className="space-y-2 text-sm">
               {txRow('① 特別損益', fmtA(r.special), 'tx-special')}
+              {/* ① の内訳（保険金・廃棄損・什器売却損）。0 の項目は出さず、全部 0 なら行ごと出さない */}
+              {(() => {
+                const b = specialBreakdown(r)
+                const items = [
+                  b.insurance ? `保険金 ＋${fmt(b.insurance)}` : '',
+                  b.scrapLoss ? `廃棄損 ${fmtA(-b.scrapLoss)}` : '',
+                  b.saleLoss ? `什器売却損 ${fmtA(-b.saleLoss)}` : '',
+                ].filter(Boolean)
+                return items.length ? (
+                  <div className="text-right text-[11px] text-ink-400 -mt-1" data-testid="tx-special-detail">
+                    {items.join('　')}
+                  </div>
+                ) : null
+              })()}
               {txRow('② 税引前当期純利益（G ＋ ①）', fmtA(r.pretax), 'tx-pre')}
               {txRow('③ 前期繰越利益剰余金', fmtA(r.ret0), 'tx-ret0')}
               <div className="flex justify-between border-t border-dashed border-line pt-2">
@@ -1774,6 +1802,8 @@ function StatementTab({
               <div>
                 <div className="text-ink-400 text-xs mb-1">什器</div>
                 {subRow('前期繰越', fmt(r.eq0))}
+                {/* 購入（エ）と売却で外した簿価。古い決算結果には equipSold が無いので 0 扱い */}
+                {subRow('＋購入 −売却', fmtA(r.equipBought - (r.equipSold || 0)))}
                 {subRow('−減価償却', '−' + fmt(r.dep))}
                 {subRowB('次期繰越', fmt(r.equipEnd))}
               </div>
@@ -2154,6 +2184,13 @@ function ActionModal({
       if (isCustomEvent) {
         const f = eventFvals(st, keyName)
         return `破棄 ${f.discard} 個${f.payout ? ` ・ 受取保険金 ${f.payout}` : '（保険なし）'}`
+      }
+      if (a.amountOf) {
+        // 盤面に依存する金額（什器売却の簿価の半値）。編集中はその行を記帳した時点の盤面で計算する
+        const base = editTx ? stateBeforeRow(st, editTx.id) : st
+        const f = buildFvals()
+        const { book } = equipSale(base, f.n || 0)
+        return `${a.account}` + fmt(a.amountOf(base, f) || 0) + `（簿価 ${fmt(book)} の半値）`
       }
       return `${a.account}` + fmt(a.amount(buildFvals()) || 0)
     } catch {

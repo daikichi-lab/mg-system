@@ -2,7 +2,7 @@
 // mock/index.html の buildSheet(r) 相当。既存の図関数（figures.ts / figures-account.ts）を再利用し、
 // 現金出納帳（記帳）と 損益/貸借/CF の数値表のみここで生成する。
 // すべてインラインスタイル（Tailwind クラスは purge されるため文字列内では使わない）。
-import { fmt, fmtA, IN_COLS, COL_LABELS, type Result, type TxRow } from './calc.ts'
+import { fmt, fmtA, IN_COLS, COL_LABELS, cashflow, type Result, type TxRow } from './calc.ts'
 import { stracHTML, plWaterfallHTML, cfWaterfallHTML, bsFigureHTML } from './figures.ts'
 import {
   cashAccountHTML,
@@ -29,7 +29,7 @@ const LCOL: readonly (readonly [string, string, string])[] = [
   ['#fbe0ea', '#fdf1f6', '#b03a6a'], // ア 資本金
   ['#fdf3c7', '#fef9e6', '#9a7d10'], // イ 借入金
   ['#fde3c4', '#fef3e6', '#b5630f'], // ウ 売上
-  ['#fce8ef', '#fdf4f8', '#b85c7e'], // A 受取保険金
+  ['#fce8ef', '#fdf4f8', '#b85c7e'], // A 保険金・その他
   ['#e4dcf3', '#f3eefb', '#6b4fa0'], // エ 什器
   ['#d8ecd8', '#eef7ee', '#3f7a3f'], // オ 材料仕入
   ['#d6e6f7', '#eef5fc', '#2f5f93'], // カ 人件費
@@ -164,16 +164,15 @@ function bsTable(r: Result): string {
 // ---- CF の数値表 ----
 function cfTable(r: Result): string {
   const c = r.colTot || Array(11).fill(0)
-  const opCF = c[2]! + c[3]! - c[5]! - c[6]! - c[7]! - c[8]! - c[10]!
-  const invCF = -c[4]!
-  const finCF = c[0]! + c[1]! - c[9]!
-  const netCF = opCF + invCF + finCF
+  // 区分の式は calc.cashflow に一本化（什器売却の代金は A 列だが営業ではなく投資CF）。古い決算結果には無いので 0
+  const sale = r.equipSaleCash || 0
+  const { opCF, invCF, finCF, netCF } = cashflow({ ...r, colTot: c })
   return box(
     '',
     'キャッシュフローの数値表',
     `<div class="sub">営業活動によるCF</div>` +
       kv('　売上収入 (ウ)', fmt(c[2]!)) +
-      kv('　受取保険金 (A)', fmt(c[3]!)) +
+      kv('　受取保険金 (A)', fmt(c[3]! - sale)) +
       kv('　材料仕入 (オ)', fmtA(-c[5]!)) +
       kv('　人件費 (カ)', fmtA(-c[6]!)) +
       kv('　販売費 (キ)', fmtA(-c[7]!)) +
@@ -182,6 +181,7 @@ function cfTable(r: Result): string {
       kv('営業CF', fmtA(opCF), '#0f766e') +
       `<div class="sub">投資活動によるCF</div>` +
       kv('　什器の購入 (エ)', fmtA(-c[4]!)) +
+      kv('　什器の売却 (A)', fmt(sale)) +
       kv('投資CF', fmtA(invCF), '#6b4fa0') +
       `<div class="sub">財務活動によるCF</div>` +
       kv('　資本金 (ア)', fmt(c[0]!)) +
