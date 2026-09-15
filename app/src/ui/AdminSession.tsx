@@ -6,6 +6,9 @@ import { useToast, Toaster } from './Toast'
 import { AdminLogin, useAdminToken } from './adminAuth'
 import { RankTable, RankCharts, downloadCsv } from './AdminRank'
 
+/** 参加者一覧を取り直す間隔。研修中の途中参加をすぐ拾うため */
+const RELOAD_MS = 10000
+
 export default function AdminSession({ org }: { org: string }) {
   const { toasts, push: toast } = useToast()
   const { token, save: saveToken, clear: clearToken } = useAdminToken()
@@ -42,6 +45,24 @@ export default function AdminSession({ org }: { org: string }) {
     void loadName(token)
     void loadCompanies(org)
   }, [token, org, loadName, loadCompanies])
+
+  // 研修中は参加者が増えるので、開いている間は定期的に取り直す。
+  // これが無いと途中から参加した会社が「更新」を押すまで一覧に出ない。
+  // 裏に回っているタブでは投げず、前面に戻ったときにすぐ取り直す。
+  useEffect(() => {
+    if (!token || !org) return
+    const tick = () => {
+      if (!document.hidden) void loadCompanies(org)
+    }
+    const id = setInterval(tick, RELOAD_MS)
+    window.addEventListener('focus', tick)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', tick)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [token, org, loadCompanies])
 
   async function copyText(text: string) {
     try {
@@ -128,8 +149,9 @@ export default function AdminSession({ org }: { org: string }) {
         {/* 左：参加者一覧 */}
         <aside className="bg-white border-r border-line p-3 lg:h-[calc(100vh-61px)] lg:overflow-y-auto">
           <div className="flex items-center justify-between gap-2 mb-2 px-1">
-            <div className="text-ink-400 text-xs font-bold">
+            <div className="text-ink-400 text-xs font-bold" data-testid="admin-co-count">
               参加者一覧 {companies.length ? `（${companies.length}名）` : ''}
+              <span className="ml-1 font-normal text-[10px] text-ink-300">自動更新</span>
             </div>
             <button data-testid="admin-clear-org" onClick={clearOrg} className="text-[11px] text-accent hover:underline">
               参加者データを全消去
