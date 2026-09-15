@@ -71,6 +71,7 @@ export default function Participant() {
   const [editTx, setEditTx] = useState<TxRow | null>(null) // 編集対象のアクション行
   const [amountTx, setAmountTx] = useState<TxRow | null>(null) // 金額のみ編集する行（資本金/給料/家賃 等）
   const [stmtView, setStmtView] = useState<Result | null>(null)
+  const [planView, setPlanView] = useState<number | null>(null) // 履歴から開いた過去の期の経営計画書
   const [askUnsettle, setAskUnsettle] = useState(false) // 決算取り消しの確認モーダル
   const [, setMqTick] = useState(0) // スマホ⇄PCをまたいだら図表HTML（幅別生成）を再描画
   useEffect(() => {
@@ -103,6 +104,8 @@ export default function Participant() {
 
   // 決算書タブを開いても閲覧中の期(stmtView)は維持する。期の変更は会社情報の「期」/履歴の詳細/「履歴に戻る」で行う
   const go = (t: TabKey) => {
+    // タブから経営計画書を開いたときは、履歴で見ていた過去の期ではなく今の期に戻す
+    if (t === 'plan') setPlanView(null)
     setTab(t)
   }
   // 経営計画書タブは数値ルール planFromPeriod の期から出す（それより前の期はタブ自体を出さない）
@@ -177,7 +180,16 @@ export default function Participant() {
           <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
         )}
         {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} toast={toast} />}
-        {tab === 'plan' && planOn && <PlanTab game={game} />}
+        {tab === 'plan' && planOn && (
+          <PlanTab
+            game={game}
+            viewPeriod={planView}
+            onBack={() => {
+              setPlanView(null)
+              setTab('history')
+            }}
+          />
+        )}
         {tab === 'play' && (
           <PlayTab
             game={game}
@@ -206,9 +218,14 @@ export default function Participant() {
         {tab === 'history' && (
           <HistoryTab
             history={game.history}
+            plans={game.plans}
             onDetail={(r) => {
               setStmtView(r)
               setTab('statement')
+            }}
+            onPlan={(r) => {
+              setPlanView(r.period)
+              setTab('plan')
             }}
           />
         )}
@@ -1854,7 +1871,18 @@ function StatementTab({
 }
 
 // ------- 履歴 -------
-function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Result) => void }) {
+function HistoryTab({
+  history,
+  plans,
+  onDetail,
+  onPlan,
+}: {
+  history: Result[]
+  /** 期番号 → その期に立てた経営計画。ある期だけ「経営計画」ボタンを出す */
+  plans: Record<string, unknown>
+  onDetail: (r: Result) => void
+  onPlan: (r: Result) => void
+}) {
   if (!history.length)
     return <div className="bg-white rounded-2xl shadow-sm border border-line p-8 text-center text-ink-400">まだ決算がありません。</div>
   const kv = (l: string, v: string, cls = '') => (
@@ -1889,6 +1917,15 @@ function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Re
             >
               決算書をみる
             </button>
+            {!!plans[String(r.period)] && (
+              <button
+                data-testid={`cplan-${r.period}`}
+                onClick={() => onPlan(r)}
+                className="h-10 px-3 rounded-lg border border-g-base/40 text-g-ink text-[13px] font-bold active:bg-g-bg"
+              >
+                経営計画
+              </button>
+            )}
             <button
               data-testid={`cpdf-${r.period}`}
               onClick={() => savePdf(r)}
@@ -1930,6 +1967,17 @@ function HistoryTab({ history, onDetail }: { history: Result[]; onDetail: (r: Re
                 >
                   詳細
                 </button>{' '}
+                {!!plans[String(r.period)] && (
+                  <>
+                    <button
+                      data-testid={`plan-${r.period}`}
+                      onClick={() => onPlan(r)}
+                      className="h-7 px-3 rounded-lg border border-g-base/40 text-g-ink text-[12px] font-bold hover:bg-g-bg"
+                    >
+                      経営計画
+                    </button>{' '}
+                  </>
+                )}
                 <button
                   data-testid={`pdf-${r.period}`}
                   onClick={() => savePdf(r)}

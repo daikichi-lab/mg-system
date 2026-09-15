@@ -3,12 +3,92 @@
 // 参加者が書く値（Plan）だけを保存し、単価（給料・家賃・減価償却・チップ・金利）は保存しない。
 // 金額は毎回、数値ルール（getRules）と記帳アクションの定義（ACTIONS[key].amount）から引く。
 // → 研修のルールを差し替えても計画の金額が追従し、あとで記帳したときの金額と必ず一致する。
-import { ACTIONS, getRules, salaryFor, corporateTax, type St } from './calc.ts'
+import {
+  ACTIONS,
+  caps,
+  getRules,
+  loanRoom,
+  nextPeriod,
+  recompute,
+  salaryFor,
+  corporateTax,
+  type Fvals,
+  type Result,
+  type St,
+} from './calc.ts'
 
-/** アクションプランの1行。amount は現金の増減（＋入金／−出金）。未記入は text が空で amount 0 */
+/**
+ * アクションプランの1行。1行＝そのアクションを1回行う予定。
+ * key は記帳アクションのキー（プルダウンで選ぶ。'' ＝未選択）、
+ * qty は数量（個・枚・台・人。借入／返済は金額そのもの）、
+ * amount は現金の増減（＋入金／−出金）。amount は key・qty から自動で入るが、手で上書きもできる。
+ */
 export interface PlanAction {
-  text: string
+  key: string
+  qty: number
   amount: number
+}
+
+/**
+ * アクションプランのプルダウンに出す記帳アクション。
+ * 参加者が自分の意思で行うルールA・Bだけを ACTIONS の定義順に並べる
+ * （ルールX＝イベントは自分では選べないので出さない）。
+ */
+export const PLAN_ACTION_KEYS = Object.keys(ACTIONS).filter(
+  // 什器売却は「どの機械を売るか」で金額が決まり、数量×単価では出せないので計画のプルダウンには入れない
+  (k) => ACTIONS[k].rule !== 'X' && !ACTIONS[k].amountOf,
+)
+export const PLAN_ACTION_OPTIONS = PLAN_ACTION_KEYS.map((key) => ({ key, label: ACTIONS[key].label }))
+
+/** 数量の単位。借入・返済は数量そのものが金額なので単位は付けない */
+export const PLAN_ACTION_UNITS: Record<string, string> = {
+  shiire: '個',
+  seizo: '個',
+  hanbai: '個',
+  kikai: '台',
+  saiyo: '人',
+  haichi: '人',
+  koukoku: '枚',
+  kaihatsu: '枚',
+  hoken: '枚',
+  kyoiku: '枚',
+  kariire: '',
+  hensai: '',
+}
+
+/** アクションを選んだ直後の数量。借入・返済は金額なので 0 から、それ以外は 1回分の 1 */
+export function defaultQty(key: string): number {
+  if (!key) return 0
+  return key === 'kariire' || key === 'hensai' ? 0 : 1
+}
+
+/** 数量を、そのアクションの記帳フォームの入力値に変換する（金額は記帳と同じ式で出すため） */
+function fieldsFor(key: string, qty: number, plan: Plan): Fvals {
+  switch (key) {
+    case 'shiire':
+      return { qty, unit: plan.v } // 仕入単価は計画の売上原価 V
+    case 'hanbai':
+      return { qty, unit: plan.p } // 売価は計画の販売単価 P
+    case 'saiyo':
+      return { mfg: qty }
+    case 'kariire':
+    case 'hensai':
+      return { a: qty }
+    default:
+      return { qty, n: qty }
+  }
+}
+
+/**
+ * アクションプラン1行の入出金。記帳と同じ `ACTIONS[key].amount` を使い、
+ * 入金（side='in'）は ＋、出金（'out'）は −、現金が動かないもの（製造など）は 0。
+ * 単価を持たないので、仕入れ・販売は計画の V・P をそのまま使う。
+ */
+export function actionAmount(key: string, qty: number, plan: Plan): number {
+  const def = ACTIONS[key]
+  if (!def || !def.side) return 0
+  const v = Math.round(def.amount(fieldsFor(key, qty, plan)))
+  return def.side === 'in' ? v : -v
 }
 
 export interface Plan {
@@ -18,7 +98,7 @@ export interface Plan {
    * 2. 戦略的投資（新規）：今期に行う予定の投資。
    * 現況（期首の会社盤にいる人・機械・家賃・期首借入残高の金利）は入力せず、盤面から自動で出す。
    */
-  hire: number // 採用人数（採用費と、その人の期末給料が固定費に乗る）
+  hire: number // スタッフ採用の人数（製造・販売は分けない）
   machinesNew: number // 機械購入台数（減価償却が増える）
   edu: number
   ins: number
@@ -32,12 +112,82 @@ export interface Plan {
   actions: PlanAction[]
 }
 
+/**
+ * 計画どおりに投資したときの1回あたりの能力。
+ * 盤面は「期首 ＋ 今期の機械購入・教育・広告」で組む（教育チップは期をまたがない）。
+ * **採用予定は入れない**：製造・販売どちらに配置するかで能力が変わり、計画では決められないため。
+ */
+function planCaps(plan: Plan, st: St) {
+  return caps({
+    ...st,
+    staffMfg: st.openingStaffMfg,
+    staffSales: st.openingStaffSales,
+    machines: st.openingMachines + plan.machinesNew,
+    edu: plan.edu,
+    ads: st.openingAds + plan.ads,
+  })
+}
+
+/**
+ * 1回の記帳でできる数量の上限。ルールで決まっているものだけ返し、上限が無ければ null。
+ * 記帳のバリデーション（lib/game.ts の `validate()`）と同じ根拠にそろえてある。
+ * - 仕入れ：材料在庫の上限（matCap）まで
+ * - 製造：製造能力と店舗陳列の上限（prodCap）の小さいほう
+ * - 販売：販売能力まで
+ * - 教育・商品開発：記帳フォームが1回1枚で固定なので 1（教育チップは期を通しても最大1枚）
+ * - 配置転換：期首のスタッフ数まで
+ * - 借入：今期借入可能額まで／返済：借入残高まで
+ */
+export function actionQtyMax(key: string, plan: Plan, st: St): number | null {
+  const R = getRules()
+  switch (key) {
+    case 'shiire':
+      return R.matCap
+    case 'seizo':
+      return Math.min(planCaps(plan, st).mfgCap, R.prodCap)
+    case 'hanbai':
+      return planCaps(plan, st).salesCap
+    case 'kyoiku':
+    case 'kaihatsu':
+      return 1
+    case 'haichi':
+      return Math.max(st.openingStaffMfg, st.openingStaffSales)
+    case 'kariire':
+      return loanRoom(st)
+    case 'hensai':
+      return st.loan
+    default:
+      return null // 機械購入・スタッフ採用・広告・保険はルール上の上限なし
+  }
+}
+
+/** 数量を1回の上限に収める（上限が無ければそのまま） */
+export function clampQty(key: string, qty: number, plan: Plan, st: St): number {
+  const max = actionQtyMax(key, plan, st)
+  const n = Math.max(0, Math.round(qty))
+  return max == null ? n : Math.min(n, max)
+}
+
+/** 教育チップは期を通して最大1枚（記帳の `教育チップは最大1枚までです` と同じ） */
+export const EDU_MAX = 1
+
 /** アクションプランの行数（様式と同じ 25 行） */
 export const PLAN_ROWS = 25
 
 // 保存データの型崩れ対策：数値でなければ 0、人数・枚数は 0 以上の整数に丸める
 const num0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const int0 = (v: unknown): number => Math.max(0, Math.round(num0(v)))
+
+/**
+ * 保存済みの1行から記帳アクションのキーを読む。知らないキーは未選択（''）にする。
+ * 自由記入だった頃の text は、アクション名と一致すればそのキーに読み替える。
+ */
+function actionKey(a: Record<string, unknown> | undefined): string {
+  const k = a?.key
+  if (typeof k === 'string' && PLAN_ACTION_KEYS.includes(k)) return k
+  const t = a?.text
+  return typeof t === 'string' ? (PLAN_ACTION_KEYS.find((x) => ACTIONS[x].label === t) ?? '') : ''
+}
 
 /** 計画の初期値（すべて未記入＝0）。現況は盤面から出すので Plan には持たない */
 export function defaultPlan(): Plan {
@@ -52,7 +202,7 @@ export function defaultPlan(): Plan {
     loanNew: 0,
     p: 0,
     v: 0,
-    actions: Array.from({ length: PLAN_ROWS }, () => ({ text: '', amount: 0 })),
+    actions: Array.from({ length: PLAN_ROWS }, () => ({ key: '', qty: 0, amount: 0 })),
   }
 }
 
@@ -64,9 +214,10 @@ export function normalizePlan(input: unknown): Plan {
   const acts = Array.isArray(o.actions) ? o.actions : []
   return {
     g: num0(o.g),
-    hire: int0(o.hire),
+    // 製造・販売を分けて保存された古い計画は、合計を採用人数として読む
+    hire: o.hire === undefined ? int0(o.hireMfg) + int0(o.hireSales) : int0(o.hire),
     machinesNew: int0(o.machinesNew),
-    edu: int0(o.edu),
+    edu: Math.min(EDU_MAX, int0(o.edu)), // 教育チップは最大1枚
     ins: int0(o.ins),
     ads: int0(o.ads),
     dev: int0(o.dev),
@@ -75,24 +226,75 @@ export function normalizePlan(input: unknown): Plan {
     v: num0(o.v),
     actions: Array.from({ length: PLAN_ROWS }, (_, i) => {
       const a = acts[i] as Record<string, unknown> | undefined
-      return { text: typeof a?.text === 'string' ? a.text : '', amount: num0(a?.amount) }
+      return { key: actionKey(a), qty: int0(a?.qty), amount: num0(a?.amount) }
     }),
   }
 }
 
 /**
- * 1. 経常利益（G）の目安：期首の利益剰余金がマイナスのとき、期末にそれをゼロ以上へ戻すのに必要な最小の G。
- * 決算と同じ法人税の式（corporateTax）で「G − 税 ≧ 赤字」となる最小の整数 G を探す
- * （繰越損失があるときは赤字を埋めた残りだけに課税されるので、実質「赤字 ＋ 最低税額 5」になる）。
- * 特別損益（保険金・廃棄損）は無いものとする。利益剰余金が 0 以上なら目安は出さない（null）。
+ * 税引後の利益を `after` 以上にするのに必要な、最小の経常利益 G。
+ * 決算と同じ法人税の式（corporateTax）で「G − 税 ≧ after」となる最小の整数を探す
+ * （繰越損失があるときは埋めた残りだけに課税されるので、実質「after ＋ 最低税額 5」になる）。
+ * 特別損益（保険金・廃棄損）は無いものとする。after が 0 以下なら目安は出さない（null）。
  */
-export function breakEvenG(st: St): number | null {
-  if (st.retained >= 0) return null
-  const deficit = -st.retained
-  for (let g = Math.ceil(deficit); g <= deficit + 1000; g++) {
-    if (g - corporateTax(g, st.retained) >= deficit) return g
+export function gForAfterTax(after: number, st: St): number | null {
+  if (after <= 0) return null
+  for (let g = Math.ceil(after); g <= after + 100000; g++) {
+    if (g - corporateTax(g, st.retained) >= after) return g
   }
   return null
+}
+
+/**
+ * 1. 経常利益（G）の目安その1：期首の利益剰余金がマイナスのとき、
+ * 期末にそれをゼロ以上へ戻すのに必要な最小の G。利益剰余金が 0 以上なら出さない（null）。
+ */
+export function breakEvenG(st: St): number | null {
+  return st.retained >= 0 ? null : gForAfterTax(-st.retained, st)
+}
+
+/** 1位との差を埋めるのに必要な経常利益（目安その2） */
+export interface RankGap {
+  /** 純資産が1番多い他社 */
+  topName: string
+  topEquity: number
+  /** 自社の期首の純資産（資本金＋利益剰余金） */
+  myEquity: number
+  /** 1位との差。0 以下なら自社が1位 */
+  gap: number
+  /** 差を今期の税引後利益で埋めるのに必要な経常利益。差が無ければ null */
+  g: number | null
+}
+
+/** 純資産の比較に使う、その会社の最新の決算結果 */
+export interface RankCompany {
+  name: string
+  results?: { capEnd: number; retEnd: number }[] | null
+}
+
+/**
+ * 1. 経常利益（G）の目安その2：同じ研修の他社のうち純資産が1番多い会社との差と、
+ * それを今期で埋めるのに必要な経常利益。
+ *
+ * - 純資産 ＝ 資本金 ＋ 利益剰余金。他社は最新の決算結果（capEnd＋retEnd）、自社は期首の値を使う。
+ * - 期末の純資産 ＝ 期首の純資産 ＋ 当期純利益（増資なしとして）なので、
+ *   差を埋めるには「税引後利益 ≧ 差」。必要な G は `gForAfterTax()` で出す。
+ * - **相手も今期伸びるので、あくまで現時点の差に対する目安**。決算がまだ1社も無ければ出さない（null）。
+ */
+export function rankGap(st: St, companies: RankCompany[]): RankGap | null {
+  const equityOf = (c: RankCompany): number | null => {
+    const r = c.results?.[c.results.length - 1]
+    return r ? r.capEnd + r.retEnd : null
+  }
+  const others = companies
+    .filter((c) => c.name !== st.name)
+    .map((c) => ({ name: c.name, eq: equityOf(c) }))
+    .filter((x): x is { name: string; eq: number } => x.eq != null)
+  if (!others.length) return null
+  const top = others.reduce((a, b) => (b.eq > a.eq ? b : a))
+  const myEquity = st.openingCapital + st.retained
+  const gap = top.eq - myEquity
+  return { topName: top.name, topEquity: top.eq, myEquity, gap, g: gap > 0 ? gForAfterTax(gap, st) : null }
 }
 
 /** 固定費の1項目。col は様式の列：now＝現況（最低限必要）／new＝戦略的投資（新規） */
@@ -128,8 +330,8 @@ const pct = (rate: number) => Math.round(rate * 1000) / 10
 /**
  * 2. 固定費（F）の内訳を数値ルールと盤面から算出する。
  * - 現況（最低限必要・読み取り専用）：期首の会社盤から必ず出る費用。
- *   製造／販売スタッフの給料（期首人数 × 当期給料）、減価償却（期首台数 × 単価）、家賃、期首借入残高の金利
- * - 新規（戦略的投資・入力）：採用（採用費と期末で追加の給料）、機械購入（減価償却）、教育・保険・広告・商品開発（枚数 × 単価）、新規借入の金利。
+ *   スタッフの給料（期首人数 × 当期給料。製造・販売を分けず人件費でまとめる）、減価償却（期首台数 × 単価）、家賃、期首借入残高の金利
+ * - 新規（戦略的投資・入力）：採用（製造・販売それぞれの採用費と、期末で追加の給料）、機械購入（減価償却）、教育・保険・広告・商品開発（枚数 × 単価）、新規借入の金利。
  *   単価は記帳アクションの amount と同じ式から引く。
  * 金利の丸めは記帳側（期首行・借入の派生行）と同じ Math.round。
  */
@@ -151,23 +353,30 @@ export function fixedCosts(plan: Plan, st: St): FixedCosts {
   const mfg = st.openingStaffMfg
   const sales = st.openingStaffSales
   const mach = st.openingMachines
+
   const interestOpen = Math.round(st.openingLoan * R.loanRate)
   const interestNew = Math.round(plan.loanNew * R.loanRate)
   const items: FixedCostItem[] = [
     // 現況
-    { key: 'salaryMfg', label: '労務費', detail: `製造スタッフ給与 ${sal}×${mfg}人`, amount: sal * mfg, col: 'now' },
-    { key: 'salarySales', label: '人件費', detail: `販売スタッフ給与 ${sal}×${sales}人`, amount: sal * sales, col: 'now' },
-    { key: 'dep', label: '減価償却費', detail: `${R.depPerMachine}×${mach}台`, amount: R.depPerMachine * mach, col: 'now' },
-    { key: 'rent', label: '家賃', detail: '期末に必ず計上', amount: R.rent, col: 'now' },
-    { key: 'intOpen', label: '営業外費用', detail: `借入金の期首残高 ${st.openingLoan}×金利${units.ratePct}%`, amount: interestOpen, col: 'now' },
+    // 製造・販売を分けず「人件費」1行にまとめる（労務費という費目は使わない）
+    {
+      key: 'salary',
+      label: '人件費',
+      detail: `現在雇用しているスタッフ ${mfg + sales}人 × 給料 ${sal}`,
+      amount: sal * (mfg + sales),
+      col: 'now',
+    },
+    { key: 'dep', label: '減価償却費', detail: `現在所有している什器 ${mach}台 × 減価償却 ${R.depPerMachine}`, amount: R.depPerMachine * mach, col: 'now' },
+    { key: 'rent', label: '家賃', detail: '期末に必ず発生する家賃', amount: R.rent, col: 'now' },
+    { key: 'intOpen', label: '営業外費用', detail: `期首の借入金 ${st.openingLoan} × 金利${units.ratePct}%`, amount: interestOpen, col: 'now' },
     // 新規（入力から）
-    { key: 'hire', label: '一般管理費', detail: `社員採用 ${units.hire}×${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
-    { key: 'hireSalary', label: '人件費', detail: `期末で追加の給料 ${sal}×${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
-    { key: 'depNew', label: '減価償却費', detail: `機械購入 ${R.depPerMachine}×${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
-    { key: 'edu', label: '一般管理費', detail: `教育 ${units.edu}×${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
-    { key: 'ins', label: '一般管理費', detail: `保険加入 ${units.ins}×${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
-    { key: 'ads', label: '販売費', detail: `広告 ${units.ads}×${plan.ads}枚`, amount: unit('koukoku', { n: plan.ads }), col: 'new' },
-    { key: 'dev', label: '研究開発費', detail: `商品開発 ${units.dev}×${plan.dev}枚`, amount: unit('kaihatsu', { n: plan.dev }), col: 'new' },
+    { key: 'hire', label: '一般管理費', detail: `採用費 ${units.hire} × ${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
+    { key: 'hireSalary', label: '人件費', detail: `給料 ${sal} × ${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
+    { key: 'depNew', label: '減価償却費', detail: `減価償却 ${R.depPerMachine} × ${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
+    { key: 'edu', label: '一般管理費', detail: `${units.edu} × ${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
+    { key: 'ins', label: '一般管理費', detail: `${units.ins} × ${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
+    { key: 'ads', label: '販売費', detail: `${units.ads} × ${plan.ads}枚`, amount: unit('koukoku', { n: plan.ads }), col: 'new' },
+    { key: 'dev', label: '研究開発費', detail: `${units.dev} × ${plan.dev}枚`, amount: unit('kaihatsu', { n: plan.dev }), col: 'new' },
     { key: 'intNew', label: '営業外費用', detail: `今期新規借入 ${plan.loanNew}×金利${units.ratePct}%`, amount: interestNew, col: 'new' },
   ]
   const sum = (col: 'now' | 'new') => items.filter((x) => x.col === col).reduce((s, x) => s + x.amount, 0)
@@ -196,7 +405,9 @@ export function planFigures(plan: Plan, st: St): PlanFigures {
 }
 
 export interface CashPlanRow {
-  text: string
+  /** 選ばれている記帳アクションのキー（'' ＝未選択） */
+  key: string
+  qty: number
   amount: number
   balance: number
 }
@@ -206,32 +417,144 @@ export interface CashPlan {
   /** 期首処理（法人税納付・支払金利）。期首の自動行の合計をマイナスで */
   openingAuto: number
   rows: CashPlanRow[]
-  /** 期末処理（給料・家賃・元本返済）。予定人数と数値ルール、期首の返済率から */
-  closingAuto: number
-  closingDetail: string
-  endBalance: number
 }
 
 /**
- * 6. アクションプラン：前期繰越残高 → 期首処理 → 各行の入出金 → 期末処理 の順に現金残高を累計する。
+ * 7. アクションプラン：前期繰越残高 → 期首処理 → 各行の入出金 の順に現金残高を累計する。
  * 期首処理は記帳済みの自動行（法人税納付・支払金利）の金額をそのまま使う。
- * 期末処理は「（期首人数＋採用予定）× 当期給料 ＋ 家賃 ＋ 期首借入残高 × 返済率」（期末処理の式と同じ）。
+ * 期末処理（給料・家賃・元本返済）はアクションプランには載せない。
  */
 export function cashPlan(plan: Plan, st: St): CashPlan {
-  const R = getRules()
   const openingAuto = -st.tx
     .filter((t) => t.isOpeningTax || t.isOpeningInterest)
     .reduce((s, t) => s + (t.amount || 0), 0)
   let bal = st.openingCash + openingAuto
   const rows = plan.actions.map((a) => {
     bal += a.amount || 0
-    return { text: a.text, amount: a.amount || 0, balance: bal }
+    return { key: a.key, qty: a.qty, amount: a.amount || 0, balance: bal }
   })
-  const salary = (st.openingStaffMfg + st.openingStaffSales + plan.hire) * salaryFor(st.period)
-  const repay = Math.round((st.openingLoan * st.repayRate) / 100)
-  const closingAuto = -(salary + R.rent + repay)
-  const closingDetail = `給料 ${salary}＋家賃 ${R.rent}${repay > 0 ? `＋返済 ${repay}` : ''}`
-  return { openingCash: st.openingCash, openingAuto, rows, closingAuto, closingDetail, endBalance: bal + closingAuto }
+  return { openingCash: st.openingCash, openingAuto, rows }
+}
+
+/** 7. 必要なアクション回数の1項目 */
+export interface ActionNeed {
+  /** 記帳アクションのキー（アクションプランのプルダウンと同じ） */
+  key: string
+  label: string
+  /** 最低限必要な回数。能力が 0 で何回やっても届かないときは null */
+  need: number | null
+  /** 回数の根拠（必要量 ÷ 1回あたりの上限） */
+  detail: string
+  /** アクションプランで実際に選ばれている回数 */
+  planned: number
+}
+
+/**
+ * 7. どのアクションを何回しないといけないかを、必要販売数 Q と能力から逆算する。
+ *
+ * - 仕入れ／製造／販売：期首在庫で足りない分 ÷ 1回あたりの上限（切り上げ）。
+ *   能力の式は calc の `caps()` をそのまま使う（式を二重に持たない）。
+ *   盤面は「期首 ＋ 今期の機械購入・教育・広告」で組む。教育チップは期をまたがないので計画の枚数がそのまま効く。
+ *   **採用予定は能力に入れない**：製造・販売どちらに配置するかで能力が変わり、計画では決められないため。
+ * - 投資（採用・機械購入・広告・保険・教育・商品開発・借入）：入力があるものだけ出す。
+ *   教育と商品開発は記帳フォームが1回1枚固定なので枚数＝回数、それ以外は1回でまとめて記帳できる。
+ */
+export function actionNeeds(plan: Plan, st: St): ActionNeed[] {
+  const R = getRules()
+  const Q = planFigures(plan, st).Q
+  const c = planCaps(plan, st)
+  // 回数 ＝ 必要量 ÷ 1回あたりの上限（切り上げ）。上限が 0 なら何回やっても届かないので null
+  const times = (qty: number, cap: number): number | null => (cap > 0 ? Math.ceil(qty / cap) : qty > 0 ? null : 0)
+  const list: ActionNeed[] = []
+  const push = (key: string, need: number | null, detail: string) =>
+    list.push({
+      key,
+      label: ACTIONS[key].label,
+      need,
+      detail,
+      planned: plan.actions.filter((a) => a.key === key).length,
+    })
+  if (Q == null) {
+    // 粗利単価 M が 0 以下で Q が出せないときは、売買の回数も出せない
+    const noQ = '売上必要個数（Q）が未確定です'
+    push('shiire', null, noQ)
+    push('seizo', null, noQ)
+    push('hanbai', null, noQ)
+  } else {
+    const buy = Math.max(0, Q - st.openingMatQty) // 期首在庫（材料＋製品）で足りない分だけ仕入れる
+    const make = Math.max(0, Q - st.openingProducts) // 期首の製品で足りない分だけ製造する
+    push('shiire', times(buy, R.matCap), `${buy}個 ÷ 在庫上限 ${R.matCap}個`)
+    push('seizo', times(make, c.mfgCap), `${make}個 ÷ 製造能力 ${c.mfgCap}個`)
+    push('hanbai', times(Q, c.salesCap), `${Q}個 ÷ 販売能力 ${c.salesCap}個`)
+  }
+  if (plan.hire > 0) push('saiyo', 1, `${plan.hire}人（1回でまとめて実施）`)
+  if (plan.machinesNew > 0) push('kikai', 1, `${plan.machinesNew}台（1回でまとめて実施）`)
+  if (plan.ads > 0) push('koukoku', 1, `${plan.ads}枚（1回でまとめて実施）`)
+  if (plan.ins > 0) push('hoken', 1, `${plan.ins}枚（1回でまとめて実施）`)
+  if (plan.edu > 0) push('kyoiku', plan.edu, `1回につき1枚のため ${plan.edu}枚＝${plan.edu}回`)
+  if (plan.dev > 0) push('kaihatsu', plan.dev, `1回につき1枚のため ${plan.dev}枚＝${plan.dev}回`)
+  if (plan.loanNew > 0) push('kariire', 1, `${plan.loanNew}（1回でまとめて実施）`)
+  return list
+}
+
+/**
+ * 過去の期の経営計画書を見るために、その期の「期首の盤面」を前の期の決算結果から組み直す。
+ * 期またぎ（`nextPeriod()`）と同じ導出なので、その期に計画を書いたときと同じ現況・能力・借入枠になる。
+ * 前の期の決算が無ければ組み直せない（null）。
+ */
+export function stateAtPeriod(period: number, history: Result[], base: St): St | null {
+  if (period === 1) {
+    // 第1期の期首は何も持っていない（資本金も記帳で入る）ので、期首の値をすべて 0 にした盤面
+    const st: St = {
+      ...base,
+      period: 1,
+      tx: [],
+      seq: 1,
+      result: null,
+      settled: false,
+      closingPrep: false,
+      openingCash: 0,
+      openingCapital: 0,
+      retained: 0,
+      openingMatQty: 0,
+      openingMatVal: 0,
+      openingProducts: 0,
+      openingEquipVal: 0,
+      openingMachines: 0,
+      openingStaffMfg: 0,
+      openingStaffSales: 0,
+      openingLoan: 0,
+      openingDev: 0,
+      openingAds: 0,
+    }
+    recompute(st)
+    return st
+  }
+  const prev = history.find((r) => r.period === period - 1)
+  if (!prev) return null
+  const st: St = {
+    ...base,
+    period: prev.period, // nextPeriod() が +1 する
+    result: prev,
+    tx: [],
+    seq: 1,
+    settled: true,
+    closingPrep: true,
+    loanMult: prev.loanMult,
+    repayRate: prev.repayRate,
+  }
+  nextPeriod(st)
+  return st
+}
+
+/**
+ * 経営計画書を変更できなくするか。**その期の記帳を1件でも始めたら固定**する。
+ * 計画は「記帳を始める前に立てるもの」で、動き出したあとに書き換えると計画と実績の対比が意味を失うため。
+ * 期首処理の自動行（法人税納付・支払金利・資本金）は記帳に数えない（key を持たないため）。
+ * 期末処理や決算まで進んだ期も同じく変更できない。
+ */
+export function planLocked(st: St): boolean {
+  return st.tx.some((t) => !!t.key) || st.closingPrep || st.settled
 }
 
 /** 経営計画書タブを出すか。数値ルール planFromPeriod の期から（それより前の期はタブ自体を出さない） */

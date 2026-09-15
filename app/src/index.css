@@ -47,6 +47,10 @@ body {
   background: #f6f7f9;
   color: #1b2230;
   font-family: 'Zen Kaku Gothic New', system-ui, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+  /* 日本語は文節の切れ目で折り返す（「戦略的投／資」のように語の途中で切らない）。
+     word-break は継承するのでここだけで全体に効く。未対応のブラウザでは従来どおりの折り返しになる。 */
+  word-break: auto-phrase;
+  line-break: strict;
 }
 
 /* 数値は等幅・桁揃え */
@@ -73,5 +77,25 @@ body {
   }
   body.printing #pdf-sheet {
     display: block !important;
+  }
+}
+
+/* 経営計画書：計画がそろって「動き方を決める」が開くときの、一度きりの出現 */
+@keyframes plan-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.plan-reveal {
+  animation: plan-reveal 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-reveal {
+    animation: none;
   }
 }

@@ -3,7 +3,24 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { newState, setRules, corporateTax, type St } from '../src/lib/calc.ts'
-import { defaultPlan, normalizePlan, fixedCosts, planFigures, cashPlan, breakEvenG, PLAN_ROWS } from '../src/lib/plan.ts'
+import {
+  defaultPlan,
+  normalizePlan,
+  fixedCosts,
+  planFigures,
+  cashPlan,
+  breakEvenG,
+  actionNeeds,
+  actionAmount,
+  actionQtyMax,
+  rankGap,
+  clampQty,
+  defaultQty,
+  planLocked,
+  stateAtPeriod,
+  PLAN_ROWS,
+  PLAN_ACTION_KEYS,
+} from '../src/lib/plan.ts'
 
 const reset = () => setRules(null)
 
@@ -15,6 +32,7 @@ function st3(): St {
   st.openingStaffSales = 2
   st.openingMachines = 1
   st.openingLoan = 100
+  st.loan = 100 // 記帳前の盤面。アプリでは recompute() が期首残高から組み直す
   st.repayRate = 10
   st.openingCash = 252
   st.tx = [
@@ -38,14 +56,16 @@ test('固定費：現況は期首の盤面から（給料・減価償却・家�
   const st = st3()
   const plan = { ...defaultPlan(), hire: 1, machinesNew: 1, edu: 1, ins: 1, ads: 2, dev: 1, loanNew: 100 }
   const fc = fixedCosts(plan, st)
-  // 現況：給料 31×2 ＋ 31×2、減価償却 10×1、家賃 25、期首残高 100×5% ＝ 5
-  assert.equal(fc.now, 62 + 62 + 10 + 25 + 5)
+  // 現況：給料 31×4人（製造・販売をまとめて人件費1行）、減価償却 10×1、家賃 25、期首残高 100×5% ＝ 5
+  assert.equal(fc.now, 31 * 4 + 10 + 25 + 5)
   // 新規：採用費 5×1 ＋ 採用者の給料 31×1、機械購入の減価償却 10×1、教育 20、保険 5、広告 10×2、商品開発 20、新規借入 100×5% ＝ 5
   assert.equal(fc.next, 5 + 31 + 10 + 20 + 5 + 20 + 20 + 5)
   assert.equal(fc.total, fc.now + fc.next)
   // 表示用の内訳文に単価と数量が入る
-  assert.equal(fc.items.find((x) => x.key === 'ads')?.detail, '広告 10×2枚')
-  assert.equal(fc.items.find((x) => x.key === 'salaryMfg')?.detail, '製造スタッフ給与 31×2人')
+  assert.equal(fc.items.find((x) => x.key === 'ads')?.detail, '10 × 2枚')
+  assert.equal(fc.items.find((x) => x.key === 'salary')?.label, '人件費')
+  assert.equal(fc.items.find((x) => x.key === 'salary')?.detail, '現在雇用しているスタッフ 4人 × 給料 31')
+  assert.equal(fc.items.filter((x) => x.col === 'now' && x.label === '労務費').length, 0)
   // 表示用の単価
   assert.deepEqual(fc.units, { sal: 31, dep: 10, hire: 5, edu: 20, ins: 5, ads: 10, dev: 20, ratePct: 5 })
   reset()
@@ -55,7 +75,7 @@ test('図：MQ＝G＋F、M＝P−V、Q は切り上げ、PQ・VQ はその個数
   const st = st3()
   const plan = { ...defaultPlan(), g: 100, p: 32, v: 12 }
   const f = planFigures(plan, st)
-  assert.equal(f.F, 62 + 62 + 10 + 25 + 5) // 164
+  assert.equal(f.F, 31 * 4 + 10 + 25 + 5) // 164
   assert.equal(f.MQ, 264)
   assert.equal(f.M, 20)
   assert.equal(f.Q, 14) // 264 ÷ 20 ＝ 13.2 → 14
@@ -85,35 +105,264 @@ test('ルール差し替えに追従：家賃・給料表・減価償却・金�
   reset()
 })
 
-test('アクションプラン：前期繰越 → 期首処理 → 各行 → 期末処理 の順に現金残高を累計する', () => {
+test('アクションプラン：前期繰越 → 期首処理 → 各行 の順に現金残高を累計する（期末処理は載せない）', () => {
   const st = st3()
   const plan = defaultPlan()
-  plan.actions[0] = { text: '仕入 5個', amount: -50 }
-  plan.actions[1] = { text: '販売 3個', amount: 80 }
+  plan.actions[0] = { key: 'shiire', qty: 5, amount: -50 }
+  plan.actions[1] = { key: 'hanbai', qty: 3, amount: 80 }
   const c = cashPlan(plan, st)
   assert.equal(c.openingCash, 252)
   assert.equal(c.openingAuto, -(26 + 5)) // 期首の自動行（納税＋金利）
   assert.equal(c.rows[0].balance, 252 - 31 - 50)
   assert.equal(c.rows[1].balance, 252 - 31 - 50 + 80)
   assert.equal(c.rows[PLAN_ROWS - 1].balance, 251) // 空行は残高を変えない
-  // 期末処理：給料 31×4 ＋ 家賃 25 ＋ 返済 100×10% ＝ 10
-  assert.equal(c.closingAuto, -(124 + 25 + 10))
-  assert.equal(c.endBalance, 251 - 159)
-  // 採用予定が 1 人なら期末の給料も 1 人分増える
-  assert.equal(cashPlan({ ...plan, hire: 1 }, st).closingAuto, -(124 + 31 + 25 + 10))
+  // 期末処理（給料・家賃・元本返済）はアクションプランには載せない
+  assert.equal('closingAuto' in c, false)
+  assert.equal('endBalance' in c, false)
   reset()
+})
+
+test('必要なアクション回数：Q と能力（期首の盤面＋今期の投資）から逆算する', () => {
+  const st = st3() // 製造2・販売2・機械1・期首在庫なし
+  // G100・P32・V12 → Q＝14個（'図' のテストと同じ）。投資なし
+  const nd = actionNeeds({ ...defaultPlan(), g: 100, p: 32, v: 12 }, st)
+  const of = (k: string) => nd.find((x) => x.key === k)!
+  // 製造能力 min(2, 1台×2)×2 ＝ 4個/回 → 14個で 4回。販売能力 2人×2 ＝ 4個/回 → 4回。仕入は在庫上限 15 → 1回
+  assert.equal(of('shiire').need, 1)
+  assert.equal(of('seizo').need, 4)
+  assert.equal(of('hanbai').need, 4)
+  assert.equal(of('seizo').detail, '14個 ÷ 製造能力 4個')
+  // 投資が無いので採用・機械購入などの行は出さない
+  assert.equal(nd.length, 3)
+  reset()
+})
+
+test('必要なアクション回数：機械・教育・広告は能力に効き、採用は効かない。投資そのものの回数も出す', () => {
+  const st = st3()
+  const plan = { ...defaultPlan(), g: 100, p: 32, v: 12, hire: 3, machinesNew: 1, edu: 1, ads: 2, dev: 2, ins: 1, loanNew: 50 }
+  const nd = actionNeeds(plan, st)
+  const of = (k: string) => nd.find((x) => x.key === k)!
+  // 採用は配置先が決まらないので能力に入れない。製造能力 min(製造2, 機械2台×2)×3(教育あり) ＝ 6個/回、
+  // 販売能力 2人×2 ＋ min(広告2, 4)×2 ＝ 8個/回
+  assert.equal(of('seizo').detail.endsWith('÷ 製造能力 6個'), true)
+  assert.equal(of('hanbai').detail.endsWith('÷ 販売能力 8個'), true)
+  // 1回の記帳でまとめられるものは1回、教育・商品開発は1回1枚なので枚数ぶん
+  assert.equal(of('saiyo').need, 1)
+  assert.equal(of('saiyo').detail, '3人（1回でまとめて実施）')
+  assert.equal(of('kikai').need, 1)
+  assert.equal(of('koukoku').need, 1)
+  assert.equal(of('hoken').need, 1)
+  assert.equal(of('kyoiku').need, 1)
+  assert.equal(of('kaihatsu').need, 2)
+  assert.equal(of('kariire').need, 1)
+  reset()
+})
+
+test('必要なアクション回数：期首在庫は仕入・製造の必要量から引く。Q が出せなければ回数も出さない', () => {
+  const st = st3()
+  st.openingMatQty = 6 // 期首在庫 6個（うち製品 4個）
+  st.openingProducts = 4
+  const nd = actionNeeds({ ...defaultPlan(), g: 100, p: 32, v: 12 }, st)
+  const of = (k: string) => nd.find((x) => x.key === k)!
+  assert.equal(of('shiire').detail, '8個 ÷ 在庫上限 15個') // 14 − 6
+  assert.equal(of('seizo').detail, '10個 ÷ 製造能力 4個') // 14 − 4
+  // 粗利単価 M が 0 以下なら Q が出ないので回数も null
+  const none = actionNeeds({ ...defaultPlan(), g: 100, p: 12, v: 12 }, st)
+  assert.deepEqual(none.map((x) => x.need), [null, null, null])
+  reset()
+})
+
+test('必要なアクション回数：計画に入れた回数を数える。能力が 0 なら何回やっても届かないので null', () => {
+  const st = st3()
+  const plan = { ...defaultPlan(), g: 100, p: 32, v: 12 }
+  plan.actions[0] = { key: 'hanbai', qty: 1, amount: 32 }
+  plan.actions[1] = { key: 'hanbai', qty: 1, amount: 32 }
+  assert.equal(actionNeeds(plan, st).find((x) => x.key === 'hanbai')!.planned, 2)
+  // 販売スタッフが 0 人なら販売能力 0 → 必要回数は計算不能
+  st.openingStaffSales = 0
+  assert.equal(actionNeeds(plan, st).find((x) => x.key === 'hanbai')!.need, null)
+  reset()
+})
+
+test('プルダウンの選択肢：参加者が選べる記帳アクション（ルールA・B）だけ。イベントは入れない', () => {
+  assert.equal(PLAN_ACTION_KEYS.includes('shiire'), true)
+  assert.equal(PLAN_ACTION_KEYS.includes('hensai'), true)
+  assert.equal(PLAN_ACTION_KEYS.includes('tokubai'), false) // イベント（ルールX）
+})
+
+test('アクションプランの金額：数量から、記帳と同じ式で自動で出す（入金は＋・出金は−）', () => {
+  const plan = { ...defaultPlan(), p: 32, v: 12 }
+  // 仕入れは売上原価 V、販売は販売単価 P を単価に使う
+  assert.equal(actionAmount('shiire', 5, plan), -60)
+  assert.equal(actionAmount('hanbai', 4, plan), 128)
+  // 現金が動かないもの（製造）は 0
+  assert.equal(actionAmount('seizo', 5, plan), 0)
+  // 単価が決まっているものは記帳と同じ額
+  assert.equal(actionAmount('kikai', 1, plan), -100) // 機械 1台
+  assert.equal(actionAmount('saiyo', 2, plan), -10) // 採用 5×2人
+  assert.equal(actionAmount('koukoku', 2, plan), -20) // 広告 10×2枚
+  assert.equal(actionAmount('kaihatsu', 1, plan), -20)
+  assert.equal(actionAmount('kyoiku', 1, plan), -20)
+  assert.equal(actionAmount('hoken', 3, plan), -15)
+  assert.equal(actionAmount('haichi', 1, plan), -5)
+  // 借入・返済は数量がそのまま金額
+  assert.equal(actionAmount('kariire', 100, plan), 100)
+  assert.equal(actionAmount('hensai', 30, plan), -30)
+  // 未選択は 0
+  assert.equal(actionAmount('', 5, plan), 0)
+  reset()
+})
+
+test('アクションプランの金額：数値ルールを差し替えると自動金額も追従する', () => {
+  setRules({ machinePrice: 150 })
+  assert.equal(actionAmount('kikai', 2, { ...defaultPlan() }), -300)
+  reset()
+})
+
+test('数量の初期値：借入・返済は金額なので 0、それ以外は1回分の 1。未選択は 0', () => {
+  assert.equal(defaultQty('shiire'), 1)
+  assert.equal(defaultQty('kyoiku'), 1)
+  assert.equal(defaultQty('kariire'), 0)
+  assert.equal(defaultQty('hensai'), 0)
+  assert.equal(defaultQty(''), 0)
+})
+
+test('数量の上限：記帳のバリデーションと同じ根拠（在庫上限・能力・1回1枚・借入枠）', () => {
+  const st = st3() // 製造2・販売2・機械1・借入100
+  const plan = { ...defaultPlan(), p: 32, v: 12 }
+  // 仕入れは材料在庫の上限 15、製造は製造能力 min(2, 1台×2)×2 ＝ 4 と店舗陳列 15 の小さいほう、販売は販売能力 2人×2 ＝ 4
+  assert.equal(actionQtyMax('shiire', plan, st), 15)
+  assert.equal(actionQtyMax('seizo', plan, st), 4)
+  assert.equal(actionQtyMax('hanbai', plan, st), 4)
+  // 教育・商品開発は1回1枚
+  assert.equal(actionQtyMax('kyoiku', plan, st), 1)
+  assert.equal(actionQtyMax('kaihatsu', plan, st), 1)
+  // 配置転換はスタッフ数まで、返済は借入残高まで
+  assert.equal(actionQtyMax('haichi', plan, st), 2)
+  assert.equal(actionQtyMax('hensai', plan, st), 100)
+  // 借入は今期借入可能額（純資産×倍率 − 残高）まで
+  assert.equal(actionQtyMax('kariire', plan, st), 0) // 純資産0・倍率0 のテスト盤面では枠なし
+  // 上限が無いもの
+  assert.equal(actionQtyMax('kikai', plan, st), null)
+  assert.equal(actionQtyMax('saiyo', plan, st), null)
+  assert.equal(actionQtyMax('koukoku', plan, st), null)
+  assert.equal(actionQtyMax('hoken', plan, st), null)
+  reset()
+})
+
+test('数量の上限：機械購入・教育を計画に入れると製造能力が上がり、上限も上がる', () => {
+  const st = st3()
+  const plan = { ...defaultPlan(), machinesNew: 1, edu: 1 }
+  // 製造能力 min(製造2, 機械2台×2)×3(教育あり) ＝ 6
+  assert.equal(actionQtyMax('seizo', plan, st), 6)
+  reset()
+})
+
+test('clampQty：上限を超えた数量は上限まで、マイナスは 0 に丸める', () => {
+  const st = st3()
+  const plan = { ...defaultPlan() }
+  assert.equal(clampQty('kaihatsu', 5, plan, st), 1)
+  assert.equal(clampQty('shiire', 99, plan, st), 15)
+  assert.equal(clampQty('kikai', 99, plan, st), 99) // 上限なしはそのまま
+  assert.equal(clampQty('shiire', -3, plan, st), 0)
+  reset()
+})
+
+test('normalizePlan：教育の枚数は最大1枚に収める', () => {
+  assert.equal(normalizePlan({ edu: 5 }).edu, 1)
+})
+
+test('1位との差：純資産が1番多い他社との差と、それを埋めるのに必要な経常利益', () => {
+  const st = st3() // 自社は資本金0・利益剰余金0 → 純資産 0
+  const cs = [
+    { name: 'じぶん', results: [{ capEnd: 300, retEnd: 50 }] },
+    { name: 'A社', results: [{ capEnd: 300, retEnd: 20 }] },
+    { name: 'B社', results: [{ capEnd: 300, retEnd: 100 }] }, // 純資産 400 で1位
+    { name: 'C社', results: [] }, // 決算がまだ無い会社は対象外
+  ]
+  st.name = 'じぶん'
+  const r = rankGap(st, cs)!
+  assert.equal(r.topName, 'B社')
+  assert.equal(r.topEquity, 400)
+  assert.equal(r.myEquity, 0)
+  assert.equal(r.gap, 400)
+  // 税引後 400 を残す最小の G（法人税30%・最低5）
+  assert.equal(r.g! - corporateTax(r.g!, st.retained) >= 400, true)
+  assert.equal(r.g! - 1 - corporateTax(r.g! - 1, st.retained) >= 400, false)
+  reset()
+})
+
+test('1位との差：自社が1位なら必要額は出さない。他社の決算が無ければ目安そのものを出さない', () => {
+  const st = st3()
+  st.name = 'じぶん'
+  st.openingCapital = 500 // 自社の純資産 500
+  const top = rankGap(st, [{ name: 'A社', results: [{ capEnd: 300, retEnd: 20 }] }])!
+  assert.equal(top.gap, -180)
+  assert.equal(top.g, null)
+  // 決算がまだ無い／自分しかいない
+  assert.equal(rankGap(st, [{ name: 'A社', results: [] }]), null)
+  assert.equal(rankGap(st, [{ name: 'じぶん', results: [{ capEnd: 1, retEnd: 1 }] }]), null)
+  reset()
+})
+
+test('記帳を始めたら計画は変更できない。期首処理の自動行だけなら変更できる', () => {
+  const st = st3() // 期首の自動行（法人税納付・支払金利）だけがある状態
+  assert.equal(planLocked(st), false)
+  // 資本金の行（第1期の会社作成）も記帳には数えない
+  st.tx.push({ id: 9, label: '資本金', col: 0, amount: 300, isCapital: true })
+  assert.equal(planLocked(st), false)
+  // アクションを1件でも記帳したら固定
+  st.tx.push({ id: 10, key: 'shiire', label: '仕入れ', col: 5, amount: 60 })
+  assert.equal(planLocked(st), true)
+  reset()
+})
+
+test('記帳が無くても、期末処理や決算まで進んだ期は計画を変更できない', () => {
+  const a = st3()
+  a.closingPrep = true
+  assert.equal(planLocked(a), true)
+  const b = st3()
+  b.settled = true
+  assert.equal(planLocked(b), true)
+  reset()
+})
+
+test('過去の期の盤面：第1期は前の期が無いので、期首の値がすべて 0 の盤面を返す', () => {
+  const st = newState()
+  st.period = 3
+  const a = stateAtPeriod(1, [], st)!
+  assert.equal(a.period, 1)
+  assert.equal(a.openingStaffMfg, 0)
+  assert.equal(a.openingCapital, 0)
+  assert.equal(a.openingLoan, 0)
+  // 第2期以降は前の期の決算が要る
+  assert.equal(stateAtPeriod(3, [], st), null)
+  reset()
+})
+
+test('normalizePlan：古い保存値（採用の製造/販売分け・自由記入の text）を今の形に読み替える', () => {
+  const p = normalizePlan({ hireMfg: 2, hireSales: 1, actions: [{ text: '仕入れ', amount: -50 }, { text: '仕入 5個', amount: -50 }] })
+  assert.equal(p.hire, 3) // 製造・販売に分けて保存された計画は合計で読む
+  assert.equal(p.actions[0].key, 'shiire')
+  assert.equal(p.actions[1].key, '') // 一致しない自由記入は未選択
 })
 
 test('normalizePlan：壊れた保存値は初期値で埋め、行数は 25 に揃える', () => {
   assert.deepEqual(normalizePlan(null), defaultPlan())
   assert.deepEqual(normalizePlan('x'), defaultPlan())
-  const p = normalizePlan({ g: 100, hire: 'a', machinesNew: 2.4, actions: [{ text: '仕入', amount: -50 }, { text: 5 }] })
+  const p = normalizePlan({
+    g: 100,
+    hire: 'a',
+    machinesNew: 2.4,
+    actions: [{ key: 'shiire', qty: 5, amount: -50 }, { key: 'nope', amount: 3 }, { key: 5 }],
+  })
   assert.equal(p.g, 100)
   assert.equal(p.hire, 0) // 型崩れは 0
   assert.equal(p.machinesNew, 2) // 人数・台数は整数に丸める
   assert.equal(p.actions.length, PLAN_ROWS)
-  assert.deepEqual(p.actions[0], { text: '仕入', amount: -50 })
-  assert.deepEqual(p.actions[1], { text: '', amount: 0 })
+  assert.deepEqual(p.actions[0], { key: 'shiire', qty: 5, amount: -50 })
+  assert.deepEqual(p.actions[1], { key: '', qty: 0, amount: 3 }) // 知らないキーは未選択に
+  assert.deepEqual(p.actions[2], { key: '', qty: 0, amount: 0 })
 })
 
 test('G の目安：期首の利益剰余金がマイナスなら、税引後でゼロへ戻す最小の G（＝赤字＋最低税額 5）。プラスなら出さない', () => {
