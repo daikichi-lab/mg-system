@@ -236,7 +236,7 @@ tx.push({key, fvals:{discard, payout, insuredUsed}, col, amount:payout, noCash, 
 | 0 | ア | 資本金 | 入金 | 出資・増資 |
 | 1 | イ | 借入金 | 入金 | 借入 |
 | 2 | ウ | 売上 | 入金 | 販売収入（PQ） |
-| 3 | A | 受取保険金 | 入金 | 在庫被害の保険金 |
+| 3 | A | 保険金・その他 | 入金 | 在庫被害の保険金・什器売却の代金（特別損益に流れる入金） |
 | 4 | エ | 什器 | 出金 | 機械購入 |
 | 5 | オ | 材料仕入 | 出金 | 材料仕入 |
 | 6 | カ | 人件費 | 出金 | 採用/退職金/給料 |
@@ -488,6 +488,7 @@ function loanRoom(excludeAmt=0){ return Math.max(0, loanCap() - (st.loan - exclu
 | `avg` | `round(matVal/matQty)` | 平均単価 |
 | `rent` | `25`（または期末行金額） | 家賃 |
 | `special` | `tot[3]-scrapVal-equipSold` | 特別損益（什器売却損を含む） |
+| （表示）`specialBreakdown()` | 保険金 `tot[3]-equipSaleCash`／廃棄損 `scrap*avg`／什器売却損 `equipSold-equipSaleCash` | ① の内訳。保険金 − 廃棄損 − 売却損 ＝ special |
 | `pretax` | `G+special` | 税引前 |
 | `total4` | `pretax+ret0b` | 合計 |
 | `Q` | `st.salesQty` | 販売個数 |

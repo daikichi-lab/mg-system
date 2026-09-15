@@ -2,7 +2,7 @@
 // mock/index.html の renderFigs() ＋ 法人税計算表 ＋ 入金/出金内訳を TypeScript 移植。
 // すべてインラインスタイルで組み立てる（Tailwind クラスは使わない — 文字列内クラスは purge されるため）。
 // 各関数は確定済みの Result を受け取り、HTML 文字列を返す純関数。
-import { fmt, fmtA, type Result } from './calc.ts'
+import { fmt, fmtA, specialBreakdown, type Result } from './calc.ts'
 
 // ---- トークン（mock の Tailwind 設定 → インライン相当）----
 // .num 相当（等幅数字フォント）
@@ -181,6 +181,18 @@ export function loanHTML(r: Result, mk = ''): string {
 // ⑤ 法人税等（来期期首納税・最低5） ⑥ 当期純利益(②−⑤) ⑦ 次期繰越利益剰余金(⑥＋③)
 // 3分岐：②か④が▲なら5／合計が+なら30%（前期繰越が▲のときは合計×30%）
 // ============================================================
+// ① 特別損益の内訳（保険金・廃棄損・什器売却損）。0 の項目は出さず、全部 0 なら空
+function specialDetailHTML(r: Result): string {
+  const b = specialBreakdown(r)
+  const items = [
+    b.insurance ? `保険金 ＋${fmt(b.insurance)}` : '',
+    b.scrapLoss ? `廃棄損 ${fmtA(-b.scrapLoss)}` : '',
+    b.saleLoss ? `什器売却損 ${fmtA(-b.saleLoss)}` : '',
+  ].filter(Boolean)
+  if (!items.length) return ''
+  return `<div style="text-align:right;font-size:11px;color:${INK400};margin-top:-4px">${items.join('　')}</div>`
+}
+
 export function taxTableHTML(r: Result, mk = ''): string {
   // 1行（label / 値）— mock: flex justify-between
   const row = (label: string, valHTML: string, extra = ''): string =>
@@ -193,6 +205,7 @@ export function taxTableHTML(r: Result, mk = ''): string {
     `<h2 style="font-weight:700;margin:0 0 12px;font-size:16px;color:${INK}">${withMk(mk, '法人税・利益剰余金の計算')}</h2>` +
     `<div style="display:flex;flex-direction:column;gap:8px;font-size:14px">` +
     row('① 特別損益', num(fmtA(r.special))) +
+    specialDetailHTML(r) +
     row('② 税引前当期純利益（G ＋ ①）', num(fmtA(r.pretax))) +
     row('③ 前期繰越利益剰余金', num(fmtA(r.ret0))) +
     row('④ 合計（② ＋ ③）', num(fmtA(r.total4)), `border-top:1px dashed ${LINE};padding-top:8px`) +
@@ -210,13 +223,13 @@ export function taxTableHTML(r: Result, mk = ''): string {
 
 // ============================================================
 // 入金合計・出金合計（科目別の内訳つき）
-// 入金：ア資本金/イ借入金/ウ売上/A受取保険金 ｜ 出金：エ什器/オ材料仕入/カ人件費/キ販売費/ク管理費/ケ返済/コ納税
+// 入金：ア資本金/イ借入金/ウ売上/A保険金・その他 ｜ 出金：エ什器/オ材料仕入/カ人件費/キ販売費/ク管理費/ケ返済/コ納税
 // ============================================================
 const COL_NAMES = [
   'ア 資本金',
   'イ 借入金',
   'ウ 売上',
-  'A 受取保険金',
+  'A 保険金・その他',
   'エ 什器',
   'オ 材料仕入',
   'カ 人件費',

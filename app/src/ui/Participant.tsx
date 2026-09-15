@@ -11,6 +11,7 @@ import {
   loanCap,
   loanRoom,
   equipSale,
+  specialBreakdown,
   equityNow,
   fmRatio,
   flows,
@@ -975,7 +976,7 @@ const LHEAD = [
   { s: 'ア', n: '資本金' },
   { s: 'イ', n: '借入金' },
   { s: 'ウ', n: '売上' },
-  { s: 'A', n: '保険金' },
+  { s: 'A', n: '保険金・その他' },
   { s: 'エ', n: '什器' },
   { s: 'オ', n: '材料仕入' },
   { s: 'カ', n: '人件費' },
@@ -1722,6 +1723,20 @@ function StatementTab({
             <h2 className="font-bold mb-3">法人税・利益剰余金の計算</h2>
             <div className="space-y-2 text-sm">
               {txRow('① 特別損益', fmtA(r.special), 'tx-special')}
+              {/* ① の内訳（保険金・廃棄損・什器売却損）。0 の項目は出さず、全部 0 なら行ごと出さない */}
+              {(() => {
+                const b = specialBreakdown(r)
+                const items = [
+                  b.insurance ? `保険金 ＋${fmt(b.insurance)}` : '',
+                  b.scrapLoss ? `廃棄損 ${fmtA(-b.scrapLoss)}` : '',
+                  b.saleLoss ? `什器売却損 ${fmtA(-b.saleLoss)}` : '',
+                ].filter(Boolean)
+                return items.length ? (
+                  <div className="text-right text-[11px] text-ink-400 -mt-1" data-testid="tx-special-detail">
+                    {items.join('　')}
+                  </div>
+                ) : null
+              })()}
               {txRow('② 税引前当期純利益（G ＋ ①）', fmtA(r.pretax), 'tx-pre')}
               {txRow('③ 前期繰越利益剰余金', fmtA(r.ret0), 'tx-ret0')}
               <div className="flex justify-between border-t border-dashed border-line pt-2">
