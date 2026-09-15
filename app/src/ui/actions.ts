@@ -1,7 +1,7 @@
 // 記帳モーダルのフォーム定義（キー→入力欄）と、アクションのグループ分け。
 // 数値ルールに依存する欄（仕入単価の選択肢・上限や単価の説明文）があるため、
 // 定義は getRules() から組み立てる。参照は FORMS ではなく getForms() を使うこと。
-import { getRules, type Rules } from '../lib/calc.ts'
+import { getRules, loanRoom, type Rules, type St } from '../lib/calc.ts'
 
 export interface Field {
   name: string
@@ -10,6 +10,11 @@ export interface Field {
   default: number | string
   min?: number
   fixed?: boolean
+  /**
+   * 盤面から決まる入力上限（借入可能額など）。入力欄の max と、超えた値を上限へ丸めるのに使う。
+   * `excl` は編集中の行がすでに盤面に含めている金額。自分の分を上限に戻してから計算する。
+   */
+  maxOf?: (st: St, excl: number) => number
   options?: { value: string; label: string }[]
 }
 
@@ -93,7 +98,8 @@ function buildForms(r: Rules): Record<string, FormDef> {
       note: '5/人',
     },
     kariire: {
-      fields: [{ name: 'a', label: '金額', type: 'int', default: 100, min: 1 }],
+      // 借入可能額（純資産×倍率 − 借入残高）を上限にし、超える金額は入力できない
+      fields: [{ name: 'a', label: '金額', type: 'int', default: 100, min: 1, maxOf: (st, excl) => loanRoom(st, excl) }],
       note: `純資産×倍率の枠内・金利${r.loanRate * 100}%`,
     },
     hensai: { fields: [{ name: 'a', label: '返済額', type: 'int', default: 0, min: 0 }], note: '借入残高まで' },
