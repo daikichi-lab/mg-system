@@ -215,49 +215,117 @@ export interface ActionDef {
 
 /**
  * 合計簿価 total を n 台に按分した什器のリストを作る（端数は先頭から1ずつ）。
- * 1台ずつの記録が無いときの受け皿で、購入期は 0（前期以前に購入）にする。
+ * 1台ずつの記録が無いときの受け皿。購入期は簿価から逆算し（inferLotPeriod）、逆算できない台は 0（購入期不明）。
  */
-export function splitLots(n: number, total: number): MachineLot[] {
+export function splitLots(n: number, total: number, period = 0): MachineLot[] {
   if (n <= 0) return []
   const base = Math.floor(total / n)
   let rest = total - base * n
-  return Array.from({ length: n }, () => ({ period: 0, book: base + (rest-- > 0 ? 1 : 0) }))
+  return Array.from({ length: n }, () => {
+    const book = base + (rest-- > 0 ? 1 : 0)
+    return { period: inferLotPeriod(book, period), book }
+  })
+}
+
+/**
+ * 簿価から購入した期を逆算する（簿価 ＝ 購入価格 − 減価償却 × 経過期数）。
+ * `period` は今の期（期首）。割り切れない・第1期より前になる・購入価格より大きい ときは 0（購入期不明）。
+ */
+export function inferLotPeriod(book: number, period: number): number {
+  const { machinePrice, depPerMachine } = getRules()
+  if (!(depPerMachine > 0) || period < 1) return 0
+  const k = (machinePrice - book) / depPerMachine // 経過期数
+  if (!Number.isInteger(k) || k < 0 || period - k < 1) return 0
+  return period - k
+}
+
+/**
+ * 期首の1台ずつの記録が無い古いデータ用：過去の決算結果から什器の購入期を復元する。
+ * 各期の什器購入額（エ）÷ 購入価格 ＝ その期に買った台数、として積み、期末に減価償却を引く
+ * （売却が無かった頃のデータなので購入と減価償却だけで組み立てられる。lotsEnd を持つ期はそれを使う）。
+ * 講師が盤面の台数を直接変えた等で台数・期末簿価が合わない期は、台数を合わせて差額を先頭から1ずつ吸収する。
+ * `upTo` 期の期首まで（`upTo` 期自身の決算は含めない）。
+ */
+export function lotsFromHistory(results: Result[], upTo: number): MachineLot[] {
+  const { machinePrice, depPerMachine } = getRules()
+  let lots: MachineLot[] = []
+  for (const res of [...results].sort((a, b) => a.period - b.period)) {
+    if (res.period >= upTo) break
+    if (res.lotsEnd && res.lotsEnd.length === res.machines) {
+      lots = res.lotsEnd.map((l) => ({ ...l }))
+      continue
+    }
+    const bought = machinePrice > 0 ? Math.max(0, Math.round((res.equipBought || 0) / machinePrice)) : 0
+    for (let i = 0; i < bought; i++) lots.push({ period: res.period, book: machinePrice })
+    while (lots.length > (res.machines || 0)) lots.pop() // 減らすなら新しい台から
+    while (lots.length < (res.machines || 0)) lots.push({ period: res.period, book: machinePrice })
+    lots = lots.map((l) => ({ ...l, book: l.book - depPerMachine }))
+    let diff = (res.equipEnd || 0) - lots.reduce((a, l) => a + l.book, 0)
+    for (let i = 0; diff !== 0 && lots.length; i = (i + 1) % lots.length) {
+      const d = Math.sign(diff)
+      lots[i].book += d
+      diff -= d
+    }
+  }
+  return lots
 }
 
 /**
  * 期首の什器を1台ずつにしたもの。openingLots が台数・合計簿価と合っていればそれを使い、
- * 無い（古いデータ）か合わない（講師が盤面の台数を直接変えた等）ときは合計を台数で按分する。
+ * 無い（古いデータ）か合わない（講師が盤面の台数を直接変えた等）ときは合計を台数で按分し、購入期を簿価から逆算する。
  */
 export function openingLotsOf(st: St): MachineLot[] {
   const lots = st.openingLots || []
   const sum = lots.reduce((a, l) => a + l.book, 0)
   if (lots.length === st.openingMachines && sum === st.openingEquipVal) return lots.map((l) => ({ ...l }))
-  return splitLots(st.openingMachines, st.openingEquipVal)
+  return splitLots(st.openingMachines, st.openingEquipVal, st.period)
 }
 
-/** 売却の選択肢：購入した期ごとにまとめる（古い順）。同じ期の什器は簿価も同じ */
-export function machineOptions(st: St): { period: number; book: number; count: number }[] {
-  const m = new Map<number, { period: number; book: number; count: number }>()
-  for (const l of st.lots) {
-    const g = m.get(l.period)
-    if (g) g.count++
-    else m.set(l.period, { period: l.period, book: l.book, count: 1 })
+/** 売却の選択肢：1台ずつ（購入した期の古い順）。同じ期に複数台あれば seq（何台目か）で区別し、count はその期の台数 */
+export function machineOptions(st: St): { period: number; book: number; seq: number; count: number }[] {
+  const counts = new Map<number, number>()
+  for (const l of st.lots) counts.set(l.period, (counts.get(l.period) || 0) + 1)
+  const seen = new Map<number, number>()
+  return [...st.lots]
+    .map((l, i) => ({ ...l, i }))
+    .sort((a, b) => a.period - b.period || a.i - b.i)
+    .map((l) => {
+      const seq = (seen.get(l.period) || 0) + 1
+      seen.set(l.period, seq)
+      return { period: l.period, book: l.book, seq, count: counts.get(l.period)! }
+    })
+}
+
+/** 「第N期に購入」の表示。0 は購入期を決められない台 */
+export const lotLabel = (period: number): string => (period > 0 ? `第${period}期に購入` : '購入期不明')
+
+/** プルダウンの1行分の表示。同じ期に複数台あれば「1台目」「2台目」を付ける */
+export const lotOptionLabel = (o: { period: number; book: number; seq: number; count: number }): string =>
+  `${lotLabel(o.period)}${o.count > 1 ? ` ${o.seq}台目` : ''}（簿価 ${o.book}）`
+
+/** 売却する什器の指定「期:何台目」（例 "3:2"）。古い記帳の {period} だけの形も読む */
+export const lotKey = (period: number, seq = 1): string => `${period}:${seq}`
+export function parseLotKey(f: Fvals): { period: number; seq: number } | null {
+  if (typeof f.lot === 'string' && /^\d+:\d+$/.test(f.lot)) {
+    const [p, q] = f.lot.split(':').map(Number)
+    return { period: p, seq: q }
   }
-  return [...m.values()].sort((a, b) => a.period - b.period)
+  if (Number.isInteger(f.period) && f.period >= 0) return { period: f.period, seq: 1 }
+  return null
 }
-
-/** 「第N期に購入」の表示。0 は記録のない台（前期以前に購入） */
-export const lotLabel = (period: number): string => (period > 0 ? `第${period}期に購入` : '前期以前に購入')
 
 /**
- * 什器売却：購入した期 period の什器を1台、「盤面から外す簿価」と「売却代金（簿価の半値）」。
- * その期の什器が残っていなければ売れない（idx = -1・0円）。
+ * 什器売却：指定した什器（購入した期の何台目か）1台の「盤面から外す簿価」と「売却代金（簿価の半値）」。
+ * その什器が残っていなければ売れない（idx = -1・0円）。
  */
-export function equipSale(st: St, period: number): { idx: number; book: number; price: number } {
-  const idx = st.lots.findIndex((l) => l.period === period)
-  if (idx < 0) return { idx, book: 0, price: 0 }
+export function equipSale(st: St, f: Fvals): { idx: number; period: number; book: number; price: number } {
+  const sel = parseLotKey(f)
+  if (!sel) return { idx: -1, period: 0, book: 0, price: 0 }
+  let n = 0
+  const idx = st.lots.findIndex((l) => l.period === sel.period && ++n === sel.seq)
+  if (idx < 0) return { idx, period: sel.period, book: 0, price: 0 }
   const book = st.lots[idx].book
-  return { idx, book, price: r(book / 2) }
+  return { idx, period: sel.period, book, price: r(book / 2) }
 }
 
 export const ACTIONS: Record<string, ActionDef> = {
@@ -432,14 +500,14 @@ export const ACTIONS: Record<string, ActionDef> = {
     account: '什器売却',
     amount: (f) => f.price || 0, // 記帳時に amountOf で決めた売却代金（fvals.price）
     amountOf: (st, f) => {
-      const { book, price } = equipSale(st, f.period ?? -1)
+      const { book, price } = equipSale(st, f)
       f.price = price
       f.book = book
       return price
     },
     apply: (st, f) => {
-      const { idx, book } = equipSale(st, f.period ?? -1)
-      if (idx < 0) return // その期の什器が残っていない（前の行の変更）。再検証でエラーになる
+      const { idx, book } = equipSale(st, f)
+      if (idx < 0) return // その什器が残っていない（前の行の変更）。再検証でエラーになる
       st.lots.splice(idx, 1)
       st.machines -= 1
       st.equipVal -= book

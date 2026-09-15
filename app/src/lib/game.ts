@@ -9,6 +9,9 @@ import {
   loanRoom,
   getRules,
   lotLabel,
+  parseLotKey,
+  equipSale,
+  lotsFromHistory,
   type St,
   type Result,
   type Fvals,
@@ -69,11 +72,17 @@ export function applyApiState(st: St, data: ApiState): Result[] {
   OPENING_KEYS.forEach((k) => {
     if (c.opening && c.opening[k] != null) (st as any)[k] = c.opening[k]
   })
-  // 期首の什器・1台ずつ。無い古いデータは空にして、recompute が合計簿価を台数で按分する
+  const results = (data.results || []) as Result[]
+  // 期首の什器・1台ずつ。無い古いデータは過去の決算結果から購入期を復元する（台数・合計簿価と合うときだけ採用。
+  // 合わなければ空のままにして、recompute が合計を台数で按分し簿価から購入期を逆算する）
   const lots = c.opening?.openingLots
   st.openingLots = Array.isArray(lots)
     ? lots.filter((l: any) => l && Number.isFinite(l.period) && Number.isFinite(l.book)).map((l: any) => ({ period: l.period, book: l.book }))
     : []
+  if (!st.openingLots.length && st.openingMachines > 0) {
+    const rebuilt = lotsFromHistory(results, st.period)
+    if (rebuilt.length === st.openingMachines && rebuilt.reduce((a, l) => a + l.book, 0) === st.openingEquipVal) st.openingLots = rebuilt
+  }
   st.tx = (data.entries || []).map(
     (e: any): TxRow => ({
       id: e.txId ?? e.id,
@@ -92,7 +101,6 @@ export function applyApiState(st: St, data: ApiState): Result[] {
   )
   recompute(st)
   st.closingPrep = st.tx.some((t) => t.isClosing) && !st.settled
-  const results = (data.results || []) as Result[]
   // 決算済みで再読み込みした場合、当期の決算結果(st.result)を履歴から復元する。
   // これが無いと期末処理タブが「決算を実行する」に戻り、決算書も表示できなくなる。
   st.result = st.settled ? results.find((h) => h.period === st.period) || null : null
@@ -232,11 +240,13 @@ function validate(st: St, key: string, f: Fvals): string[] {
       if (!Number.isInteger(f.a) || f.a < 0) errs.push('返済額は0以上で入力してください')
       else if (f.a > st.loan) errs.push(`借入残高（${st.loan}）以上は返済できません`)
       break
-    case 'baikyaku':
+    case 'baikyaku': {
+      const sel = parseLotKey(f)
       if (st.lots.length < 1) errs.push('売却できる什器がありません')
-      else if (!Number.isInteger(f.period) || f.period < 0) errs.push('売却する什器を選んでください')
-      else if (!st.lots.some((l) => l.period === f.period)) errs.push(`${lotLabel(f.period)}した什器はもう残っていません`)
+      else if (!sel) errs.push('売却する什器を選んでください')
+      else if (equipSale(st, f).idx < 0) errs.push(`${lotLabel(sel.period)}した什器はもう残っていません`)
       break
+    }
     case 'kaihatsu_win':
       if ((f.qty || 0) > 0) {
         if (f.qty > 2 * st.dev) errs.push(`商品開発チップ1枚につき2個までです（枠 ${2 * st.dev}）`)
@@ -295,7 +305,7 @@ function rownote(key: string, f: Fvals): string {
   if (key === 'saiyo') return `製造${f.mfg || 0}・販売${f.sales || 0}${f.fail ? '・失敗' + f.fail : ''}`
   if (key === 'seizo') return `製品+${f.qty}`
   if (key === 'kaihatsu') return f.result === '失敗' ? '開発 失敗' : `開発+${f.n}`
-  if (key === 'baikyaku') return `${lotLabel(f.period ?? 0)}・簿価の半値`
+  if (key === 'baikyaku') return `${lotLabel(parseLotKey(f)?.period ?? 0)}・簿価の半値`
   // イベント：メモ枠に個数×単価を記載
   if (key === 'tokubai') return `${f.qty || 0}×10`
   if (key === 'keiki') return `${f.qty || 0}×12`

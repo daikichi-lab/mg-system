@@ -301,8 +301,8 @@ test('⑤ 什器売却：第1期と第3期に買った機械のどちらを売�
   calc.recompute(st)
   assert.deepEqual(game.recordAction(st, 'kikai', { n: 1 }), []) // 第3期に1台・簿価100
   assert.deepEqual(calc.machineOptions(st), [
-    { period: 1, book: 80, count: 1 },
-    { period: 3, book: 100, count: 1 },
+    { period: 1, book: 80, seq: 1, count: 1 },
+    { period: 3, book: 100, seq: 1, count: 1 },
   ])
   // 古い方（第1期）を売る：簿価80の半値 40。残るのは第3期の1台（簿価100）
   assert.deepEqual(game.recordAction(st, 'baikyaku', { period: 1 }), [])
@@ -345,7 +345,19 @@ test('⑤ 什器売却：売った機械の購入行を消すと拒否される�
   assert.deepEqual(before.lots, [{ period: 1, book: 90 }], 'stateBeforeRow は売却前の盤面を返す')
 })
 
-test('⑤ 什器：期首の1台ずつの記録が無い古いデータは、合計簿価を台数で按分した「前期以前に購入」になる', () => {
+test('⑤ 什器：期首の1台ずつの記録が無い古いデータは、合計簿価を台数で按分し、購入期は簿価から逆算する', () => {
+  const st = newGame()
+  st.period = 3
+  st.openingMachines = 1
+  st.openingEquipVal = 80 // 記録なし。100 − 10×2期 ＝ 第1期に購入
+  st.retained = 80
+  calc.recompute(st)
+  assert.deepEqual(st.lots, [{ period: 1, book: 80 }], '簿価80 → 第1期に購入')
+  assert.deepEqual(calc.machineOptions(st), [{ period: 1, book: 80, seq: 1, count: 1 }])
+  assert.equal(calc.lotOptionLabel(calc.machineOptions(st)[0]), '第1期に購入（簿価 80）')
+})
+
+test('⑤ 什器：按分で簿価が半端になり逆算できない台は「購入期不明」になり、それでも売れる', () => {
   const st = newGame()
   st.period = 2
   st.openingMachines = 3
@@ -354,13 +366,63 @@ test('⑤ 什器：期首の1台ずつの記録が無い古いデータは、合
   calc.recompute(st)
   assert.deepEqual(st.lots, [{ period: 0, book: 84 }, { period: 0, book: 83 }, { period: 0, book: 83 }], '端数は先頭から')
   assert.equal(st.lots.reduce((a, l) => a + l.book, 0), st.equipVal, '合計は equipVal と一致')
-  assert.deepEqual(calc.machineOptions(st), [{ period: 0, book: 84, count: 3 }])
-  assert.equal(calc.lotLabel(0), '前期以前に購入')
-  assert.deepEqual(game.recordAction(st, 'baikyaku', { period: 0 }), [])
-  assert.equal(st.tx.find((t) => t.key === 'baikyaku')!.amount, 42)
-  assert.equal(st.equipVal, 166)
+  assert.deepEqual(calc.machineOptions(st).map((o) => calc.lotOptionLabel(o)), [
+    '購入期不明 1台目（簿価 84）',
+    '購入期不明 2台目（簿価 83）',
+    '購入期不明 3台目（簿価 83）',
+  ])
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { lot: '0:2' }), [])
+  assert.equal(st.tx.find((t) => t.key === 'baikyaku')!.amount, 42, '2台目（簿価83）の半値')
+  assert.equal(st.equipVal, 167)
   const r = calc.settle(st)!
   assert.ok(Math.abs(r.diff) < 1e-9, 'B/S 貸借一致')
+})
+
+test('⑤ 什器：同じ期に複数台あれば「1台目」「2台目」と1台ずつ並び、何台目かを指定して売れる', () => {
+  const st = newGame()
+  st.period = 3
+  st.openingMachines = 2
+  st.openingEquipVal = 170 // 第1期の1台（80）＋第2期の1台（90）
+  st.openingLots = [{ period: 1, book: 80 }, { period: 2, book: 90 }]
+  st.retained = 170
+  calc.recompute(st)
+  assert.deepEqual(game.recordAction(st, 'kikai', { n: 2 }), []) // 第3期に2台
+  assert.deepEqual(calc.machineOptions(st).map((o) => [calc.lotKey(o.period, o.seq), calc.lotOptionLabel(o)]), [
+    ['1:1', '第1期に購入（簿価 80）'],
+    ['2:1', '第2期に購入（簿価 90）'],
+    ['3:1', '第3期に購入 1台目（簿価 100）'],
+    ['3:2', '第3期に購入 2台目（簿価 100）'],
+  ])
+  assert.deepEqual(game.recordAction(st, 'baikyaku', { lot: '3:2' }), [])
+  const sale = st.tx.find((t) => t.key === 'baikyaku')!
+  assert.equal(sale.amount, 50)
+  assert.equal(sale.note, '第3期に購入・簿価の半値')
+  assert.equal(st.lots.filter((l) => l.period === 3).length, 1, '第3期の什器が1台減る')
+  assert.ok(game.recordAction(st, 'kikai', { n: 1 }).length === 0)
+  assert.ok(game.recordAction(st, 'baikyaku', { lot: '3:3' }).length, '第3期の3台目は無いので不可')
+  assert.deepEqual(calc.machineOptions(st).filter((o) => o.period === 3).map((o) => o.seq), [1, 2], '売った後は番号が詰まる')
+})
+
+test('⑤ 什器：記録が無い古いデータでも、過去の決算結果から購入した期を復元する', () => {
+  // 第1期に1台・第2期に1台買って第3期の期首（80 ＋ 90 ＝ 170）。当時の決算結果には lotsEnd が無い
+  const mk = (period: number, equipBought: number, machines: number, equipEnd: number) =>
+    ({ period, equipBought, machines, equipEnd }) as unknown as Result
+  const results = [mk(1, 100, 1, 90), mk(2, 100, 2, 170)]
+  assert.deepEqual(calc.lotsFromHistory(results, 3), [{ period: 1, book: 80 }, { period: 2, book: 90 }])
+  // 読み込み時に復元される
+  const st = calc.newState()
+  game.applyApiState(st, {
+    company: { org: 'O', name: 'X', president: 'P', period: 3, started: true, settled: false, opening: { openingMachines: 2, openingEquipVal: 170, retained: 170 }, seq: 5 } as any,
+    entries: [{ id: 1, label: '資本金', col: 0, amount: 300, isCapital: true }] as any,
+    results,
+  })
+  assert.deepEqual(st.openingLots, [{ period: 1, book: 80 }, { period: 2, book: 90 }])
+  assert.deepEqual(st.lots, [{ period: 1, book: 80 }, { period: 2, book: 90 }])
+  // 講師が盤面で台数を変えて合わなくなった期は、台数を合わせて差額を吸収する
+  const odd = [mk(1, 100, 1, 90), mk(2, 0, 3, 250)] // 第2期に買っていないのに3台・期末簿価250
+  const lots = calc.lotsFromHistory(odd, 3)
+  assert.equal(lots.length, 3)
+  assert.equal(lots.reduce((a, l) => a + l.book, 0), 250)
 })
 
 test('⑤ 什器：期をまたぐと購入した期と減価償却後の簿価が引き継がれる（保存→復元も含む）', () => {
@@ -380,8 +442,8 @@ test('⑤ 什器：期をまたぐと購入した期と減価償却後の簿価�
   assert.deepEqual(st2.lots, [{ period: 1, book: 90 }])
   assert.deepEqual(game.recordAction(st2, 'kikai', { n: 1 }), [])
   assert.deepEqual(calc.machineOptions(st2), [
-    { period: 1, book: 90, count: 1 },
-    { period: 2, book: 100, count: 1 },
+    { period: 1, book: 90, seq: 1, count: 1 },
+    { period: 2, book: 100, seq: 1, count: 1 },
   ])
 })
 

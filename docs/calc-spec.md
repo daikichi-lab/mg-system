@@ -143,10 +143,10 @@ function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty: f
 | `haichi` | 配置転換 | B | 8(ク管理費) | out | ク 管理費 | n(d1,人), dir(choice[製造→販売,販売→製造] d製造→販売) | `n*5` | `製造→販売`: `m=min(n,staffMfg); staffMfg-=m; staffSales+=m` ／ 逆方向は対称 | dir |
 | `kariire` | 借入 | B | 1(イ借入金) | in | イ 借入金 | a(d100,千, dynMax:loanRoom) | `a` | `loan+=a` | — |
 | `hensai` | 借入返済 | B | 9(ケ返済) | out | ケ 返済 | a(d0,千) | `a` | `loan=max(0, loan-a)` | — |
-| `baikyaku` | 什器売却 | B | 3(A保険金・その他) | in | 什器売却 | period(select・盤面の什器を購入した期ごと `optionsOf`) | `amountOf`: `equipSale(st,period).price`（選んだ什器の簿価の半値） | `idx=lots.findIndex(period); lots.splice(idx,1); machines-=1; equipVal-=book; equipSold+=book` | `第N期に購入・簿価の半値` |
+| `baikyaku` | 什器売却 | B | 3(A保険金・その他) | in | 什器売却 | lot(select・盤面の什器を1台ずつ「期:何台目」`optionsOf`。例 `"3:2"`) | `amountOf`: `equipSale(st,f).price`（選んだ什器の簿価の半値） | `idx=その期の何台目か; lots.splice(idx,1); machines-=1; equipVal-=book; equipSold+=book` | `第N期に購入・簿価の半値` |
 
 - `kariire`: 第1期は不可。借入額は `loanRoom()` でクランプ（§9）。**借入時、recompute で借入額×5%の金利行（col8）を自動生成**（§5）。
-- `baikyaku`: 「いつ買った機械か」（購入した期）を選んで1回1台。什器は `st.lots`（`{period, book}` の配列）で1台ずつ持ち、`kikai` で `{period: 今期, book: machinePrice}` を追加、決算で各台の簿価から減価償却を引いて `Result.lotsEnd` → 次期の `openingLots` に引き継ぐ。`openingLots` が無い／台数・合計と合わないときは `openingLotsOf()` が合計簿価を台数で按分し、購入期 0（前期以前に購入）にする。売却代金＝選んだ什器の簿価の半値（`price=round(book/2)`）。金額は盤面に依存するので `ActionDef.amountOf(st,f)` で決め、**recompute の再生時にも決め直す**（前の行の削除・編集で簿価が変わっても追従する）。外した簿価 `equipSold` は決算で特別損失（§5）。台数 ≤ 保有台数。
+- `baikyaku`: 「いつ買った機械か」（購入した期）を選んで1回1台。什器は `st.lots`（`{period, book}` の配列）で1台ずつ持ち、`kikai` で `{period: 今期, book: machinePrice}` を追加、決算で各台の簿価から減価償却を引いて `Result.lotsEnd` → 次期の `openingLots` に引き継ぐ。`openingLots` が無い古いデータは読み込み時に `lotsFromHistory()` が過去の決算結果（各期の什器購入額÷購入価格＝台数、期末に減価償却）から購入期を復元する。それでも無い／台数・合計と合わないときは `openingLotsOf()` が合計簿価を台数で按分し、購入期は簿価から逆算（`inferLotPeriod`：購入価格 − 減価償却×経過期数）、逆算できない台は 0（購入期不明）。プルダウンは1台ずつ（同じ期は「1台目」「2台目」）。売却代金＝選んだ什器の簿価の半値（`price=round(book/2)`）。金額は盤面に依存するので `ActionDef.amountOf(st,f)` で決め、**recompute の再生時にも決め直す**（前の行の削除・編集で簿価が変わっても追従する）。外した簿価 `equipSold` は決算で特別損失（§5）。台数 ≤ 保有台数。
 
 ### 3.3 イベントカード（rule='X'）
 

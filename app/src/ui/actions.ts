@@ -1,7 +1,7 @@
 // 記帳モーダルのフォーム定義（キー→入力欄）と、アクションのグループ分け。
 // 数値ルールに依存する欄（仕入単価の選択肢・上限や単価の説明文）があるため、
 // 定義は getRules() から組み立てる。参照は FORMS ではなく getForms() を使うこと。
-import { getRules, loanRoom, machineOptions, lotLabel, type Rules, type St } from '../lib/calc.ts'
+import { getRules, loanRoom, machineOptions, lotOptionLabel, lotKey, type Rules, type St } from '../lib/calc.ts'
 
 export interface Field {
   name: string
@@ -109,18 +109,14 @@ function buildForms(r: Rules): Record<string, FormDef> {
     },
     hensai: { fields: [{ name: 'a', label: '返済額', type: 'int', default: 0, min: 0 }], note: '借入残高まで' },
     baikyaku: {
-      // 「いつ買った機械か」を選んで1台売る。選択肢は盤面の什器（購入した期ごと・古い順）から作る
+      // 「いつ買った機械か」を選んで1台売る。選択肢は盤面の什器を1台ずつ（購入した期の古い順。同じ期は「1台目」「2台目」）
       fields: [
         {
-          name: 'period',
+          name: 'lot',
           label: '売却する什器',
           type: 'select',
           default: '',
-          optionsOf: (st) =>
-            machineOptions(st).map((o) => ({
-              value: String(o.period),
-              label: `${lotLabel(o.period)}（簿価 ${o.book}）${o.count > 1 ? `×${o.count}台` : ''}`,
-            })),
+          optionsOf: (st) => machineOptions(st).map((o) => ({ value: lotKey(o.period, o.seq), label: lotOptionLabel(o) })),
         },
       ],
       note: '選んだ什器1台を簿価の半値で売却（差額は特別損失）',

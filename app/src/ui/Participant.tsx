@@ -2195,9 +2195,9 @@ function ActionModal({
       if (a.amountOf) {
         // 盤面に依存する金額（什器売却＝選んだ什器の簿価の半値）。編集中はその行を記帳した時点の盤面で計算する
         const f = buildFvals()
-        const { idx, book } = equipSale(base, f.period ?? -1)
+        const { idx, period, book } = equipSale(base, f)
         if (idx < 0) return `${a.account}（売却できる什器がありません）`
-        return `${a.account}` + fmt(a.amountOf(base, f) || 0) + `（${lotLabel(f.period)}・簿価 ${fmt(book)} の半値）`
+        return `${a.account}` + fmt(a.amountOf(base, f) || 0) + `（${lotLabel(period)}・簿価 ${fmt(book)} の半値）`
       }
       return `${a.account}` + fmt(a.amount(buildFvals()) || 0)
     } catch {
