@@ -28,7 +28,7 @@ export interface ApiCompany {
   period: number
   started: boolean
   settled: boolean
-  opening: Record<string, number>
+  opening: Record<string, unknown> // 期首残高（数値）＋ openingLots（什器・1台ずつの配列）
   seq: number
   updatedAt: number
   /** 経営計画書（期番号 → 入力）。列が無い旧データ・未記入は {} */

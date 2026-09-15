@@ -8,6 +8,7 @@ import {
   nextPeriod,
   loanRoom,
   getRules,
+  lotLabel,
   type St,
   type Result,
   type Fvals,
@@ -34,8 +35,9 @@ const OPENING_KEYS = [
 ] as const
 
 export function payloadFromState(st: St, history: Result[], plans: Record<string, unknown> = {}) {
-  const opening: Record<string, number> = {}
+  const opening: Record<string, unknown> = {}
   OPENING_KEYS.forEach((k) => (opening[k] = st[k] as number))
+  opening.openingLots = st.openingLots // 期首の什器・1台ずつ（購入した期と簿価）
   return {
     president: st.president,
     period: st.period,
@@ -67,6 +69,11 @@ export function applyApiState(st: St, data: ApiState): Result[] {
   OPENING_KEYS.forEach((k) => {
     if (c.opening && c.opening[k] != null) (st as any)[k] = c.opening[k]
   })
+  // 期首の什器・1台ずつ。無い古いデータは空にして、recompute が合計簿価を台数で按分する
+  const lots = c.opening?.openingLots
+  st.openingLots = Array.isArray(lots)
+    ? lots.filter((l: any) => l && Number.isFinite(l.period) && Number.isFinite(l.book)).map((l: any) => ({ period: l.period, book: l.book }))
+    : []
   st.tx = (data.entries || []).map(
     (e: any): TxRow => ({
       id: e.txId ?? e.id,
@@ -226,9 +233,9 @@ function validate(st: St, key: string, f: Fvals): string[] {
       else if (f.a > st.loan) errs.push(`借入残高（${st.loan}）以上は返済できません`)
       break
     case 'baikyaku':
-      if (!Number.isInteger(f.n) || f.n < 1) errs.push('売却する台数を入力してください')
-      else if (st.machines < 1) errs.push('売却できる什器がありません')
-      else if (f.n > st.machines) errs.push(`保有している什器（${st.machines}台）以上は売却できません`)
+      if (st.lots.length < 1) errs.push('売却できる什器がありません')
+      else if (!Number.isInteger(f.period) || f.period < 0) errs.push('売却する什器を選んでください')
+      else if (!st.lots.some((l) => l.period === f.period)) errs.push(`${lotLabel(f.period)}した什器はもう残っていません`)
       break
     case 'kaihatsu_win':
       if ((f.qty || 0) > 0) {
@@ -288,7 +295,7 @@ function rownote(key: string, f: Fvals): string {
   if (key === 'saiyo') return `製造${f.mfg || 0}・販売${f.sales || 0}${f.fail ? '・失敗' + f.fail : ''}`
   if (key === 'seizo') return `製品+${f.qty}`
   if (key === 'kaihatsu') return f.result === '失敗' ? '開発 失敗' : `開発+${f.n}`
-  if (key === 'baikyaku') return `${f.n || 0}台・簿価の半値`
+  if (key === 'baikyaku') return `${lotLabel(f.period ?? 0)}・簿価の半値`
   // イベント：メモ枠に個数×単価を記載
   if (key === 'tokubai') return `${f.qty || 0}×10`
   if (key === 'keiki') return `${f.qty || 0}×12`

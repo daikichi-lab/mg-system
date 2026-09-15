@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ACTIONS,
   caps,
@@ -11,6 +11,7 @@ import {
   loanCap,
   loanRoom,
   equipSale,
+  lotLabel,
   specialBreakdown,
   equityNow,
   fmRatio,
@@ -2135,13 +2136,19 @@ function ActionModal({
   // 盤面から決まる入力上限（借入可能額など）。編集中は自分の行の金額が盤面に含まれているので、上限に戻して計算する
   const ownAmount = editTx?.key === keyName ? editTx.amount : 0
   const fieldMax = (fl: Field): number | undefined => (fl.maxOf ? fl.maxOf(st, ownAmount) : undefined)
+  // 盤面に依存する選択肢・金額（什器売却）の元になる盤面。編集中はその行を記帳した時点の盤面
+  const base = useMemo(() => (editTx ? stateBeforeRow(st, editTx.id) : st), [st, editTx])
+  const fieldOptions = (fl: Field) => (fl.optionsOf ? fl.optionsOf(base) : fl.options)
   const [single, setSingle] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {}
     form?.fields.forEach((fl) => {
       // 既定値や保存済みの値が上限を超えていたら上限に丸める（借入可能額が既定の100を下回る期など）
       const v = editTx?.fvals?.[fl.name] ?? fl.default
       const mx = fieldMax(fl)
-      o[fl.name] = String(mx != null && typeof v === 'number' && v > mx ? mx : v)
+      // 盤面依存の選択肢は、保存済みの値が無ければ先頭（いちばん古い什器）を初期値にする
+      const opts = fl.optionsOf ? fl.optionsOf(base) : null
+      const init = opts && editTx?.fvals?.[fl.name] == null ? (opts[0]?.value ?? '') : v
+      o[fl.name] = String(mx != null && typeof init === 'number' && init > mx ? mx : init)
     })
     return o
   })
@@ -2186,11 +2193,11 @@ function ActionModal({
         return `破棄 ${f.discard} 個${f.payout ? ` ・ 受取保険金 ${f.payout}` : '（保険なし）'}`
       }
       if (a.amountOf) {
-        // 盤面に依存する金額（什器売却の簿価の半値）。編集中はその行を記帳した時点の盤面で計算する
-        const base = editTx ? stateBeforeRow(st, editTx.id) : st
+        // 盤面に依存する金額（什器売却＝選んだ什器の簿価の半値）。編集中はその行を記帳した時点の盤面で計算する
         const f = buildFvals()
-        const { book } = equipSale(base, f.n || 0)
-        return `${a.account}` + fmt(a.amountOf(base, f) || 0) + `（簿価 ${fmt(book)} の半値）`
+        const { idx, book } = equipSale(base, f.period ?? -1)
+        if (idx < 0) return `${a.account}（売却できる什器がありません）`
+        return `${a.account}` + fmt(a.amountOf(base, f) || 0) + `（${lotLabel(f.period)}・簿価 ${fmt(book)} の半値）`
       }
       return `${a.account}` + fmt(a.amount(buildFvals()) || 0)
     } catch {
@@ -2270,6 +2277,7 @@ function ActionModal({
                   fl={fl}
                   value={single[fl.name]}
                   max={fieldMax(fl)}
+                  options={fieldOptions(fl)}
                   testid={`field-${fl.name}`}
                   onChange={(v) => {
                     setErrors([])
@@ -2360,29 +2368,36 @@ function FieldInput({
   fl,
   value,
   max,
+  options,
   onChange,
   testid,
 }: {
   fl: Field
   value: string
   max?: number // 盤面から決まる上限（借入可能額など）。超えた入力は上限に丸める
+  options?: { value: string; label: string }[] // 盤面から決まる選択肢（無ければ fl.options）
   onChange: (v: string) => void
   testid: string
 }) {
   if (fl.type === 'select') {
+    const opts = options ?? fl.options ?? []
     return (
       <select
         data-testid={testid}
         value={value}
-        disabled={fl.fixed}
+        disabled={fl.fixed || !opts.length}
         onChange={(e) => onChange(e.target.value)}
         className="mt-1 h-11 w-full border border-line rounded-lg px-2 bg-white disabled:bg-canvas"
       >
-        {fl.options!.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
+        {opts.length ? (
+          opts.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))
+        ) : (
+          <option value="">選べるものがありません</option>
+        )}
       </select>
     )
   }

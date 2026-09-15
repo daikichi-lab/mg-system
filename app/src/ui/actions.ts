@@ -1,7 +1,7 @@
 // 記帳モーダルのフォーム定義（キー→入力欄）と、アクションのグループ分け。
 // 数値ルールに依存する欄（仕入単価の選択肢・上限や単価の説明文）があるため、
 // 定義は getRules() から組み立てる。参照は FORMS ではなく getForms() を使うこと。
-import { getRules, loanRoom, type Rules, type St } from '../lib/calc.ts'
+import { getRules, loanRoom, machineOptions, lotLabel, type Rules, type St } from '../lib/calc.ts'
 
 export interface Field {
   name: string
@@ -16,6 +16,11 @@ export interface Field {
    */
   maxOf?: (st: St, excl: number) => number
   options?: { value: string; label: string }[]
+  /**
+   * 盤面から決まる選択肢（什器売却の「いつ買った機械か」など）。select で options の代わりに使う。
+   * 編集中は、その行を記帳した時点の盤面が渡される。空なら「選べるものが無い」
+   */
+  optionsOf?: (st: St) => { value: string; label: string }[]
 }
 
 export interface FormDef {
@@ -104,8 +109,21 @@ function buildForms(r: Rules): Record<string, FormDef> {
     },
     hensai: { fields: [{ name: 'a', label: '返済額', type: 'int', default: 0, min: 0 }], note: '借入残高まで' },
     baikyaku: {
-      fields: [{ name: 'n', label: '台数', type: 'int', default: 1, min: 1 }],
-      note: '什器を簿価の半値で売却（差額は特別損失）・保有台数まで',
+      // 「いつ買った機械か」を選んで1台売る。選択肢は盤面の什器（購入した期ごと・古い順）から作る
+      fields: [
+        {
+          name: 'period',
+          label: '売却する什器',
+          type: 'select',
+          default: '',
+          optionsOf: (st) =>
+            machineOptions(st).map((o) => ({
+              value: String(o.period),
+              label: `${lotLabel(o.period)}（簿価 ${o.book}）${o.count > 1 ? `×${o.count}台` : ''}`,
+            })),
+        },
+      ],
+      note: '選んだ什器1台を簿価の半値で売却（差額は特別損失）',
     },
     // イベント（フォームありのもの）
     kaihatsu_win: { fields: [{ name: 'qty', label: '個数', type: 'int', default: 0, min: 0 }], note: '開発チップ1枚2個・1個32で販売' },

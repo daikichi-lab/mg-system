@@ -27,6 +27,12 @@ export interface TxRow {
   linkedTo?: number
 }
 
+/** 什器1台の記録。period は購入した期（0 ＝ 記録のない古いデータや講師が盤面で足した台：「前期以前に購入」）。book は現在の簿価 */
+export interface MachineLot {
+  period: number
+  book: number
+}
+
 export interface St {
   name: string
   president: string
@@ -40,6 +46,8 @@ export interface St {
   openingProducts: number
   openingEquipVal: number
   openingMachines: number
+  /** 期首の什器・1台ずつ（購入した期と簿価）。無い／合計と合わないときは平均で按分する（openingLotsOf） */
+  openingLots: MachineLot[]
   openingStaffMfg: number
   openingStaffSales: number
   openingLoan: number
@@ -51,6 +59,8 @@ export interface St {
   products: number
   machines: number
   equipVal: number
+  /** 盤面の什器・1台ずつ。machines＝件数、equipVal＝簿価の合計 と常に一致させる（recompute で作り直す） */
+  lots: MachineLot[]
   staffMfg: number
   staffSales: number
   ads: number
@@ -133,6 +143,7 @@ export interface Result {
   equipBought: number
   equipSold: number // 売却で盤面から外した什器の簿価（特別損失）
   equipSaleCash: number // 什器売却の売却代金（A列のうち保険金ではない分。投資CFに出す）
+  lotsEnd?: MachineLot[] // 期末の什器・1台ずつ（減価償却後）。次期の openingLots になる。古い決算結果には無い
   loanBorrow: number
   loanRepay: number
   name: string
@@ -203,14 +214,50 @@ export interface ActionDef {
 }
 
 /**
- * 什器売却：n 台ぶんの「盤面から外す簿価」と「売却代金（簿価の半値）」。
- * 1台ごとの簿価は持っていないので、合計簿価を台数で按分する。保有台数を超える分は売れない。
+ * 合計簿価 total を n 台に按分した什器のリストを作る（端数は先頭から1ずつ）。
+ * 1台ずつの記録が無いときの受け皿で、購入期は 0（前期以前に購入）にする。
  */
-export function equipSale(st: St, n: number): { units: number; book: number; price: number } {
-  const units = Math.max(0, Math.min(n || 0, st.machines))
-  if (units <= 0 || st.machines <= 0) return { units: 0, book: 0, price: 0 }
-  const book = r((st.equipVal * units) / st.machines)
-  return { units, book, price: r(book / 2) }
+export function splitLots(n: number, total: number): MachineLot[] {
+  if (n <= 0) return []
+  const base = Math.floor(total / n)
+  let rest = total - base * n
+  return Array.from({ length: n }, () => ({ period: 0, book: base + (rest-- > 0 ? 1 : 0) }))
+}
+
+/**
+ * 期首の什器を1台ずつにしたもの。openingLots が台数・合計簿価と合っていればそれを使い、
+ * 無い（古いデータ）か合わない（講師が盤面の台数を直接変えた等）ときは合計を台数で按分する。
+ */
+export function openingLotsOf(st: St): MachineLot[] {
+  const lots = st.openingLots || []
+  const sum = lots.reduce((a, l) => a + l.book, 0)
+  if (lots.length === st.openingMachines && sum === st.openingEquipVal) return lots.map((l) => ({ ...l }))
+  return splitLots(st.openingMachines, st.openingEquipVal)
+}
+
+/** 売却の選択肢：購入した期ごとにまとめる（古い順）。同じ期の什器は簿価も同じ */
+export function machineOptions(st: St): { period: number; book: number; count: number }[] {
+  const m = new Map<number, { period: number; book: number; count: number }>()
+  for (const l of st.lots) {
+    const g = m.get(l.period)
+    if (g) g.count++
+    else m.set(l.period, { period: l.period, book: l.book, count: 1 })
+  }
+  return [...m.values()].sort((a, b) => a.period - b.period)
+}
+
+/** 「第N期に購入」の表示。0 は記録のない台（前期以前に購入） */
+export const lotLabel = (period: number): string => (period > 0 ? `第${period}期に購入` : '前期以前に購入')
+
+/**
+ * 什器売却：購入した期 period の什器を1台、「盤面から外す簿価」と「売却代金（簿価の半値）」。
+ * その期の什器が残っていなければ売れない（idx = -1・0円）。
+ */
+export function equipSale(st: St, period: number): { idx: number; book: number; price: number } {
+  const idx = st.lots.findIndex((l) => l.period === period)
+  if (idx < 0) return { idx, book: 0, price: 0 }
+  const book = st.lots[idx].book
+  return { idx, book, price: r(book / 2) }
 }
 
 export const ACTIONS: Record<string, ActionDef> = {
@@ -272,6 +319,8 @@ export const ACTIONS: Record<string, ActionDef> = {
     apply: (st, f) => {
       st.machines += f.n || 0
       st.equipVal += (f.n || 0) * getRules().machinePrice
+      // 1台ずつの記録（購入した期・簿価）。什器売却で「いつ買った機械か」を選ぶのに使う
+      for (let i = 0; i < (f.n || 0); i++) st.lots.push({ period: st.period, book: getRules().machinePrice })
     },
   },
   saiyo: {
@@ -374,8 +423,8 @@ export const ACTIONS: Record<string, ActionDef> = {
     },
   },
   baikyaku: {
-    // 什器を簿価の半値で売る。代金は入金の A 列（保険金と同じ特別損益の列）に入れ、
-    // 外した簿価は equipSold に積んで決算で特別損失にする（差額＝売却損）。
+    // 「いつ買った機械か」（fvals.period）を選んで1台、簿価の半値で売る。代金は入金の A 列
+    // （保険金と同じ特別損益の列）に入れ、外した簿価は equipSold に積んで決算で特別損失にする（差額＝売却損）。
     label: '什器売却',
     rule: 'B',
     col: 3,
@@ -383,13 +432,16 @@ export const ACTIONS: Record<string, ActionDef> = {
     account: '什器売却',
     amount: (f) => f.price || 0, // 記帳時に amountOf で決めた売却代金（fvals.price）
     amountOf: (st, f) => {
-      const { price } = equipSale(st, f.n || 0)
+      const { book, price } = equipSale(st, f.period ?? -1)
       f.price = price
+      f.book = book
       return price
     },
     apply: (st, f) => {
-      const { units, book } = equipSale(st, f.n || 0)
-      st.machines -= units
+      const { idx, book } = equipSale(st, f.period ?? -1)
+      if (idx < 0) return // その期の什器が残っていない（前の行の変更）。再検証でエラーになる
+      st.lots.splice(idx, 1)
+      st.machines -= 1
       st.equipVal -= book
       st.equipSold += book
     },
@@ -545,6 +597,7 @@ export function newState(): St {
     openingProducts: 0,
     openingEquipVal: 0,
     openingMachines: 0,
+    openingLots: [],
     openingStaffMfg: 0,
     openingStaffSales: 0,
     openingLoan: 0,
@@ -556,6 +609,7 @@ export function newState(): St {
     products: 0,
     machines: 0,
     equipVal: 0,
+    lots: [],
     staffMfg: 0,
     staffSales: 0,
     ads: 0,
@@ -617,6 +671,7 @@ export function recompute(st: St) {
   // (C) 盤面を期首値で初期化
   st.machines = st.openingMachines
   st.equipVal = st.openingEquipVal
+  st.lots = openingLotsOf(st)
   st.staffMfg = st.openingStaffMfg
   st.staffSales = st.openingStaffSales
   st.loan = st.openingLoan
@@ -849,6 +904,7 @@ export function settle(st: St): Result | null {
     equipBought: colTotals(st)[4],
     equipSold: st.equipSold,
     equipSaleCash: st.tx.filter((x) => x.key === 'baikyaku').reduce((a, x) => a + (x.amount || 0), 0),
+    lotsEnd: st.lots.map((l) => ({ period: l.period, book: l.book - getRules().depPerMachine })), // 合計は equipEnd と一致
     loanBorrow: tot[1],
     loanRepay: tot[9],
     name: st.name,
@@ -877,6 +933,7 @@ export function nextPeriod(st: St): void {
   st.openingProducts = Math.min(res.prodEnd, res.endInvQty)
   st.openingEquipVal = res.equipEnd
   st.openingMachines = res.machines
+  st.openingLots = (res.lotsEnd || []).map((l) => ({ ...l })) // 無ければ recompute が平均で按分する
   st.openingStaffMfg = res.staffMfg
   st.openingStaffSales = res.staffSales
   st.openingLoan = res.loanEnd

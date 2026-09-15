@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { newState, recompute, setRules, settleBlockReason, type St, type Result } from '../lib/calc'
+import { newState, recompute, setRules, settleBlockReason, openingLotsOf, splitLots, type St, type Result } from '../lib/calc'
 import { api, type ApiOrgCompany } from '../lib/api'
 import type { Rules } from '../lib/rules'
 import type { Plan } from '../lib/plan'
@@ -339,6 +339,7 @@ export function useGame(): Game {
           ads: st.openingAds,
           machines: st.openingMachines,
           equipVal: st.openingEquipVal,
+          lots: st.openingLots,
           products: st.openingProducts,
           matQty: st.openingMatQty,
           matVal: st.openingMatVal,
@@ -348,6 +349,10 @@ export function useGame(): Game {
         const newMatQty = b.mat + b.prod
         const newMatVal = Math.round(unit * newMatQty)
         const newEquipVal = Math.round(perMach * b.mach)
+        // 什器の1台ずつの記録も合わせる：残す台は購入した期を保ち、増えた台は「前期以前に購入」（0）。
+        // 簿価は新しい合計を台数で按分し直す（合計と件数が合わないと recompute が全部 0 期扱いにしてしまうため）
+        const periods = openingLotsOf(st).slice(0, b.mach).map((l) => l.period)
+        const newLots = splitLots(b.mach, newEquipVal).map((l, i) => ({ ...l, period: periods[i] ?? 0 }))
         st.retained += newMatVal - st.openingMatVal + (newEquipVal - st.openingEquipVal)
         st.openingStaffMfg = b.mfg
         st.openingStaffSales = b.sales
@@ -355,6 +360,7 @@ export function useGame(): Game {
         st.openingAds = b.ads
         st.openingMachines = b.mach
         st.openingEquipVal = newEquipVal
+        st.openingLots = newLots
         st.openingProducts = b.prod
         st.openingMatQty = newMatQty
         st.openingMatVal = newMatVal
@@ -367,6 +373,7 @@ export function useGame(): Game {
           st.openingAds = prev.ads
           st.openingMachines = prev.machines
           st.openingEquipVal = prev.equipVal
+          st.openingLots = prev.lots
           st.openingProducts = prev.products
           st.openingMatQty = prev.matQty
           st.openingMatVal = prev.matVal
