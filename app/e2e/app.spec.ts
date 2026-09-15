@@ -289,11 +289,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await act(page, 'seizo', { qty: 6 })
     await act(page, 'haichi', { n: 1, dir: 'mfg->sales' }) // ルールB：配置転換
     await act(page, 'hanbai', { 'qty-0': 2, 'unit-0': 50 })
-    // ルールB：什器売却（2台のうち1台を簿価100の半値＝50で売る。モーダルに売却額が出て、A列に入金される）
+    // ルールB：什器売却（「いつ買った機械か」を選ぶ。第1期に買った2台のうち1台を簿価100の半値＝50で売る。A列に入金される）
     await page.getByTestId('sub-B').click()
     await page.getByTestId('act-baikyaku').click()
+    await expect(page.getByTestId('field-period').locator('option')).toHaveText(['第1期に購入（簿価 100）×2台'])
     await expect(page.getByTestId('modal-preview')).toContainText('50')
-    await expect(page.getByTestId('modal-preview')).toContainText('簿価 100')
+    await expect(page.getByTestId('modal-preview')).toContainText('第1期に購入・簿価 100')
     await page.getByTestId('modal-ok').click()
     await expect(page.getByTestId('modal-ok')).toBeHidden()
     await expect(page.getByTestId('ledger')).toContainText('什器売却')
