@@ -191,6 +191,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan-note')).toContainText('入力は自動で保存されます')
     await expect(page.getByTestId('plan-g')).toHaveValue('0')
+
+    // 振り返り：第3期の計画と実績の差が出る
+    await page.getByTestId('tab-review').click()
+    await expect(page.getByTestId('pa-3')).toContainText('売上高 PQ')
+    await expect(page.getByTestId('pa-3')).toContainText('320') // 計画 P32 × Q10
   })
 
   test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
