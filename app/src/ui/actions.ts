@@ -97,6 +97,10 @@ function buildForms(r: Rules): Record<string, FormDef> {
       note: `純資産×倍率の枠内・金利${r.loanRate * 100}%`,
     },
     hensai: { fields: [{ name: 'a', label: '返済額', type: 'int', default: 0, min: 0 }], note: '借入残高まで' },
+    baikyaku: {
+      fields: [{ name: 'n', label: '台数', type: 'int', default: 1, min: 1 }],
+      note: '什器を簿価の半値で売却（差額は特別損失）・保有台数まで',
+    },
     // イベント（フォームありのもの）
     kaihatsu_win: { fields: [{ name: 'qty', label: '個数', type: 'int', default: 0, min: 0 }], note: '開発チップ1枚2個・1個32で販売' },
     dokusen: {
@@ -126,7 +130,7 @@ export function getForms(): Record<string, FormDef> {
 }
 
 export const A_KEYS = ['shiire', 'seizo', 'hanbai', 'kikai', 'saiyo', 'koukoku', 'kaihatsu']
-export const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai']
+export const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai', 'baikyaku']
 
 export interface EventDef {
   key: string
@@ -166,6 +170,7 @@ const FIXED_TAGS: Record<string, string> = {
   haichi: '−5',
   kariire: '＋ 借入',
   hensai: '− 返済',
+  baikyaku: '＋ 簿価の半値',
 }
 
 // 数値ルールに追従するヒントを組み立てる。仕入単価は選択肢の最小〜最大を出す

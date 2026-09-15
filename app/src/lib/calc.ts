@@ -61,6 +61,7 @@ export interface St {
   salesQty: number
   salesAmt: number
   scrapQty: number
+  equipSold: number // 今期に売却した什器の簿価の合計（特別損失に回す。recompute で作り直す）
   loanMult: number
   repayRate: number
   tx: TxRow[]
@@ -130,6 +131,8 @@ export interface Result {
   decisions: number
   equipTotal: number
   equipBought: number
+  equipSold: number // 売却で盤面から外した什器の簿価（特別損失）
+  equipSaleCash: number // 什器売却の売却代金（A列のうち保険金ではない分。投資CFに出す）
   loanBorrow: number
   loanRepay: number
   name: string
@@ -191,7 +194,23 @@ export interface ActionDef {
   fixed?: boolean
   account: string
   amount: (f: Fvals) => number
+  /**
+   * 盤面に依存する金額（什器売却の「簿価の半値」など）。あれば記帳時と recompute の再生時に
+   * こちらで行の金額を決め直す。前の行の削除・編集で簿価が変わっても、行の金額が盤面に追従する。
+   */
+  amountOf?: (st: St, f: Fvals) => number
   apply?: (st: St, f: Fvals) => void
+}
+
+/**
+ * 什器売却：n 台ぶんの「盤面から外す簿価」と「売却代金（簿価の半値）」。
+ * 1台ごとの簿価は持っていないので、合計簿価を台数で按分する。保有台数を超える分は売れない。
+ */
+export function equipSale(st: St, n: number): { units: number; book: number; price: number } {
+  const units = Math.max(0, Math.min(n || 0, st.machines))
+  if (units <= 0 || st.machines <= 0) return { units: 0, book: 0, price: 0 }
+  const book = r((st.equipVal * units) / st.machines)
+  return { units, book, price: r(book / 2) }
 }
 
 export const ACTIONS: Record<string, ActionDef> = {
@@ -352,6 +371,27 @@ export const ACTIONS: Record<string, ActionDef> = {
     amount: (f) => f.a || 0,
     apply: (st, f) => {
       st.loan = Math.max(0, st.loan - (f.a || 0))
+    },
+  },
+  baikyaku: {
+    // 什器を簿価の半値で売る。代金は入金の A 列（保険金と同じ特別損益の列）に入れ、
+    // 外した簿価は equipSold に積んで決算で特別損失にする（差額＝売却損）。
+    label: '什器売却',
+    rule: 'B',
+    col: 3,
+    side: 'in',
+    account: '什器売却',
+    amount: (f) => f.price || 0, // 記帳時に amountOf で決めた売却代金（fvals.price）
+    amountOf: (st, f) => {
+      const { price } = equipSale(st, f.n || 0)
+      f.price = price
+      return price
+    },
+    apply: (st, f) => {
+      const { units, book } = equipSale(st, f.n || 0)
+      st.machines -= units
+      st.equipVal -= book
+      st.equipSold += book
     },
   },
   // --- イベント（rule X）---
@@ -526,6 +566,7 @@ export function newState(): St {
     salesQty: 0,
     salesAmt: 0,
     scrapQty: 0,
+    equipSold: 0,
     loanMult: 1,
     repayRate: 0,
     tx: [],
@@ -586,9 +627,17 @@ export function recompute(st: St) {
   st.salesQty = 0
   st.salesAmt = 0
   st.scrapQty = 0
+  st.equipSold = 0
   // (D) tx を順に apply
   for (const t of st.tx) {
-    if (t.key && ACTIONS[t.key] && ACTIONS[t.key].apply) ACTIONS[t.key].apply!(st, t.fvals || {})
+    const a = t.key ? ACTIONS[t.key] : undefined
+    if (!a) continue
+    // 盤面に依存する金額（什器売却＝その行の時点の簿価の半値）は、前の行が変わっても追従するよう再生のたびに決め直す
+    if (a.amountOf) {
+      if (!t.fvals) t.fvals = {}
+      t.amount = a.amountOf(st, t.fvals) || 0
+    }
+    if (a.apply) a.apply(st, t.fvals || {})
   }
 }
 
@@ -704,7 +753,8 @@ export function settle(st: St): Result | null {
   const dep = st.machines * getRules().depPerMachine
   const F = tot[6] + tot[7] + tot[8] + dep
   const G = mPQ - F
-  const special = tot[3] - scrapVal
+  // 特別損益 ＝ A列（保険金・什器売却代金） − 廃棄損 − 売却した什器の簿価
+  const special = tot[3] - scrapVal - st.equipSold
   const pretax = G + special
   const ret0b = st.retained
   const total4 = pretax + ret0b
@@ -785,6 +835,8 @@ export function settle(st: St): Result | null {
     decisions,
     equipTotal: st.equipVal,
     equipBought: colTotals(st)[4],
+    equipSold: st.equipSold,
+    equipSaleCash: st.tx.filter((x) => x.key === 'baikyaku').reduce((a, x) => a + (x.amount || 0), 0),
     loanBorrow: tot[1],
     loanRepay: tot[9],
     name: st.name,
@@ -853,8 +905,10 @@ export function ratios(res: Result) {
 
 export function cashflow(res: Result) {
   const c = res.colTot
-  const opCF = c[2] + c[3] - c[5] - c[6] - c[7] - c[8] - c[10]
-  const invCF = -c[4]
+  // A列のうち什器売却の代金は投資CF（什器の購入と同じ区分）に出す。古い決算結果には無いので 0 扱い
+  const sale = res.equipSaleCash || 0
+  const opCF = c[2] + (c[3] - sale) - c[5] - c[6] - c[7] - c[8] - c[10]
+  const invCF = -c[4] + sale
   const finCF = c[0] + c[1] - c[9]
   return { opCF, invCF, finCF, netCF: opCF + invCF + finCF }
 }

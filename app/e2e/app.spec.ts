@@ -15,7 +15,7 @@ async function setField(page: Page, testid: string, val: string | number) {
 // 記帳タブは ルールA / ルールB / イベントカード / 会社版 のサブタブ構造。
 // ルールA/B はキーに応じたサブタブへ切り替えてからボタンを押す。
 const A_KEYS = ['shiire', 'seizo', 'hanbai', 'kikai', 'saiyo', 'koukoku', 'kaihatsu']
-const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai']
+const B_KEYS = ['hoken', 'kyoiku', 'haichi', 'kariire', 'hensai', 'baikyaku']
 
 async function act(page: Page, key: string, fields: Record<string, string | number> = {}) {
   const sub = B_KEYS.includes(key) ? 'B' : 'A'
@@ -220,6 +220,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await act(page, 'seizo', { qty: 6 })
     await act(page, 'haichi', { n: 1, dir: 'mfg->sales' }) // ルールB：配置転換
     await act(page, 'hanbai', { 'qty-0': 2, 'unit-0': 50 })
+    // ルールB：什器売却（2台のうち1台を簿価100の半値＝50で売る。モーダルに売却額が出て、A列に入金される）
+    await page.getByTestId('sub-B').click()
+    await page.getByTestId('act-baikyaku').click()
+    await expect(page.getByTestId('modal-preview')).toContainText('50')
+    await expect(page.getByTestId('modal-preview')).toContainText('簿価 100')
+    await page.getByTestId('modal-ok').click()
+    await expect(page.getByTestId('modal-ok')).toBeHidden()
+    await expect(page.getByTestId('ledger')).toContainText('什器売却')
 
     // 全イベント（販売機会→仕入機会→在庫被害→退職→費用→手番のみ）
     await event(page, 'kaihatsu_win', { qty: 2 })

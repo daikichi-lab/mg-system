@@ -145,15 +145,17 @@ export function inventoryValueHTML(r: Result, mk = ''): string {
 }
 
 // ============================================================
-// ⓭ 什器（前期繰越 ＋ 購入 − 減価償却 ＝ 次期繰越）
+// ⓭ 什器（前期繰越 ＋ 購入 − 売却（簿価） − 減価償却 ＝ 次期繰越）
 // ============================================================
 export function equipHTML(r: Result, mk = ''): string {
+  // 売却は様式に無い行なので、売却があった期だけ出す（古い決算結果には値が無い＝0）
+  const sold = r.equipSold || 0
   return box(
     withMk(mk, '什器'),
     '#6b4fa0',
     [cell(WT, '① 前期繰越', r.eq0, ''), cell(PP, `② 什器 <span style="color:${INK400}">(エ)</span>`, r.equipBought, '')],
-    [cell(WT, '③ 合計', r.eq0 + r.equipBought, '', '(① ＋ ②)')],
-    [cell(AQ, '④ 減価償却', r.dep, '', '(台数 × 10)'), cell(WT, '⑨ 次期繰越', r.equipEnd, '', '(③ − ④)')],
+    [cell(WT, '③ 合計', r.eq0 + r.equipBought, '', '(① ＋ ②)')].concat(sold ? [cell(AQ, '売却（簿価）', sold, '', '(半値で売却)')] : []),
+    [cell(AQ, '④ 減価償却', r.dep, '', '(台数 × 10)'), cell(WT, '⑨ 次期繰越', r.equipEnd, '', sold ? '(③ − 売却 − ④)' : '(③ − ④)')],
   )
 }
 
