@@ -1112,7 +1112,7 @@ function Ledger({
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium leading-tight truncate">
                   {/* 行番号：いま何行目（＝何手目）かがひと目でわかるように。前期繰越・合計は数えない */}
-                  <span data-testid={`crownum-${t.id}`} className="num text-[11px] text-ink-300 mr-1.5">
+                  <span data-testid={`crownum-${t.id}`} className="num text-[11px] text-ink-600 mr-1.5">
                     {idx + 1}
                   </span>
                   {label}
@@ -1193,7 +1193,7 @@ function Ledger({
           </tr>
           <tr className="border-b border-line">
             <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">
-              <span className="inline-block w-6 text-right text-ink-300 mr-1.5">No.</span>
+              <span className="inline-block w-6 text-right text-ink-600 mr-1.5">No.</span>
               勘定科目
             </th>
             {LHEAD.map((_, i) => th(i))}
@@ -1211,7 +1211,7 @@ function Ledger({
               <tr key={t.id} className="border-b border-line/60">
                 <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
                   {/* 行番号：いま何行目（＝何手目）かがひと目でわかるように。固定列（勘定科目）の中に置き、横スクロールしても見える */}
-                  <span data-testid={`rownum-${t.id}`} className="inline-block w-6 text-right num text-ink-300 mr-1.5">
+                  <span data-testid={`rownum-${t.id}`} className="inline-block w-6 text-right num text-ink-600 mr-1.5">
                     {idx + 1}
                   </span>
                   {label}
@@ -1273,7 +1273,7 @@ function Ledger({
           </tr>
           <tr className="border-b border-line">
             <th className="sticky left-0 z-10 bg-white px-2 py-1 text-left align-bottom font-semibold">
-              <span className="inline-block w-6 text-right text-ink-300 mr-1.5">No.</span>
+              <span className="inline-block w-6 text-right text-ink-600 mr-1.5">No.</span>
               勘定科目
             </th>
             {LHEAD.map((_, i) => th(i))}
