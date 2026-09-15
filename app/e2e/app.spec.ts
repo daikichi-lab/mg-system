@@ -512,6 +512,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('admin-rank')).toContainText('E2E製菓')
     await expect(page.getByTestId('admin-rank')).toContainText('第1期')
     await expect(page.getByTestId('admin-rank')).toContainText('第2期')
+    // ヘッダ2行（会社／期）は縦スクロールしても固定（sticky）。2行目は1行目の高さぶん下に固定される
+    const headCells = page.getByTestId('admin-rank').locator('thead th')
+    await expect(headCells.first()).toHaveCSS('position', 'sticky')
+    await expect(headCells.last()).toHaveCSS('position', 'sticky')
+    expect(parseFloat(await headCells.last().evaluate((e) => getComputedStyle(e).top))).toBeGreaterThan(0)
 
     // 表形式：指標クリックでソート（▼降順 → ▲昇順 → 解除）
     await page.getByTestId('sort-PQ').click()
