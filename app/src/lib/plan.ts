@@ -547,6 +547,99 @@ export function stateAtPeriod(period: number, history: Result[], base: St): St |
   return st
 }
 
+export interface PlanActualItem {
+  key: string
+  label: string
+  unit: string
+  plan: number
+  actual: number
+  /** 実績 − 計画 */
+  diff: number
+  /** 計画に届いたか。売上原価・固定費は少ないほうが良いので判定が逆になる */
+  ok: boolean
+}
+
+/** アクションを何回やる計画で、実際に何回やったか */
+export interface PlanActualAction {
+  key: string
+  label: string
+  plan: number
+  actual: number
+  /** 実績 − 計画 */
+  diff: number
+}
+
+/** ある期の「計画と実績の差」 */
+export interface PlanActual {
+  period: number
+  items: PlanActualItem[]
+  /** アクションの実施回数。計画にも実績にも無いアクションは入れない */
+  actions: PlanActualAction[]
+}
+
+/**
+ * 8. 計画と実績の差。**計画と決算の両方がある期**だけを、期の古い順に返す。
+ *
+ * 計画側は経営計画書の STRAC 図と同じ作り（PQ＝P×Q、VQ＝V×Q、MQ＝PQ−VQ、G＝MQ−F）。
+ * 固定費の「現況」はその期の期首の盤面から出るので、`stateAtPeriod()` で当時の盤面を組み直して計算する
+ * （今の盤面で計算すると、当時の計画と違う数字になってしまう）。
+ */
+export function planVsActual(history: Result[], plans: Record<string, unknown>, base: St): PlanActual[] {
+  const out: PlanActual[] = []
+  for (const r of [...history].sort((a, b) => a.period - b.period)) {
+    const saved = plans[String(r.period)]
+    if (!saved) continue
+    const st = stateAtPeriod(r.period, history, base)
+    if (!st) continue
+    const plan = normalizePlan(saved)
+    const fig = planFigures(plan, st)
+    if (fig.Q == null || fig.PQ == null || fig.VQ == null) continue // 単価が未記入で個数が出ていない計画は比べられない
+    const mPQ = fig.PQ - fig.VQ
+    // more＝多いほど良い／less＝少ないほうが良い
+    // 実績の単価は決算の合計から割り戻す（決算書の STRAC 図と同じ出し方）
+    const actP = r.Q ? Math.round(r.PQ / r.Q) : 0
+    const actV = r.Q ? Math.round(r.vPQ / r.Q) : 0
+    const rows: [string, string, string, number, number, 'more' | 'less'][] = [
+      ['P', '売上単価 P（1個）', '', plan.p, actP, 'more'],
+      ['V', '売上原価 V（1個）', '', plan.v, actV, 'less'],
+      ['Q', '売上個数 Q', '個', fig.Q, r.Q, 'more'],
+      ['PQ', '売上高 PQ', '', fig.PQ, r.PQ, 'more'],
+      ['VQ', '売上原価 VQ', '', fig.VQ, r.vPQ, 'less'],
+      ['MQ', '粗利益 MQ', '', mPQ, r.mPQ, 'more'],
+      ['F', '固定費 F', '', fig.F, r.F, 'less'],
+      ['G', '経常利益 G', '', mPQ - fig.F, r.G, 'more'],
+    ]
+    // アクションの実施回数。実績は決算に残った記帳行（`rows`）から数える。
+    // 参加者が選べるアクション（ルールA・B）だけを見る＝イベントや自動行（借入金利・給料）は数えない
+    const planned = new Map<string, number>()
+    for (const a of plan.actions) if (a.key) planned.set(a.key, (planned.get(a.key) ?? 0) + 1)
+    const done = new Map<string, number>()
+    for (const t of r.rows || [])
+      if (t.key && PLAN_ACTION_KEYS.includes(t.key)) done.set(t.key, (done.get(t.key) ?? 0) + 1)
+    const actions: PlanActualAction[] = PLAN_ACTION_KEYS.filter((k) => planned.has(k) || done.has(k)).map((k) => ({
+      key: k,
+      label: ACTIONS[k].label,
+      plan: planned.get(k) ?? 0,
+      actual: done.get(k) ?? 0,
+      diff: (done.get(k) ?? 0) - (planned.get(k) ?? 0),
+    }))
+    out.push({
+      period: r.period,
+      items: rows.map(([key, label, unit, p, a, good]) => ({
+        key,
+        label,
+        unit,
+        plan: p,
+        actual: a,
+        diff: a - p,
+        ok: good === 'more' ? a >= p : a <= p,
+      })),
+      actions,
+    })
+  }
+  return out
+}
+
 /**
  * 経営計画書を変更できなくするか。**その期の記帳を1件でも始めたら固定**する。
  * 計画は「記帳を始める前に立てるもの」で、動き出したあとに書き換えると計画と実績の対比が意味を失うため。

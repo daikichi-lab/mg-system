@@ -2,7 +2,7 @@
 // 単価はすべて数値ルールと記帳アクションから引くので、ルールを差し替えたときに追従することも見る。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newState, setRules, corporateTax, type St } from '../src/lib/calc.ts'
+import { newState, setRules, corporateTax, type Result, type St } from '../src/lib/calc.ts'
 import {
   defaultPlan,
   normalizePlan,
@@ -17,6 +17,7 @@ import {
   clampQty,
   defaultQty,
   planLocked,
+  planVsActual,
   stateAtPeriod,
   PLAN_ROWS,
   PLAN_ACTION_KEYS,
@@ -324,6 +325,101 @@ test('記帳が無くても、期末処理や決算まで進んだ期は計画�
   const b = st3()
   b.settled = true
   assert.equal(planLocked(b), true)
+  reset()
+})
+
+// 計画と実績の差に使う、最小限の決算結果
+function res(period: number, over: Partial<Result> = {}): Result {
+  return {
+    period,
+    Q: 0, PQ: 0, vPQ: 0, mPQ: 0, F: 0, G: 0, net: 0, tax: 0,
+    capStart: 0, capEnd: 0, retEnd: 0, cashEnd: 0, endInvQty: 0, endInvVal: 0, prodEnd: 0,
+    equipEnd: 0, machines: 0, staffMfg: 0, staffSales: 0, loanEnd: 0, dev: 0, ads: 0,
+    loanMult: 2, repayRate: 10, openInterest: 0, laborF: 0, sellF: 0, adminF: 0, depF: 0,
+    loanRepay: 0, name: '', president: '', colTot: [], rows: [],
+    ...over,
+  } as unknown as Result
+}
+
+test('計画と実績の差：計画と決算の両方がある期だけ、実績−計画を出す', () => {
+  const st = newState()
+  st.period = 4
+  // 第2期の決算（＝第3期の期首）：製造2・販売2・機械1・借入100・現金252
+  const r2 = res(2, {
+    staffMfg: 2, staffSales: 2, machines: 1, loanEnd: 100, cashEnd: 252,
+    capEnd: 0, retEnd: 0, endInvQty: 0, prodEnd: 0, equipEnd: 100, tax: 0,
+  } as Partial<Result>)
+  const r3 = res(3, { Q: 12, PQ: 396, vPQ: 144, mPQ: 252, F: 306, G: -54 } as Partial<Result>)
+  const plans = { '3': { g: 34, p: 32, v: 12 } }
+  const [c] = planVsActual([r2, r3], plans, st)
+  assert.equal(c.period, 3)
+  const of = (k: string) => c.items.find((x) => x.key === k)!
+  // 計画：F は第3期の期首の盤面から（給料31×4人＋減価償却10×1台＋家賃25＋期首金利100×5% ＝ 164）
+  assert.equal(of('F').plan, 164)
+  assert.equal(of('F').actual, 306)
+  assert.equal(of('F').diff, 142)
+  assert.equal(of('F').ok, false) // 固定費は計画より多いと×
+  // Q＝⌈(34＋164)÷(32−12)⌉＝10 個の計画に対し実績 12 個
+  assert.equal(of('Q').plan, 10)
+  assert.equal(of('Q').diff, 2)
+  assert.equal(of('Q').ok, true)
+  // 売上は計画 32×10 を超えたので○、売上原価は計画 12×10 を超えたので×（少ないほうが良い）
+  assert.deepEqual([of('PQ').plan, of('PQ').diff, of('PQ').ok], [320, 76, true])
+  assert.deepEqual([of('VQ').plan, of('VQ').diff, of('VQ').ok], [120, 24, false])
+  // 経常利益は計画 36 に対し実績 ▲54
+  assert.deepEqual([of('G').plan, of('G').diff, of('G').ok], [36, -90, false])
+  // 1個あたりの単価。実績は決算の合計から割り戻す（PQ396÷12個＝33、vPQ144÷12個＝12）
+  assert.deepEqual([of('P').plan, of('P').actual, of('P').ok], [32, 33, true])
+  assert.deepEqual([of('V').plan, of('V').actual, of('V').ok], [12, 12, true])
+  // 計画が無い期・決算が無い期は出さない
+  assert.equal(planVsActual([r2, r3], {}, st).length, 0)
+  assert.equal(planVsActual([r2], plans, st).length, 0)
+  reset()
+})
+
+test('計画と実績の差：アクションプランの回数を、計画と決算に残った記帳行で比べる', () => {
+  const st = newState()
+  st.period = 4
+  const r2 = res(2, { staffMfg: 2, staffSales: 2, machines: 1 } as Partial<Result>)
+  const r3 = res(3, {
+    Q: 4, PQ: 120, vPQ: 48, mPQ: 72, F: 100, G: -28,
+    rows: [
+      { id: 1, key: 'shiire', amount: 48 },
+      { id: 2, key: 'seizo', amount: 0 },
+      { id: 3, key: 'hanbai', amount: 120 },
+      { id: 4, key: 'suigai', amount: 0 }, // イベントは数えない
+      { id: 5, label: '給料', amount: 124 }, // 期末処理の自動行も数えない
+      { id: 6, key: 'koukoku', amount: 10 }, // 計画に無いが実施したもの
+    ],
+  } as Partial<Result>)
+  // 計画：仕入れ1回・販売2回・製造1回
+  const plans = {
+    '3': {
+      g: 30, p: 30, v: 12,
+      actions: [
+        { key: 'shiire', qty: 5, amount: -60 },
+        { key: 'seizo', qty: 5, amount: 0 },
+        { key: 'hanbai', qty: 2, amount: 60 },
+        { key: 'hanbai', qty: 2, amount: 60 },
+      ],
+    },
+  }
+  const [c] = planVsActual([r2, r3], plans, st)
+  const of = (k: string) => c.actions.find((x) => x.key === k)!
+  assert.deepEqual([of('shiire').plan, of('shiire').actual, of('shiire').diff], [1, 1, 0])
+  assert.deepEqual([of('seizo').plan, of('seizo').actual, of('seizo').diff], [1, 1, 0])
+  assert.deepEqual([of('hanbai').plan, of('hanbai').actual, of('hanbai').diff], [2, 1, -1])
+  assert.deepEqual([of('koukoku').plan, of('koukoku').actual, of('koukoku').diff], [0, 1, 1]) // 計画外の実施も出す
+  assert.equal(c.actions.find((x) => x.key === 'suigai'), undefined)
+  reset()
+})
+
+test('計画と実績の差：単価が未記入で個数が出ていない計画は比べない', () => {
+  const st = newState()
+  st.period = 4
+  const r2 = res(2, { staffMfg: 1, staffSales: 1, machines: 1 } as Partial<Result>)
+  const r3 = res(3, { Q: 5, PQ: 100 } as Partial<Result>)
+  assert.equal(planVsActual([r2, r3], { '3': { g: 100 } }, st).length, 0)
   reset()
 })
 

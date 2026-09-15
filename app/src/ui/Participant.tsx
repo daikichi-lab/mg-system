@@ -39,7 +39,7 @@ import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS 
 import { OrgLineChart } from './OrgLineChart'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
-import { planVisible } from '../lib/plan'
+import { planVisible, planVsActual } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
@@ -229,7 +229,7 @@ export default function Participant() {
             }}
           />
         )}
-        {tab === 'review' && <ReviewTab history={game.history} />}
+        {tab === 'review' && <ReviewTab history={game.history} plans={game.plans} st={st} />}
         {tab === 'org' && <OrgTab game={game} toast={toast} />}
       </main>
 
@@ -2008,7 +2008,7 @@ function ChartCard({ title, sub, html }: { title: string; sub?: string; html: st
   )
 }
 
-function ReviewTab({ history }: { history: Result[] }) {
+function ReviewTab({ history, plans, st }: { history: Result[]; plans: Record<string, unknown>; st: St }) {
   if (!history.length)
     return (
       <div className="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400">
@@ -2016,9 +2016,95 @@ function ReviewTab({ history }: { history: Result[] }) {
       </div>
     )
   const pts = (f: (r: Result) => number) => history.map((r) => ({ x: r.period, y: f(r) }))
+  // 計画と実績の差。計画と決算の両方がある期だけ出る（計画を書いていなければカードごと出さない）
+  const compare = planVsActual(history, plans, st)
+  // 差は符号をはっきり出す（プラスは ＋、マイナスは ▲）
+  const diffText = (v: number, unit = '') => (v > 0 ? `+${fmt(v)}${unit}` : `${fmtA(v)}${unit}`)
   return (
     <div className="space-y-4" data-testid="review">
       <Figure html={scoreCardsHTML(history)} />
+      {!!compare.length && (
+        <div className="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5" data-testid="plan-actual">
+          <h2 className="font-bold mb-1">計画と実績の差</h2>
+          <p className="text-xs text-ink-400 mb-3">その期に立てた経営計画と、決算の結果を並べています。</p>
+          <div className="space-y-4">
+            {compare.map((c) => (
+              <div key={c.period} data-testid={`pa-${c.period}`}>
+                <h3 className="text-xs font-bold text-ink-600 mb-1">第{c.period}期</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="h-7 text-ink-400 border-b border-line align-bottom">
+                        <th className="text-left pr-2 font-normal whitespace-nowrap">項目</th>
+                        <th className="text-right px-2 font-normal whitespace-nowrap">計画</th>
+                        <th className="text-right px-2 font-normal whitespace-nowrap">実績</th>
+                        <th className="text-right pl-2 font-normal whitespace-nowrap">差</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {c.items.map((x) => (
+                        <tr key={x.key} className="h-9 border-b border-line/60 align-middle">
+                          <td className="pr-2 text-ink-500 whitespace-nowrap">{x.label}</td>
+                          <td className="px-2 text-right num whitespace-nowrap">
+                            {fmt(x.plan)}
+                            {x.unit}
+                          </td>
+                          <td className="px-2 text-right num whitespace-nowrap">
+                            {fmtA(x.actual)}
+                            {x.unit}
+                          </td>
+                          <td
+                            className={`pl-2 text-right num whitespace-nowrap font-bold ${
+                              x.ok ? 'text-ink-400' : 'text-accent-ink'
+                            }`}
+                          >
+                            {diffText(x.diff, x.unit)}
+                          </td>
+                        </tr>
+                      ))}
+                      {/* アクションプランは同じ表の続きに置いて、計画・実績・差の列をそろえる */}
+                      {!!c.actions.length && (
+                        <>
+                          <tr className="h-9 bg-canvas align-middle">
+                            <td className="pr-2 font-bold text-ink-600 whitespace-nowrap" colSpan={4}>
+                              アクションプラン
+                            </td>
+                          </tr>
+                          {/* 上の表から離れるので、ここでも列の見出しを出す */}
+                          <tr className="h-7 text-ink-400 border-b border-line align-bottom">
+                            <th className="text-left pr-2 font-normal whitespace-nowrap">アクション</th>
+                            <th className="text-right px-2 font-normal whitespace-nowrap">計画</th>
+                            <th className="text-right px-2 font-normal whitespace-nowrap">実績</th>
+                            <th className="text-right pl-2 font-normal whitespace-nowrap">差</th>
+                          </tr>
+                          {c.actions.map((a) => (
+                            <tr key={a.key} className="h-9 border-b border-line/60 align-middle">
+                              <td className="pr-2 text-ink-500 whitespace-nowrap">{a.label}</td>
+                              <td className="px-2 text-right num whitespace-nowrap">{a.plan}回</td>
+                              <td className="px-2 text-right num whitespace-nowrap">{a.actual}回</td>
+                              <td
+                                className={`pl-2 text-right num whitespace-nowrap font-bold ${
+                                  a.diff < 0 ? 'text-accent-ink' : 'text-ink-400'
+                                }`}
+                              >
+                                {diffText(a.diff, '回')}
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] text-ink-400">
+            赤字は計画に届かなかった項目です。売上原価と固定費は少ないほうが良いので、計画より多いと赤字になります。
+            アクションプランは、計画で選んだ回数と実際に記帳した回数を比べています。
+          </p>
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-card border border-line p-5">
         <h2 className="font-bold mb-2">利益構造 STRAC の推移</h2>
         <Figure html={structureHTML(history)} />
