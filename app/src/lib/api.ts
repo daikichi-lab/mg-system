@@ -31,6 +31,8 @@ export interface ApiCompany {
   opening: Record<string, number>
   seq: number
   updatedAt: number
+  /** 経営計画書（期番号 → 入力）。列が無い旧データ・未記入は {} */
+  plans?: Record<string, unknown>
 }
 export interface ApiState {
   company: ApiCompany

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS companies (
   org TEXT NOT NULL, name TEXT NOT NULL, president TEXT DEFAULT '',
   period INTEGER DEFAULT 1, started INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
   opening_json TEXT DEFAULT '{}', seq INTEGER DEFAULT 1, updated_at INTEGER DEFAULT 0,
+  plans_json TEXT DEFAULT '{}',
   UNIQUE(org, name)
 );
 CREATE TABLE IF NOT EXISTS entries (
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS companies (
   org TEXT NOT NULL, name TEXT NOT NULL, president TEXT DEFAULT '',
   period INTEGER DEFAULT 1, started INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
   opening_json TEXT DEFAULT '{}', seq INTEGER DEFAULT 1, updated_at BIGINT DEFAULT 0,
+  plans_json TEXT DEFAULT '{}',
   UNIQUE(org, name)
 );
 CREATE TABLE IF NOT EXISTS entries (
@@ -212,6 +214,10 @@ export async function makePgliteDriver(pglite) {
 // ここで不足している列だけを ALTER TABLE ADD COLUMN で追加する。**追加のみ**で、
 // 列の削除・型変更・データの破壊は行わない（本番データが入っているため）。
 const ADDED_COLUMNS = {
+  companies: [
+    // 経営計画書（期番号 → 入力）。参加者ごと・期ごとに保存する
+    ['plans_json', "TEXT DEFAULT '{}'"],
+  ],
   orgs: [
     ['name', "TEXT DEFAULT ''"],
     // 研修ごとのルールのコピー。空なら DEFAULT_RULES（＝入門編 標準）。
@@ -305,6 +311,7 @@ const stMap = (row) =>
     opening: safeParse(row.opening_json, {}),
     seq: row.seq,
     updatedAt: Number(row.updated_at),
+    plans: safeParse(row.plans_json, {}),
   }
 const entryMap = (r) => ({
   id: Number(r.id),
@@ -355,9 +362,14 @@ export async function fullState(companyId) {
 
 export async function saveState(companyId, payload) {
   const period = payload.period
+  // 経営計画書（plans）は payload に入っているときだけ更新する。
+  // plans を知らない古い画面（デプロイ前から開いたままのタブ）からの保存で、書いた計画を消さないため
+  const hasPlans = !!payload.plans && typeof payload.plans === 'object' && !Array.isArray(payload.plans)
   await D.tx(async (q) => {
     await q.run(
-      'UPDATE companies SET president = ?, period = ?, started = ?, settled = ?, opening_json = ?, seq = ?, updated_at = ? WHERE id = ?',
+      `UPDATE companies SET president = ?, period = ?, started = ?, settled = ?, opening_json = ?, seq = ?, updated_at = ?${
+        hasPlans ? ', plans_json = ?' : ''
+      } WHERE id = ?`,
       [
         payload.president || '',
         period,
@@ -366,6 +378,7 @@ export async function saveState(companyId, payload) {
         JSON.stringify(payload.opening || {}),
         payload.seq || 1,
         now(),
+        ...(hasPlans ? [JSON.stringify(payload.plans)] : []),
         companyId,
       ],
     )

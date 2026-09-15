@@ -196,6 +196,8 @@ export default function RuleEditor({
     if (!name.trim()) return 'ルール名を入力してください'
     if (!rules.materialPrices.length) return '仕入単価の選択肢を1つ以上入れてください'
     if (rules.matCap < 1 || rules.prodCap < 1) return '在庫の上限は1以上にしてください'
+    if (!Number.isInteger(rules.planFromPeriod) || rules.planFromPeriod < 1)
+      return '経営計画書タブを出す期は1以上の整数にしてください'
     const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, ...rules.salaryTable]
     if (nums.some((n) => !Number.isFinite(n) || n < 0)) return '数値は0以上で入力してください'
     return ''

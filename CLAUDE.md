@@ -130,6 +130,7 @@ npm run test:calc
 - 記帳フォームは数値ルールに連動するため `ui/actions.ts` の **`getForms()`** から取る（`FORMS` という静的オブジェクトはもう無い）。
   記帳ボタンのヒント文言も同じ理由で **`getTags()`** から取る（`Participant.tsx` の `TAGS` という静的オブジェクトはもう無い）。
 - 差し替えが効くことは `npm run test:rules`、既定値のままなら数値が変わらないことは `npm run test:calc`（golden-master）が担保する。
+- `planFromPeriod`（経営計画書タブを出す期・既定 3）は計算には使わず、参加者アプリのタブ表示だけに効く。
 
 **研修への適用**：数値ルールは研修（`orgs`）へ**コピー**される。参照ではないので、マスタを後から編集・削除しても
 既存の研修の数値は動かない。参加者アプリは `state/useGame.ts` の初期ロードで `/api/org/:code/rules` を取り、
@@ -188,6 +189,8 @@ npm run test:calc
 コードを変更すると `orgs` と `companies` を同一トランザクションで移すため参加者データは失われないが、配布済みURLは無効になる。
 
 - `state/useGame.ts` … 参加者の状態を保持し、記帳・決算のたびに DB へ同期。リロード・別端末でも「組織コード＋会社名」で復元。
+- `ui/PlanTab.tsx` ＋ `lib/plan.ts` … 経営計画書（第3表）。入力は `companies.plans_json` に期番号→入力で保存。
+  金額は毎回 `getRules()` と `ACTIONS[key].amount` から計算する（定数を持たない）。保存は入力が落ち着いてから 0.7 秒後にまとめて行う。
 - `lib/game.ts` … calc エンジンと API/UI の橋渡し（状態⇄API変換・記帳バリデーション・イベント）。
 - `lib/api.ts` … REST クライアント。`ui/actions.ts` … 記帳モーダルのフォーム定義。
 

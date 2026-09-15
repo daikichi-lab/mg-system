@@ -73,6 +73,22 @@ test('Postgres(pglite) 方式で DB round-trip が成立する', async () => {
   assert.equal(s3.results[0].G, 90, '値が更新される')
   assert.equal(s3.entries.length, 1, '当期の記帳は入れ替わる')
 
+  // 経営計画書（plans）：期ごとに保存され、plans を送らない保存では消えない
+  const base3 = {
+    president: '社長A',
+    period: 1,
+    started: true,
+    settled: true,
+    opening: { openingCapital: 300 },
+    seq: 5,
+    entries: [{ txId: 1, label: '資本金', col: 0, amount: 300, isCapital: true }],
+    results: [{ period: 1, PQ: 400, mPQ: 240, F: 150, G: 90, net: 63, capEnd: 300, retEnd: 90, cashEnd: 320, turns: 14, decisions: 11 }],
+  }
+  await saveState(id, { ...base3, plans: { 1: { g: 50, p: 32, v: 12 } } })
+  assert.equal(((await fullState(id)) as any).company.plans['1'].g, 50)
+  await saveState(id, base3)
+  assert.equal(((await fullState(id)) as any).company.plans['1'].g, 50, 'plans 無しの保存で消えない')
+
   // 組織比較
   const org = await listOrg('PGORG')
   assert.equal(org.length, 1)

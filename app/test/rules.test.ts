@@ -24,6 +24,15 @@ test('normalizeRules：未指定・壊れた値は既定で埋める', () => {
   assert.deepEqual(normalizeRules({ materialPrices: [] }).materialPrices, DEFAULT_RULES.materialPrices)
 })
 
+test('normalizeRules：planFromPeriod は1以上の整数だけ受け付け、既定は 3', () => {
+  assert.equal(DEFAULT_RULES.planFromPeriod, 3)
+  assert.equal(normalizeRules({ planFromPeriod: 1 }).planFromPeriod, 1)
+  assert.equal(normalizeRules({ planFromPeriod: 6 }).planFromPeriod, 6) // 6 以上＝一度も出さない、も許す
+  assert.equal(normalizeRules({ planFromPeriod: 0 }).planFromPeriod, 3)
+  assert.equal(normalizeRules({ planFromPeriod: 2.5 }).planFromPeriod, 3)
+  assert.equal(normalizeRules({ planFromPeriod: '3' as unknown as number }).planFromPeriod, 3)
+})
+
 test('normalizeRules：配列は複製する（既定値を書き換えない）', () => {
   const a = normalizeRules(null)
   a.materialPrices.push(99)
