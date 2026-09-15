@@ -167,7 +167,7 @@ export const COL_LABELS = [
   'ア 資本金',
   'イ 借入金',
   'ウ 売上',
-  'A 受取保険金',
+  'A 保険金・その他', // 受取保険金と什器売却の代金（どちらも特別損益に流れる入金）
   'エ 什器',
   'オ 材料仕入',
   'カ 人件費',
@@ -900,6 +900,20 @@ export function ratios(res: Result) {
     P: res.Q ? r(res.PQ / res.Q) : 0,
     V: res.Q ? r(res.vPQ / res.Q) : 0,
     M: res.Q ? r(res.mPQ / res.Q) : 0,
+  }
+}
+
+/**
+ * 特別損益の内訳（決算書の「① 特別損益」の下に出す）。
+ * 保険金 ＝ A列 − 什器売却の代金、廃棄損 ＝ 廃棄個数 × 平均単価、什器売却損 ＝ 売却した簿価 − 代金。
+ * 保険金 − 廃棄損 − 什器売却損 ＝ special になる。古い決算結果には売却の値が無いので 0 扱い。
+ */
+export function specialBreakdown(res: Result): { insurance: number; scrapLoss: number; saleLoss: number } {
+  const sale = res.equipSaleCash || 0
+  return {
+    insurance: (res.colTot?.[3] || 0) - sale,
+    scrapLoss: (res.scrap || 0) * (res.avg || 0),
+    saleLoss: (res.equipSold || 0) - sale,
   }
 }
 

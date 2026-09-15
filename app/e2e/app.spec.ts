@@ -260,6 +260,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('act-shiire')).toBeVisible() // 記帳に戻った
     await closeAndSettle(page)
     await expect(page.getByTestId('bs-check')).toContainText('貸借一致')
+    // 特別損益の内訳：什器を売った期は「什器売却損 ▲50」、水害で材料を捨てているので「廃棄損」も出る
+    await expect(page.getByTestId('tx-special-detail')).toContainText('什器売却損 ▲50')
+    await expect(page.getByTestId('tx-special-detail')).toContainText('廃棄損')
 
     expect((page as any)._mgErrors).toEqual([])
   })

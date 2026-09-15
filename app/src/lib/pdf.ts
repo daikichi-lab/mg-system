@@ -29,7 +29,7 @@ const LCOL: readonly (readonly [string, string, string])[] = [
   ['#fbe0ea', '#fdf1f6', '#b03a6a'], // ア 資本金
   ['#fdf3c7', '#fef9e6', '#9a7d10'], // イ 借入金
   ['#fde3c4', '#fef3e6', '#b5630f'], // ウ 売上
-  ['#fce8ef', '#fdf4f8', '#b85c7e'], // A 受取保険金
+  ['#fce8ef', '#fdf4f8', '#b85c7e'], // A 保険金・その他
   ['#e4dcf3', '#f3eefb', '#6b4fa0'], // エ 什器
   ['#d8ecd8', '#eef7ee', '#3f7a3f'], // オ 材料仕入
   ['#d6e6f7', '#eef5fc', '#2f5f93'], // カ 人件費
