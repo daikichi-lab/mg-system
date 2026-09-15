@@ -349,10 +349,10 @@ export function useGame(): Game {
         const newMatQty = b.mat + b.prod
         const newMatVal = Math.round(unit * newMatQty)
         const newEquipVal = Math.round(perMach * b.mach)
-        // 什器の1台ずつの記録も合わせる：残す台は購入した期を保ち、増えた台は「前期以前に購入」（0）。
-        // 簿価は新しい合計を台数で按分し直す（合計と件数が合わないと recompute が全部 0 期扱いにしてしまうため）
+        // 什器の1台ずつの記録も合わせる：残す台は購入した期を保ち、増えた台は簿価から購入期を逆算する。
+        // 簿価は新しい合計を台数で按分し直す（合計と件数が合わないと recompute が按分し直してしまうため）
         const periods = openingLotsOf(st).slice(0, b.mach).map((l) => l.period)
-        const newLots = splitLots(b.mach, newEquipVal).map((l, i) => ({ ...l, period: periods[i] ?? 0 }))
+        const newLots = splitLots(b.mach, newEquipVal, st.period).map((l, i) => ({ ...l, period: periods[i] ?? l.period }))
         st.retained += newMatVal - st.openingMatVal + (newEquipVal - st.openingEquipVal)
         st.openingStaffMfg = b.mfg
         st.openingStaffSales = b.sales

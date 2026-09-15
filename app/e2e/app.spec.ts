@@ -292,7 +292,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // ルールB：什器売却（「いつ買った機械か」を選ぶ。第1期に買った2台のうち1台を簿価100の半値＝50で売る。A列に入金される）
     await page.getByTestId('sub-B').click()
     await page.getByTestId('act-baikyaku').click()
-    await expect(page.getByTestId('field-period').locator('option')).toHaveText(['第1期に購入（簿価 100）×2台'])
+    await expect(page.getByTestId('field-lot').locator('option')).toHaveText(['第1期に購入 1台目（簿価 100）', '第1期に購入 2台目（簿価 100）'])
     await expect(page.getByTestId('modal-preview')).toContainText('50')
     await expect(page.getByTestId('modal-preview')).toContainText('第1期に購入・簿価 100')
     await page.getByTestId('modal-ok').click()
