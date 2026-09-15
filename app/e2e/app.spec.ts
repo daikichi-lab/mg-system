@@ -112,6 +112,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan')).toBeVisible()
     await expect(page.getByTestId('plan-F')).toHaveText('97')
+    // 「?」で経常利益の目安の説明が開く
+    await page.getByTestId('plan-g-help').click()
+    await expect(page.getByTestId('plan-g-help-modal')).toContainText('経常利益（G）の決め方')
+    await page.getByTestId('plan-g-help-close').click()
+    await expect(page.getByTestId('plan-g-help-modal')).toHaveCount(0)
+    // 計画がそろうまで「動き方を決める」は開かない
+    await expect(page.getByTestId('plan-stage-locked')).toBeVisible()
+    await expect(page.getByTestId('plan-stage-actions')).toHaveCount(0)
     await setField(page, 'plan-g', 100)
     await setField(page, 'plan-p', 32)
     await setField(page, 'plan-v', 12)
@@ -121,9 +129,24 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('plan-Q')).toContainText('10')
     await expect(page.getByTestId('plan-PQ')).toHaveText('320')
     await expect(page.getByTestId('plan-VQ')).toHaveText('120')
-    // アクションプラン：1行目に出金を入れると残高が減る
-    await setField(page, 'plan-act-text-0', '仕入 5個')
-    await setField(page, 'plan-act-amt-0', -60)
+    // 借入の行には今期借入可能額（純資産×倍率 − 借入残高）を出す
+    await expect(page.getByTestId('plan-loan-room')).toContainText('今期借入可能額')
+    // 計画の STRAC 図（決算書と同じ描画関数を、計画の数値で使う）
+    await expect(page.getByTestId('plan-strac')).toContainText('売上高 PQ')
+    await expect(page.getByTestId('plan-strac')).toContainText('320') // PQ ＝ P32 × Q10
+    // 目標・単価がそろったので「動き方を決める」が開く
+    await expect(page.getByTestId('plan-stage-actions')).toBeVisible()
+    await expect(page.getByTestId('plan-stage-locked')).toHaveCount(0)
+    // 必要なアクション回数：Q＝10個・販売能力は販売スタッフ1人で 2個/回 なので販売は 5回
+    await expect(page.getByTestId('plan-need-hanbai')).toContainText('5回')
+    // アクションプラン：アクションを選ぶと数量1・金額が自動で入り、数量を変えると金額も変わる
+    await setField(page, 'plan-act-key-0', 'shiire')
+    await expect(page.getByTestId('plan-act-qty-0')).toHaveValue('1')
+    await expect(page.getByTestId('plan-act-amt-0')).toHaveValue('-12') // 売上原価 V＝12 × 1個
+    await setField(page, 'plan-act-qty-0', 5)
+    await expect(page.getByTestId('plan-act-amt-0')).toHaveValue('-60') // 12 × 5個
+    // 選んだ回数が「計画」に数えられる
+    await expect(page.getByTestId('plan-need-shiire')).toContainText('1回')
 
     // 入力が落ち着いてから保存される → リロードしても残っている（DB 経由）
     await page.waitForTimeout(1500)
@@ -131,9 +154,43 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('hd-period')).toHaveText('第3期')
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan-g')).toHaveValue('100')
-    await expect(page.getByTestId('plan-act-text-0')).toHaveValue('仕入 5個')
+    await expect(page.getByTestId('plan-act-key-0')).toHaveValue('shiire')
+    await expect(page.getByTestId('plan-act-qty-0')).toHaveValue('5')
+    // 計画をたたむと要約1行になり、ひらくと入力欄に戻る
+    await page.getByTestId('plan-fold').click()
+    await expect(page.getByTestId('plan-summary')).toContainText('100')
+    await expect(page.getByTestId('plan-g')).toHaveCount(0)
+    await page.getByTestId('plan-fold').click()
+    await expect(page.getByTestId('plan-g')).toHaveValue('100')
     await expect(page.getByTestId('plan-act-amt-0')).toHaveValue('-60')
     await expect(page.getByTestId('plan-Q')).toContainText('10')
+
+    // 記帳を始めると、その期の経営計画は変更できなくなる
+    await page.getByTestId('tab-play').click()
+    await act(page, 'hoken', { n: 1 })
+    await page.getByTestId('tab-plan').click()
+    await expect(page.getByTestId('plan-note')).toContainText('変更できません')
+    await expect(page.getByTestId('plan-g')).toBeDisabled()
+    await expect(page.getByTestId('plan-act-key-0')).toBeDisabled()
+    await expect(page.getByTestId('plan-act-amt-0')).toBeDisabled()
+
+    // 決算して次の期へ進むと、履歴からその期の経営計画を読み取り専用で開ける
+    await page.getByTestId('tab-play').click()
+    await closeAndSettle(page)
+    await page.getByTestId('next-period').click()
+    await expect(page.getByTestId('hd-period')).toHaveText('第4期')
+    await page.getByTestId('tab-history').click()
+    await page.locator('[data-testid="plan-3"]:visible, [data-testid="cplan-3"]:visible').first().click()
+    await expect(page.getByTestId('plan-note')).toContainText('第3期に立てた経営計画')
+    await expect(page.getByTestId('plan-g')).toHaveValue('100') // 第3期に書いた目標がそのまま出る
+    await expect(page.getByTestId('plan-g')).toBeDisabled()
+    await expect(page.getByTestId('plan-F')).toHaveText('97') // 現況も第3期の期首の盤面で計算される
+    await page.getByTestId('plan-back').click()
+    await expect(page.getByTestId('history')).toBeVisible()
+    // タブから開き直すと今の期（第4期）の計画に戻る
+    await page.getByTestId('tab-plan').click()
+    await expect(page.getByTestId('plan-note')).toContainText('入力は自動で保存されます')
+    await expect(page.getByTestId('plan-g')).toHaveValue('0')
   })
 
   test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
@@ -729,6 +786,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('new-ruleset').click()
     await page.getByTestId('rule-name-input').fill('E2E 機械高騰')
     await page.getByTestId('f-machinePrice').fill('120')
+    // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
+    await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
+    await page.getByTestId('f-planFromPeriod').fill('1')
     await page.getByTestId('rule-save').click()
     await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
 
@@ -753,6 +813,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('c-name').fill('ルール製菓')
     await page.getByTestId('c-pres').fill('適用太郎')
     await page.getByTestId('start').click()
+    // 経営計画書タブは第1期から出る（既定ルールなら第3期から）
+    await expect(page.getByTestId('hd-period')).toHaveText('第1期')
+    await expect(page.getByTestId('tab-plan')).toBeVisible()
     await page.getByTestId('tab-play').click()
     // 記帳ボタンのヒントもルールに追従する（表示だけ既定値のままだと取り違える・issue #23）
     await page.getByTestId('sub-A').click()

@@ -7,11 +7,50 @@ import { isM } from './mq.ts'
 // .num 相当（等幅数字フォント）
 const NUM = "font-family:'Roboto Mono','Zen Kaku Gothic New',monospace;font-variant-numeric:tabular-nums"
 
+// この層は HTML を文字列で組み立てるので、呼び出し元から渡ってくる文字列は必ずここを通す。
+// いまは勘定科目のような固定文字列しか渡していないが、将来 DB 由来の名前を渡しても壊れないようにしておく。
+const esc = (v: string): string =>
+  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
 // ============================================================
 // STRAC 面積図（インラインCSS・自己完結）
 // 売上単価P → 変動単価V/粗利単価M → 個数Q → 売上高PQ柱 → 変動費vPQ(上) / 粗利mPQ ｜ 固定費F＋利益G
 // ============================================================
+
+/**
+ * STRAC 面積図の入力。決算の結果（Result）からでも、経営計画の目標値からでも作れる。
+ * PQ ＝ vPQ ＋ mPQ、mPQ ＝ F ＋ G が成り立っている必要がある（面積が合わなくなるため）。
+ */
+export interface StracInput {
+  Q: number
+  PQ: number
+  vPQ: number
+  mPQ: number
+  F: number
+  G: number
+  /** 固定費の内訳（図の下に出す）。決算は人件費／販売費／管理費／減価償却、計画は勘定科目ごと */
+  fParts: { label: string; value: number }[]
+}
+
+/** 決算の結果から STRAC 面積図を描く */
 export function stracHTML(r: Result): string {
+  return stracFigureHTML({
+    Q: r.Q,
+    PQ: r.PQ,
+    vPQ: r.vPQ,
+    mPQ: r.mPQ,
+    F: r.F,
+    G: r.G,
+    fParts: [
+      { label: '人件費', value: r.laborF },
+      { label: '販売費', value: r.sellF },
+      { label: '管理費', value: r.adminF },
+      { label: '減価償却', value: r.depF },
+    ],
+  })
+}
+
+export function stracFigureHTML(r: StracInput): string {
   const f = fmt
   const fA = fmtA
   const Q = r.Q || 0
@@ -37,7 +76,20 @@ export function stracHTML(r: Result): string {
   let fHloss = 0
   if (!loss) {
     fH = Math.min(mH, hpx(r.F))
-    gH = Math.max(2, mH - fH)
+    gH = mH - fH
+    // 固定費と経常利益のどちらかが薄すぎると「◯◯ 123」が読めないので、
+    // 全体に余裕があるときだけ最低の高さを確保する（面積はわずかに崩れる）
+    const MINBLK = 22
+    if (mH >= MINBLK * 2) {
+      if (gH < MINBLK) {
+        gH = MINBLK
+        fH = mH - gH
+      } else if (fH < MINBLK) {
+        fH = MINBLK
+        gH = mH - fH
+      }
+    }
+    gH = Math.max(2, gH)
   } else {
     lossH = hpx(-r.G)
     fHloss = mH + lossH
@@ -48,14 +100,19 @@ export function stracHTML(r: Result): string {
   const pillar = (w: number, bg: string, bd: string, inner: string) =>
     `<div style="width:${w}px;height:${pqH}px;background:${bg};border:1px solid ${bd};border-radius:4px;display:grid;place-items:center;text-align:center;overflow:hidden;flex:none">${inner}</div>`
 
-  // 図の部品（単価P・変動/粗利単価・×個数Q・売上高PQ柱・売上高の分解ブロック）
-  const pillarP = pillar(34, '#fbe7d3', '#e08a3c', `<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div style="${NUM};font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)
-  const unitCol = `<div style="width:34px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
+  // 図の部品（単価P・変動/粗利単価・×個数Q・売上高PQ柱・売上高の分解ブロック）。
+  // スマホは幅とすき間を詰めて、上下2段にせず横1列のまま画面幅に収める
+  const m = isM()
+  const wUnit = m ? 30 : 34
+  const wPQ = m ? 44 : 56
+  const gap = m ? 3 : 4
+  const pillarP = pillar(wUnit, '#fbe7d3', '#e08a3c', `<div><div style="font-size:7px;color:#b5630f">売上単価</div><div style="font-size:8px;font-weight:700;color:#b5630f">P</div><div style="${NUM};font-weight:900;font-size:12px;color:#b5630f">${f(P)}</div></div>`)
+  const unitCol = `<div style="width:${wUnit}px;height:${pqH}px;border:1px solid #e1e5ea;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;flex:none">
           <div style="height:${vH}px;background:#37a36b;color:#fff;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">変動単価</div><div style="${NUM};font-weight:700;font-size:10px">${f(vP)}</div></div></div>
           <div style="height:${mH}px;background:#fbe4ee;color:#9d3464;display:grid;place-items:center;text-align:center"><div><div style="font-size:7px">粗利単価</div><div style="${NUM};font-weight:700;font-size:10px">${f(mP)}</div></div></div>
         </div>`
-  const qtyBox = `<div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px 5px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div style="${NUM};font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>`
-  const pqPillar = pillar(56, '#fbe7d3', '#e08a3c', `<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div style="${NUM};font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)
+  const qtyBox = `<div style="height:${pqH}px;display:flex;align-items:center;flex:none"><div style="background:#eaeef3;border:1px solid #b9c2cf;border-radius:4px;padding:3px ${m ? 3 : 5}px;text-align:center"><div style="font-size:7px;color:#5b6472">個数 Q</div><div style="${NUM};font-weight:800;font-size:12px">× ${f(Q)}</div></div></div>`
+  const pqPillar = pillar(wPQ, '#fbe7d3', '#e08a3c', `<div><div style="font-size:8px;font-weight:700;color:#b5630f">売上高 PQ</div><div style="${NUM};font-weight:900;font-size:13px;color:#b5630f">${f(r.PQ)}</div><div style="font-size:6.5px;color:#9aa3b2">P × Q</div></div>`)
   const breakdown = (w: string) => `<div style="${w};display:flex;flex-direction:column;min-width:0">
           <div style="height:${vH}px;background:#37a36b;color:#fff;border:1px solid #2f8d5c;border-bottom:0;border-radius:4px 4px 0 0;display:grid;place-items:center;text-align:center"><div><div style="font-size:8px">変動費 vPQ</div><div style="${NUM};font-weight:800;font-size:11px">${f(r.vPQ)}</div><div style="font-size:6.5px;opacity:.85">売上原価</div></div></div>
           <div style="display:flex;align-items:flex-start">
@@ -68,13 +125,12 @@ export function stracHTML(r: Result): string {
             }
           </div>
         </div>`
-  // スマホ：1段目「単価×個数」、2段目「売上高PQ柱＋分解」（横スクロールなし）／PC：従来の1列並び
-  const fig = isM()
-    ? `<div style="max-width:560px;margin:0 auto">
-        <div style="display:flex;align-items:flex-start;justify-content:center;gap:4px">${pillarP}${unitCol}${qtyBox}</div>
-        <div style="display:flex;align-items:flex-start;gap:4px;margin-top:8px">${pqPillar}${breakdown('flex:1')}</div>
-      </div>`
-    : `<div style="max-width:560px;margin:0 auto;overflow-x:auto"><div style="display:flex;align-items:flex-start;gap:4px;min-width:max-content">
+  // スマホも PC も横1列。スマホは各パーツを詰め、分解ブロックが残り幅を取ることで横スクロールを出さない
+  const fig = m
+    ? `<div style="margin:0 auto"><div style="display:flex;align-items:flex-start;gap:${gap}px">
+        ${pillarP}${unitCol}${qtyBox}${pqPillar}${breakdown('flex:1')}
+      </div></div>`
+    : `<div style="max-width:560px;margin:0 auto;overflow-x:auto"><div style="display:flex;align-items:flex-start;gap:${gap}px;min-width:max-content">
         ${pillarP}
         ${unitCol}
         ${qtyBox}
@@ -87,7 +143,7 @@ export function stracHTML(r: Result): string {
 
   return (
     fig +
-    `<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;background:#f4f6f8;border-radius:5px;padding:3px 5px;margin-top:5px;font-size:9px"><b style="color:#46505f">固定費 F ${f(r.F)} ＝</b><span>人件費 <b style="${NUM}">${f(r.laborF)}</b></span><span>販売費 <b style="${NUM}">${f(r.sellF)}</b></span><span>管理費 <b style="${NUM}">${f(r.adminF)}</b></span><span>減価償却 <b style="${NUM}">${f(r.depF)}</b></span></div>` +
+    `<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;background:#f4f6f8;border-radius:5px;padding:3px 5px;margin-top:5px;font-size:9px"><b style="color:#46505f">固定費 F ${f(r.F)} ＝</b>${r.fParts.map((x) => `<span>${esc(x.label)} <b style="${NUM}">${f(x.value)}</b></span>`).join('')}</div>` +
     `<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:4px">${chip('売上個数 Q', f(Q))}${chip('原価率', costRate + '%')}${chip('粗利率', grossRate + '%')}${chip('損益分岐点', bep + '%')}${chip('経常利益 G', fA(r.G))}</div>`
   )
 }
