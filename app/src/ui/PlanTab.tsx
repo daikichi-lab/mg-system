@@ -4,7 +4,7 @@
 // 保存は入力が落ち着いてから（SAVE_DELAY_MS）まとめて game.savePlan() → DB。タブを離れるときは即保存。
 // 数値ルール planFromPeriod より前の期ではこのタブ自体が出ない（Participant.tsx 側で制御）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { fmt, fmtA, loanRoom } from '../lib/calc'
+import { fmt, fmtA, loanRoom, getRules } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
 import type { Game } from '../state/useGame'
 import {
@@ -367,13 +367,13 @@ export default function PlanTab({
                 <span className="text-ink-500">経常利益目標</span>
                 {numIn('plan-g', plan.g, (v) => update({ g: v }), 'w-28 text-base font-bold text-g-ink border-g-base/50')}
               </div>
-              {/* 目安：赤字の解消（期首の利益剰余金がマイナスのとき）と、1位との差（他社の決算があるとき） */}
+              {/* 目安：過去の赤字の蓄積を解消（期首の利益剰余金がマイナスのとき）と、1位との差（他社の決算があるとき） */}
               {(gHint != null || (gap && gap.g != null)) && (
                 <div className="mt-2 space-y-2">
                   {gHint != null &&
                     hintRow(
                       'plan-g-hint',
-                      '赤字を解消する',
+                      '過去の赤字の蓄積を解消',
                       <>
                         期首の利益剰余金 <b className="num text-accent-ink">▲{fmt(-st.retained)}</b> を期末にゼロへ戻すには、経常利益{' '}
                         <b className="num text-ink">{fmt(gHint)}</b> 以上
@@ -516,11 +516,29 @@ export default function PlanTab({
           )}
           {card(
             <span className="text-m-ink">{chunks(['3. 商品の必要粗利益（付加価値）', '額（MQ）を計算'])}</span>,
-            <div className="flex justify-between items-center rounded-lg bg-m-bg px-3 py-2">
-              <span className="text-m-ink text-xs">{phrases('1. 経常利益目標（G）　＋　2. 固定費（F）合計')}</span>
-              <b className="num text-m-ink text-lg" data-testid="plan-MQ">
-                {fmt(fig.MQ)}
-              </b>
+            <div className="space-y-2">
+              {/* G と F に、1. で入力した経常利益目標と 2. の固定費合計をそのまま出す（MQ ＝ G ＋ F） */}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 text-xs">
+                <div className="rounded-lg border border-line px-3 py-2 flex justify-between items-baseline gap-2">
+                  <span className="text-g-ink">{phrases('1. 経常利益目標（G）')}</span>
+                  <b className="num text-g-ink text-base" data-testid="plan-MQ-G">
+                    {fmtA(plan.g)}
+                  </b>
+                </div>
+                <span className="self-center text-ink-400 font-bold">＋</span>
+                <div className="rounded-lg border border-line px-3 py-2 flex justify-between items-baseline gap-2">
+                  <span className="text-f-ink">{phrases('2. 固定費（F）合計')}</span>
+                  <b className="num text-f-ink text-base" data-testid="plan-MQ-F">
+                    {fmt(fig.F)}
+                  </b>
+                </div>
+              </div>
+              <div className="flex justify-between items-center rounded-lg bg-m-bg px-3 py-2">
+                <span className="text-m-ink text-xs">{phrases('＝ 必要粗利益（MQ）')}</span>
+                <b className="num text-m-ink text-lg" data-testid="plan-MQ">
+                  {fmt(fig.MQ)}
+                </b>
+              </div>
             </div>,
           )}
           {card(
@@ -528,11 +546,23 @@ export default function PlanTab({
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-ink-500">{phrases('①販売単価（P）　商品1個あたり平均いくらで売るか')}</span>
-                {numIn('plan-p', plan.p, (v) => update({ p: v }), 'w-24 text-p-ink font-bold')}
+                <span className="flex items-center gap-2">
+                  {/* 目安は数値ルール planHintP（既定 28）。計算には使わない */}
+                  <span className="text-[11px] text-ink-400 whitespace-nowrap" data-testid="plan-p-hint">
+                    目安 平均 <b className="num text-ink-600">{fmt(getRules().planHintP)}</b>
+                  </span>
+                  {numIn('plan-p', plan.p, (v) => update({ p: v }), 'w-24 text-p-ink font-bold')}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-ink-500">{phrases('②売上原価（V）　売上原価1個あたり平均いくらで仕入れるか')}</span>
-                {numIn('plan-v', plan.v, (v) => update({ v: v }), 'w-24 text-v-ink font-bold')}
+                <span className="flex items-center gap-2">
+                  {/* 目安は数値ルール planHintV（既定 12）。計算には使わない */}
+                  <span className="text-[11px] text-ink-400 whitespace-nowrap" data-testid="plan-v-hint">
+                    目安 平均 <b className="num text-ink-600">{fmt(getRules().planHintV)}</b>
+                  </span>
+                  {numIn('plan-v', plan.v, (v) => update({ v: v }), 'w-24 text-v-ink font-bold')}
+                </span>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-m-bg px-3 py-2">
                 <span className="text-m-ink text-xs">{phrases('③計画粗利益（付加価値）単価（M）　式＜P − V＞')}</span>
@@ -798,7 +828,7 @@ export default function PlanTab({
             <h3 className="font-black text-lg mb-1">経常利益（G）の決め方</h3>
             <p className="text-ink-500 text-xs mb-4">目標をいくらにするか迷ったときの、2つの目安の出し方です。</p>
 
-            <h4 className="font-bold text-accent-ink mb-1">赤字を解消する</h4>
+            <h4 className="font-bold text-accent-ink mb-1">過去の赤字の蓄積を解消</h4>
             <p className="text-ink-600 text-xs leading-relaxed mb-2">
               期首の利益剰余金がマイナスのときだけ出ます。期末にそれをゼロへ戻すには、
               <b>法人税を引いたあとの利益（当期純利益）が赤字の額以上</b>になる必要があります。
@@ -816,7 +846,7 @@ export default function PlanTab({
             <p className="text-ink-600 text-xs leading-relaxed mb-2">
               同じ研修で<b>純資産（資本金 ＋ 利益剰余金）が1番多い会社</b>との差を見ます。
               期末の純資産は「期首の純資産 ＋ 当期純利益」なので、差を埋めるには
-              <b>税引後の利益が差の額以上</b>になる必要があります。赤字解消と同じ式で必要な経常利益を出しています。
+              <b>税引後の利益が差の額以上</b>になる必要があります。「過去の赤字の蓄積を解消」と同じ式で必要な経常利益を出しています。
             </p>
             <p className="text-ink-400 text-xs leading-relaxed mb-2">
               ※ 相手も今期伸びるので、これは「いまの差」に対する目安です。増資をすれば純資産は増えますが、
