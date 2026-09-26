@@ -1,7 +1,7 @@
 // 記帳モーダルのフォーム定義（キー→入力欄）と、アクションのグループ分け。
 // 数値ルールに依存する欄（仕入単価の選択肢・上限や単価の説明文）があるため、
 // 定義は getRules() から組み立てる。参照は FORMS ではなく getForms() を使うこと。
-import { getRules, loanRoom, machineOptions, lotOptionLabel, lotKey, type Rules, type St } from '../lib/calc.ts'
+import { getRules, loanRoom, machineOptions, lotOptionLabel, lotKey, caps, type Rules, type St } from '../lib/calc.ts'
 
 export interface Field {
   name: string
@@ -15,6 +15,13 @@ export interface Field {
    * `excl` は編集中の行がすでに盤面に含めている金額。自分の分を上限に戻してから計算する。
    */
   maxOf?: (st: St, excl: number) => number
+  /**
+   * 盤面から決まる個数の上限（仕入・製造・販売）。上限を超える個数はそもそも入力できないようにする。
+   * 渡される盤面はその行を記帳する直前のもの（編集中はその行より前の盤面）。
+   * multi の行では全行の合計に対する上限で、各行には「上限 − 他の行の合計」を当てる。
+   * 記帳時のバリデーション（game.ts）は残る。ここは入力しやすさのためのもの
+   */
+  capOf?: (st: St) => { max: number; why: string }
   options?: { value: string; label: string }[]
   /**
    * 盤面から決まる選択肢（什器売却の「いつ買った機械か」など）。select で options の代わりに使う。
@@ -30,6 +37,28 @@ export interface FormDef {
   note?: string
 }
 
+// 個数の上限。game.ts の validate() と同じ条件のうち、盤面だけで決まる上限を最小値にまとめる。
+// why は入力欄の横に出す「何で決まった上限か」
+/** 仕入：材料在庫の上限（数値ルール matCap）までの空き */
+function shiireCap(st: St) {
+  return { max: Math.max(0, getRules().matCap - st.rawCubes), why: '材料在庫の空き' }
+}
+/** 製造：製造能力・材料在庫・陳列上限（数値ルール prodCap）までの空き のうち最小 */
+function seizoCap(st: St) {
+  const c = [
+    { max: caps(st).mfgCap, why: '製造能力' },
+    { max: st.rawCubes, why: '材料在庫' },
+    { max: getRules().prodCap - st.products, why: '陳列の空き' },
+  ]
+  const m = c.reduce((a, b) => (b.max < a.max ? b : a))
+  return { max: Math.max(0, m.max), why: m.why }
+}
+/** 販売：販売能力・製品在庫 のうち最小 */
+function hanbaiCap(st: St) {
+  const sc = caps(st).salesCap
+  return sc <= st.products ? { max: Math.max(0, sc), why: '販売能力' } : { max: Math.max(0, st.products), why: '製品在庫' }
+}
+
 function buildForms(r: Rules): Record<string, FormDef> {
   const priceOpts = r.materialPrices.map((p) => ({ value: String(p), label: String(p) }))
   return {
@@ -37,17 +66,20 @@ function buildForms(r: Rules): Record<string, FormDef> {
       fields: [],
       multi: true,
       rowFields: [
-        { name: 'qty', label: '個数', type: 'int', default: 1, min: 1 },
+        { name: 'qty', label: '個数', type: 'int', default: 1, min: 1, capOf: shiireCap },
         { name: 'unit', label: '単価', type: 'select', default: String(r.materialPrices[0]), options: priceOpts },
       ],
       note: `材料を仕入れる（在庫上限${r.matCap}）`,
     },
-    seizo: { fields: [{ name: 'qty', label: '製造個数', type: 'int', default: 1, min: 1 }], note: '材料→製品' },
+    seizo: {
+      fields: [{ name: 'qty', label: '製造個数', type: 'int', default: 1, min: 1, capOf: seizoCap }],
+      note: '材料→製品',
+    },
     hanbai: {
       fields: [],
       multi: true,
       rowFields: [
-        { name: 'qty', label: '個数', type: 'int', default: 1, min: 1 },
+        { name: 'qty', label: '個数', type: 'int', default: 1, min: 1, capOf: hanbaiCap },
         { name: 'unit', label: '売価', type: 'int', default: 30, min: 0 },
       ],
       note: '製品を販売する',

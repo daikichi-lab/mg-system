@@ -83,6 +83,44 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('org-error')).toBeVisible()
   })
 
+  test('記帳：仕入・製造・販売の個数は上限を超えて入力できない', async ({ page }) => {
+    await registerOrg(page, 'E2ECAP')
+    await page.goto('/?org=E2ECAP')
+    await page.getByTestId('c-name').fill('E2E上限社')
+    await page.getByTestId('c-pres').fill('上限太郎')
+    await page.getByTestId('start').click()
+    await expect(page.getByTestId('hd-name')).toHaveText('E2E上限社')
+    await page.getByTestId('tab-play').click()
+
+    // 仕入：99 を入れても「入力できる個数」に丸められる。2行目は1行目の残りまで
+    await page.getByTestId('sub-A').click()
+    await page.getByTestId('act-shiire').click()
+    const mat = Number((await page.getByTestId('cap-qty').textContent())!.match(/(\d+) 個まで/)![1])
+    expect(mat).toBeGreaterThan(1)
+    await setField(page, 'field-qty-0', 99)
+    await expect(page.getByTestId('field-qty-0')).toHaveValue(String(mat))
+    await page.getByTestId('add-row').click()
+    await setField(page, 'field-qty-1', 99)
+    await expect(page.getByTestId('field-qty-1')).toHaveValue('0')
+    await setField(page, 'field-qty-0', 1)
+    await setField(page, 'field-qty-1', 99)
+    await expect(page.getByTestId('field-qty-1')).toHaveValue(String(mat - 1))
+    await page.getByRole('button', { name: 'やめる' }).click()
+
+    // 製造：製造能力・材料在庫・陳列の空きの最小に丸められる
+    await page.getByTestId('act-seizo').click()
+    const mfg = Number((await page.getByTestId('cap-qty').textContent())!.match(/(\d+) 個まで/)![1])
+    await setField(page, 'field-qty', 99)
+    await expect(page.getByTestId('field-qty')).toHaveValue(String(mfg))
+    await page.getByRole('button', { name: 'やめる' }).click()
+
+    // 販売：販売能力・製品在庫の最小に丸められる
+    await page.getByTestId('act-hanbai').click()
+    const sal = Number((await page.getByTestId('cap-qty').textContent())!.match(/(\d+) 個まで/)![1])
+    await setField(page, 'field-qty-0', 99)
+    await expect(page.getByTestId('field-qty-0')).toHaveValue(String(sal))
+  })
+
   test('経営計画書：第3期からタブが出て、計画を入力すると必要個数が出てリロード後も残る', async ({ page }) => {
     await registerOrg(page, 'E2EPLAN')
     await page.goto('/?org=E2EPLAN')

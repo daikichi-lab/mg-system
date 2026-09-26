@@ -2269,9 +2269,11 @@ function ActionModal({
   const [errors, setErrors] = useState<string[]>([])
   // 盤面から決まる入力上限（借入可能額など）。編集中は自分の行の金額が盤面に含まれているので、上限に戻して計算する
   const ownAmount = editTx?.key === keyName ? editTx.amount : 0
-  const fieldMax = (fl: Field): number | undefined => (fl.maxOf ? fl.maxOf(st, ownAmount) : undefined)
-  // 盤面に依存する選択肢・金額（什器売却）の元になる盤面。編集中はその行を記帳した時点の盤面
+  // 盤面に依存する選択肢・金額（什器売却）・個数の上限の元になる盤面。編集中はその行を記帳した時点の盤面
   const base = useMemo(() => (editTx ? stateBeforeRow(st, editTx.id) : st), [st, editTx])
+  // 個数の上限（仕入・製造・販売）。記帳する直前の盤面で決まる
+  const cap = (fl: Field) => (fl.capOf ? fl.capOf(base) : undefined)
+  const fieldMax = (fl: Field): number | undefined => (fl.maxOf ? fl.maxOf(st, ownAmount) : cap(fl)?.max)
   const fieldOptions = (fl: Field) => (fl.optionsOf ? fl.optionsOf(base) : fl.options)
   const [single, setSingle] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {}
@@ -2302,6 +2304,15 @@ function ActionModal({
     fields.forEach((fl) => (o[fl.name] = String(fl.default)))
     return o
   }
+  // multi の行の上限：合計の上限から、他の行に入っている個数を引いた残り（他の行が上限を使い切っていれば 0）
+  const rowMax = (fl: Field, i: number): number | undefined => {
+    const c = cap(fl)
+    if (!c) return undefined
+    const others = items.reduce((sum, r, j) => (j === i ? sum : sum + (Number(r[fl.name]) || 0)), 0)
+    return Math.max(0, c.max - others)
+  }
+  // 上限のある欄の案内（例：「上限 6 個（製造能力）」）。multi は全行の合計に対する上限
+  const capFields = (form?.multi ? form.rowFields : form?.fields)?.filter((fl) => fl.capOf) ?? []
   const conv = (fl: Field, v: string): number | string =>
     fl.type === 'int' ? Number(v) : /^\d+$/.test(v) ? Number(v) : v
 
@@ -2365,6 +2376,22 @@ function ActionModal({
           </div>
         )}
         {isCustomEvent && <p className="text-ink-500 text-sm mb-3">この盤面で記帳します。</p>}
+        {capFields.map((fl) => {
+          const c = cap(fl)!
+          return (
+            <div
+              key={fl.name}
+              data-testid={`cap-${fl.name}`}
+              className="mb-3 flex items-center justify-between rounded-lg bg-canvas text-ink-600 px-3 py-2 text-sm font-bold"
+            >
+              <span>
+                入力できる個数{form?.multi ? '（合計）' : ''}
+                <span className="text-ink-400 font-normal text-xs ml-1">{c.why}で決まります</span>
+              </span>
+              <span className="num">{c.max} 個まで</span>
+            </div>
+          )
+        })}
 
         {form?.multi ? (
           <div className="space-y-2 mb-3">
@@ -2376,6 +2403,7 @@ function ActionModal({
                     <FieldInput
                       fl={fl}
                       value={row[fl.name]}
+                      max={rowMax(fl, i)}
                       testid={`field-${fl.name}-${i}`}
                       onChange={(v) => {
                         setErrors([])
