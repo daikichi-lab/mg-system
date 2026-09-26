@@ -539,4 +539,3 @@ test('corporateTax：決算と同じ式（30%・最低 5・繰越損失は繰越
   assert.equal(corporateTax(200, -130), 21) // 繰越後 70×0.3 ＝ 21
   assert.equal(corporateTax(100, -130), 5) // 繰越を含めてマイナス → 5
 })
-
