@@ -657,14 +657,11 @@ export function planVisible(st: St): boolean {
 }
 
 /**
- * 進捗タブを出し始める期。修正依頼（issue #64）で「第4期以降から」と決まっている。
- * 計画を立て始める期（数値ルール planFromPeriod）より前には出さない（比べる計画が無いため）。
+ * 進捗タブを出すか。数値ルール progressFromPeriod（既定 4）の期から。
+ * 比べる計画が必要なので、経営計画書タブが出ていない期には出さない（ルールの検証を通っていない古いデータへの保険）。
  */
-export const PROGRESS_FROM_PERIOD = 4
-
-/** 進捗タブを出すか。第4期以降で、かつ経営計画書タブが出ている期 */
 export function progressVisible(st: St): boolean {
-  return st.period >= PROGRESS_FROM_PERIOD && planVisible(st)
+  return st.period >= getRules().progressFromPeriod && planVisible(st)
 }
 
 /** 進捗の1行（計画と、ここまでの実績） */
@@ -696,6 +693,11 @@ export interface Progress {
   salesCap: number
   /** 今の現金 */
   cash: number
+  /**
+   * 粗利の概算に使った1個あたりの売上原価。今期の仕入があれば「仕入金額の合計 ÷ 仕入個数」、
+   * 無ければ計画の売上原価 V（from で区別）
+   */
+  cost: { unit: number; from: 'buy' | 'plan'; buyAmt: number; buyQty: number }
 }
 
 /** 記帳行の個数（仕入・販売は複数行 items の合計、製造は qty） */
@@ -709,7 +711,8 @@ function rowQty(f: Fvals | undefined): number {
  * 進捗タブ：今期の計画（経営計画書）と、ここまでの記帳の実績を並べる。計画の Q が出ていなければ null。
  *
  * - 売上個数 Q・売上高 PQ：盤面の salesQty・salesAmt（特売などイベントの販売も含む）
- * - 粗利 MQ：売上高 −（売上個数 × 計画の売上原価 V）の**概算**。売上原価は期末の棚卸で決まるため、期中は計画の V で見る
+ * - 粗利 MQ：売上高 −（売上個数 × 1個あたりの売上原価）の**概算**。売上原価は期末の棚卸で決まるため、
+ *   期中は今期の仕入の実績（仕入金額の合計 ÷ 仕入個数）で見る。今期まだ仕入が無ければ計画の売上原価 V
  * - 仕入個数：計画は「Q − 期首の材料在庫」（6. の必要量と同じ）、実績は今期の仕入の記帳行の個数の合計
  * - 製造個数：計画は「Q − 期首の製品在庫」、実績は今期の製造の記帳行の個数の合計
  * - アクション：計画の回数と、今期に記帳した回数（ルールA・Bのアクションだけ。`planVsActual()` と同じ数え方）
@@ -728,11 +731,15 @@ export function progressNow(plan: Plan, st: St): Progress | null {
     remain: Math.max(0, p - a),
   })
   const Q = fig.Q
+  // 今期の仕入の実績（記帳した金額と個数）。1個あたりの原価は小数のまま使い、粗利を出すときに丸める
+  const buyQty = sumQty('shiire')
+  const buyAmt = st.tx.filter((t) => t.key === 'shiire').reduce((s, t) => s + (t.amount || 0), 0)
+  const unitCost = buyQty > 0 ? buyAmt / buyQty : plan.v
   const items = [
     item('Q', '売上個数 Q', '個', Q, st.salesQty),
     item('PQ', '売上高 PQ', '', fig.PQ, st.salesAmt),
-    item('MQ', '粗利益 MQ（概算）', '', fig.PQ - fig.VQ, st.salesAmt - st.salesQty * plan.v),
-    item('buy', '仕入個数', '個', Math.max(0, Q - st.openingMatQty), sumQty('shiire')),
+    item('MQ', '粗利益 MQ（概算）', '', fig.PQ - fig.VQ, st.salesAmt - Math.round(st.salesQty * unitCost)),
+    item('buy', '仕入個数', '個', Math.max(0, Q - st.openingMatQty), buyQty),
     item('make', '製造個数', '個', Math.max(0, Q - st.openingProducts), sumQty('seizo')),
   ]
   const planned = new Map<string, number>()
@@ -758,5 +765,6 @@ export function progressNow(plan: Plan, st: St): Progress | null {
     salesLeftTimes: left === 0 ? 0 : salesCap > 0 ? Math.ceil(left / salesCap) : null,
     salesCap,
     cash: cashNow(st),
+    cost: { unit: Math.round(unitCost * 10) / 10, from: buyQty > 0 ? 'buy' : 'plan', buyAmt, buyQty },
   }
 }

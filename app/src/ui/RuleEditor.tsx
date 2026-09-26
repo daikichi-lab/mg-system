@@ -198,6 +198,9 @@ export default function RuleEditor({
     if (rules.matCap < 1 || rules.prodCap < 1) return '在庫の上限は1以上にしてください'
     if (!Number.isInteger(rules.planFromPeriod) || rules.planFromPeriod < 1)
       return '経営計画書タブを出す期は1以上の整数にしてください'
+    // 進捗タブは今期の計画と比べる画面なので、計画を立て始める期より後でないと意味がない
+    if (!Number.isInteger(rules.progressFromPeriod) || rules.progressFromPeriod <= rules.planFromPeriod)
+      return '進捗タブを出す期は、経営計画書タブを出す期より後の期にしてください'
     const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, rules.planHintP, rules.planHintV, ...rules.salaryTable]
     if (nums.some((n) => !Number.isFinite(n) || n < 0)) return '数値は0以上で入力してください'
     return ''

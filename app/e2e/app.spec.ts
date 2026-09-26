@@ -805,6 +805,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
     await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
     await page.getByTestId('f-planFromPeriod').fill('1')
+    // 進捗タブを出す期は経営計画書より後の期でないと保存できない（既定 4）
+    await expect(page.getByTestId('f-progressFromPeriod')).toHaveValue('4')
+    await page.getByTestId('f-progressFromPeriod').fill('1')
+    await page.getByTestId('rule-save').click()
+    await expect(page.getByTestId('rule-err')).toContainText('進捗タブを出す期')
+    await page.getByTestId('f-progressFromPeriod').fill('2')
     await page.getByTestId('rule-save').click()
     await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
 

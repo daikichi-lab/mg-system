@@ -282,6 +282,10 @@ test('進捗タブ：第4期以降かつ経営計画書タブが出ている期�
   assert.equal(progressVisible(st), true)
   setRules({ planFromPeriod: 6 }) // 計画を立てない研修では比べるものが無いので出さない
   assert.equal(progressVisible(st), false)
+  setRules({ progressFromPeriod: 5 }) // 研修ごとに出す期を変えられる
+  assert.equal(progressVisible(st), false)
+  st.period = 5
+  assert.equal(progressVisible(st), true)
   reset()
 })
 
@@ -293,7 +297,7 @@ test('進捗：今期の計画と、ここまでの記帳（売上・仕入・�
   st.salesQty = 4
   st.salesAmt = 120
   st.tx.push(
-    { id: 3, key: 'shiire', col: 5, amount: 60, fvals: { items: [{ qty: 3, unit: 12 }, { qty: 2, unit: 12 }] } },
+    { id: 3, key: 'shiire', col: 5, amount: 65, fvals: { items: [{ qty: 3, unit: 12 }, { qty: 2, unit: 14 }] } },
     { id: 4, key: 'seizo', col: null, amount: 0, fvals: { qty: 3 } },
     { id: 5, key: 'hanbai', col: 2, amount: 120, fvals: { items: [{ qty: 4, unit: 30 }] } },
     { id: 6, key: 'koukoku', col: 7, amount: 10, fvals: { n: 1 } }, // 計画に無いアクション
@@ -310,7 +314,9 @@ test('進捗：今期の計画と、ここまでの記帳（売上・仕入・�
   assert.equal(by.Q.remain, Q - 4)
   assert.equal(by.Q.rate, Math.round((4 / Q) * 100))
   assert.equal(by.PQ.actual, 120)
-  assert.equal(by.MQ.actual, 120 - 4 * 12) // 概算：売上高 − 売上個数 × 計画の V
+  // 概算：売上高 − 売上個数 × 今期の仕入の1個あたり（仕入金額 65 ÷ 5個 ＝ 13）
+  assert.equal(by.MQ.actual, 120 - 4 * 13)
+  assert.deepEqual(pr.cost, { unit: 13, from: 'buy', buyAmt: 65, buyQty: 5 })
   assert.equal(by.buy.plan, Q - 2) // 期首の材料 2個を引く
   assert.equal(by.buy.actual, 5) // 複数行の合計
   assert.equal(by.make.actual, 3)
@@ -323,6 +329,15 @@ test('進捗：今期の計画と、ここまでの記帳（売上・仕入・�
   // 残り Q−4 個を販売能力 4（販売2人×2）で割る
   assert.equal(pr.salesCap, 4)
   assert.equal(pr.salesLeftTimes, Math.ceil((Q - 4) / 4))
+})
+
+test('進捗：今期まだ仕入が無ければ、粗利の概算は計画の売上原価 V で出す', () => {
+  const st = st3()
+  st.salesQty = 2
+  st.salesAmt = 60
+  const pr = progressNow({ ...defaultPlan(), p: 30, v: 12 }, st)!
+  assert.equal(pr.items.find((x) => x.key === 'MQ')!.actual, 60 - 2 * 12)
+  assert.equal(pr.cost.from, 'plan')
 })
 
 test('進捗：計画の Q が出ていなければ比べない（null）', () => {

@@ -1,5 +1,5 @@
 // 進捗タブ：ゲームの途中で、今期の経営計画に対して今どこまで来ているかを見る（issue #64）。
-// 第4期以降（lib/plan.ts の PROGRESS_FROM_PERIOD）で、経営計画書タブが出ている期だけ表示する（Participant.tsx 側で制御）。
+// 数値ルール progressFromPeriod（既定 第4期）以降で、経営計画書タブが出ている期だけ表示する（Participant.tsx 側で制御）。
 // 計算は lib/plan.ts の progressNow()。ここは表示だけ。
 import { fmt, fmtA } from '../lib/calc'
 import { normalizePlan, progressNow, type ProgressItem } from '../lib/plan'
@@ -116,8 +116,13 @@ export default function ProgressTab({ game, onToPlan }: { game: Game; onToPlan: 
             </div>
           ))}
         </div>
-        <p className="mt-3 text-[10px] text-ink-400">
-          粗利益は期中は売上原価が決まらないため、売上高 −（売上個数 × 計画の売上原価 V）の概算です。
+        {/* 期中は売上原価が棚卸で決まらないので、今期の仕入の実績から1個あたりの原価を出して概算する */}
+        <p className="mt-3 text-[10px] text-ink-400" data-testid="progress-cost">
+          粗利益は期中は売上原価が決まらないため、売上高 −（売上個数 × 1個あたりの原価
+          <b className="num text-ink-600"> {pr.cost.unit}</b>）の概算です。
+          {pr.cost.from === 'buy'
+            ? `1個あたりの原価は今期の仕入金額の合計 ${fmt(pr.cost.buyAmt)} ÷ 仕入個数 ${pr.cost.buyQty}個。`
+            : '今期はまだ仕入が無いので、計画の売上原価 V を使っています。'}
         </p>
       </div>
 
