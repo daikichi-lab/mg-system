@@ -374,12 +374,22 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('statement')).toContainText('第1期の決算書を表示中')
     await page.getByTestId('stmt-back').click()
 
-    // --- 組織タブ：チャート⇄数値（順位）・DBから取得 ---
+    // --- 組織タブ：指数を押すと順位とグラフ。会社名・社長名、グラフに出す会社のチェックボックス ---
     await page.getByTestId('tab-org').click()
     await expect(page.getByTestId('org-count')).toContainText('社')
-    await expect(page.getByTestId('org-charts')).toBeVisible()
-    await page.getByTestId('ov-table').click()
-    await expect(page.getByTestId('org-cards')).toContainText('E2E製菓')
+    await expect(page.getByTestId('org-metric-PQ')).toContainText('売上')
+    await expect(page.getByTestId('org-rank')).toContainText('E2E製菓')
+    await expect(page.getByTestId('org-rank')).toContainText('社長：')
+    await page.getByTestId('org-metric-G').click()
+    await expect(page.getByTestId('org-chart')).toContainText('経常利益の推移')
+    await expect(page.getByTestId('org-rank')).toContainText('経常利益')
+    // チェックを外すとグラフから消え、全員外すとグラフの案内になる
+    await page.getByTestId('org-check-E2E製菓').uncheck()
+    await expect(page.getByTestId('org-check-E2E製菓')).not.toBeChecked()
+    await page.getByTestId('org-check-none').click()
+    await expect(page.getByTestId('org-chart')).toContainText('チェックしてください')
+    await page.getByTestId('org-check-all').click()
+    await expect(page.getByTestId('org-check-E2E製菓')).toBeChecked()
 
     // --- 振り返りタブ（推移・気づき） ---
     await page.getByTestId('tab-review').click()
