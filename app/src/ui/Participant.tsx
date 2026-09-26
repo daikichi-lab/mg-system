@@ -179,11 +179,20 @@ export default function Participant() {
         {tab === 'company' && (
           <CompanyTab game={game} onStarted={() => go('opening')} viewPeriod={curView} onViewPeriod={onViewPeriod} />
         )}
-        {tab === 'opening' && <OpeningTab game={game} onToPlay={() => go('play')} toast={toast} />}
+        {tab === 'opening' && (
+          <OpeningTab
+            game={game}
+            onToPlay={() => go('play')}
+            // 経営計画書タブがある期は、記帳の前にまず計画を立ててもらう（期首処理 → 経営計画書 → 記帳）
+            onToPlan={planOn ? () => go('plan') : undefined}
+            toast={toast}
+          />
+        )}
         {tab === 'plan' && planOn && (
           <PlanTab
             game={game}
             viewPeriod={planView}
+            onToPlay={() => go('play')}
             onBack={() => {
               setPlanView(null)
               setTab('history')
@@ -513,10 +522,13 @@ function BoardEditForm({ st, onSave, onCancel }: { st: St; onSave: (b: BoardVals
 function OpeningTab({
   game,
   onToPlay,
+  onToPlan,
   toast,
 }: {
   game: ReturnType<typeof useGame>
   onToPlay: () => void
+  /** 経営計画書タブがある期だけ渡す。渡されたら末尾のボタンが「経営計画を作成する」になる */
+  onToPlan?: () => void
   toast: (msg: string) => void
 }) {
   const st = game.st
@@ -720,14 +732,25 @@ function OpeningTab({
         </div>
       </div>
 
+      {/* 経営計画書タブがある期は計画タブへ、無い期（planFromPeriod より前）は記帳タブへ進める */}
       <div className="flex">
-        <button
-          data-testid="opening-toplay"
-          onClick={onToPlay}
-          className="h-12 px-6 rounded-xl bg-cin-base text-white font-bold ml-auto hover:brightness-95"
-        >
-          記帳をはじめる →
-        </button>
+        {onToPlan ? (
+          <button
+            data-testid="opening-toplan"
+            onClick={onToPlan}
+            className="h-12 px-6 rounded-xl bg-cin-base text-white font-bold ml-auto hover:brightness-95"
+          >
+            経営計画を作成する →
+          </button>
+        ) : (
+          <button
+            data-testid="opening-toplay"
+            onClick={onToPlay}
+            className="h-12 px-6 rounded-xl bg-cin-base text-white font-bold ml-auto hover:brightness-95"
+          >
+            記帳をはじめる →
+          </button>
+        )}
       </div>
     </div>
   )
