@@ -35,10 +35,10 @@ import {
   loanHTML,
   inflowOutflowHTML,
 } from '../lib/figures-account'
-import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML, ORG_COLORS } from '../lib/figures-review'
-import { OrgLineChart } from './OrgLineChart'
+import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML } from '../lib/figures-review'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
+import OrgTab from './OrgTab'
 import { planVisible, planVsActual } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
@@ -2119,130 +2119,6 @@ function ReviewTab({ history, plans, st }: { history: Result[]; plans: Record<st
         <h2 className="font-bold mb-2">気づき</h2>
         <Figure html={insightsHTML(history)} />
       </div>
-    </div>
-  )
-}
-
-// ------- 組織 -------
-const METRICS = [
-  { k: 'EQ', label: '純資産', get: (h: any) => h.capEnd + h.retEnd, good: 'desc', f: (v: number) => fmtA(v) },
-  { k: 'G', label: '経常利益G', get: (h: any) => h.G, good: 'desc', f: (v: number) => fmtA(v) },
-  { k: 'net', label: '当期純利益', get: (h: any) => h.net, good: 'desc', f: (v: number) => fmtA(v) },
-  { k: 'PQ', label: '売上PQ', get: (h: any) => h.PQ, good: 'desc', f: (v: number) => fmt(v) },
-] as const
-
-function OrgTab({ game, toast }: { game: ReturnType<typeof useGame>; toast: (msg: string) => void }) {
-  const [companies, setCompanies] = useState<any[] | null>(null)
-  const [orgView, setOrgView] = useState<'charts' | 'table'>('charts')
-  const st = game.st
-  const load = async () => setCompanies(await game.refreshOrg())
-  // 更新ボタン用：取得後にトースト表示
-  const reload = async () => {
-    await load()
-    toast('更新しました')
-  }
-  useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.version])
-  if (!companies)
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-line p-6 text-center">
-        <button data-testid="org-refresh" onClick={reload} className="h-10 px-4 rounded-lg bg-ink text-white font-bold text-sm">
-          最新を取得
-        </button>
-      </div>
-    )
-  const withHist = companies.filter((c) => (c.results || []).length)
-  const names = withHist.map((c) => c.name)
-  const series = (getVal: (r: any) => number) =>
-    withHist.map((c, i) => ({
-      name: c.name,
-      color: ORG_COLORS[i % ORG_COLORS.length],
-      me: c.name === st.name,
-      pts: (c.results || []).map((r: any) => ({ x: r.period, y: getVal(r) })),
-    }))
-  const ORG_CHARTS: { title: string; sub?: string; get: (r: any) => number; opt: { signed?: boolean; pct?: boolean } }[] = [
-    { title: '売上 PQ の推移', get: (r) => r.PQ, opt: {} },
-    { title: '経常利益 G の推移', get: (r) => r.G, opt: { signed: true } },
-    { title: '当期純利益の推移', get: (r) => r.net, opt: { signed: true } },
-    { title: '純資産の推移', get: (r) => r.capEnd + r.retEnd, opt: { signed: true } },
-    { title: '粗利率の推移', get: (r) => (r.PQ ? (r.mPQ / r.PQ) * 100 : 0), opt: { pct: true } },
-    { title: 'FM比率（損益分岐点比率）の推移', get: (r) => fmRatio(r), opt: { pct: true } },
-  ]
-  const tabBtn = (v: 'charts' | 'table', label: string) => (
-    <button
-      data-testid={`ov-${v}`}
-      onClick={() => setOrgView(v)}
-      className={`px-3 py-1 rounded-md transition ${orgView === v ? 'bg-ink text-white shadow-sm' : 'text-ink-400'}`}
-    >
-      {label}
-    </button>
-  )
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="font-bold">
-          組織 {st.org}{' '}
-          <span className="text-ink-300 text-sm font-normal" data-testid="org-count">
-            （{withHist.length}社）
-          </span>
-        </h2>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold">
-            {tabBtn('charts', 'チャート')}
-            {tabBtn('table', '数値（順位）')}
-          </div>
-          <button data-testid="org-refresh" onClick={reload} className="h-9 px-3 rounded-lg border border-line text-sm font-bold">
-            更新
-          </button>
-        </div>
-      </div>
-      {orgView === 'charts' && (
-        <div className="grid sm:grid-cols-2 gap-4" data-testid="org-charts">
-          {names.length ? (
-            ORG_CHARTS.map((ch) => (
-              <div key={ch.title} className="bg-white rounded-2xl shadow-card border border-line p-4">
-                <h3 className="font-bold text-sm mb-2">{ch.title}</h3>
-                <OrgLineChart series={series(ch.get)} signed={ch.opt.signed} pct={ch.opt.pct} />
-              </div>
-            ))
-          ) : (
-            <p className="text-ink-300 text-sm p-4">まだ成績がありません。</p>
-          )}
-        </div>
-      )}
-      {orgView === 'table' && (
-      <div className="grid sm:grid-cols-2 gap-4" data-testid="org-cards">
-        {METRICS.map((m) => {
-          const arr = withHist
-            .map((c) => {
-              const last = c.results[c.results.length - 1]
-              return { name: c.name, v: m.get(last), period: last.period, me: c.name === st.name }
-            })
-            .sort((a, b) => b.v - a.v)
-          return (
-            <div key={m.k} className="bg-white rounded-2xl shadow-sm border border-line p-4">
-              <h3 className="font-bold mb-2 text-sm">{m.label} の順位</h3>
-              <table className="w-full text-[13px]">
-                <tbody>
-                  {arr.map((x, i) => (
-                    <tr key={x.name} className={`border-t border-line/60 ${x.me ? 'bg-amber-50' : ''}`}>
-                      <td className="px-2 py-1.5 font-bold">{i + 1}位</td>
-                      <td className="px-2 py-1.5">
-                        {x.name}
-                        {x.me ? <span className="text-ink-400 text-[11px]"> (あなた)</span> : null} <span className="num text-ink-300 text-[10px]">第{x.period}期</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right num font-bold">{m.f(x.v)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        })}
-      </div>
-      )}
     </div>
   )
 }
