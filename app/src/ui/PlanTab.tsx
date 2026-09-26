@@ -459,9 +459,12 @@ export default function PlanTab({
                       </tr>
                     </thead>
                     <tbody>
-                      {invRow('hire', '一般管理費', '今期 採用するスタッフ', plan.hire, (v) => update({ hire: v }), '人',
-                        `採用費 ${u.hire} × ${plan.hire}人`, item('hire').amount)}
-                      {derivedRow('hireSalary', '人件費', '採用したスタッフの期末給料', `給料 ${u.sal} × ${plan.hire}人`, item('hireSalary').amount)}
+                      {/* 採用は製造・販売に分けて入れる（配置先で能力が変わるため） */}
+                      {invRow('hireMfg', '一般管理費', '今期 採用する製造スタッフ', plan.hireMfg, (v) => update({ hireMfg: v }), '人',
+                        `採用費 ${u.hire} × ${plan.hireMfg}人`, item('hireMfg').amount)}
+                      {invRow('hireSales', '一般管理費', '今期 採用する販売員', plan.hireSales, (v) => update({ hireSales: v }), '人',
+                        `採用費 ${u.hire} × ${plan.hireSales}人`, item('hireSales').amount)}
+                      {derivedRow('hireSalary', '人件費', '採用したスタッフの期末給料', `給料 ${u.sal} × ${plan.hireMfg + plan.hireSales}人`, item('hireSalary').amount)}
                       {invRow('machinesNew', '減価償却費', '今期 購入する機械（什器）', plan.machinesNew, (v) => update({ machinesNew: v }), '台',
                         `減価償却 ${u.dep} × ${plan.machinesNew}台`, item('depNew').amount)}
                       {/* 教育チップは期を通して最大1枚（記帳と同じ） */}
@@ -556,12 +559,6 @@ export default function PlanTab({
                   </tbody>
                 </table>
               </div>
-              {/* 採用予定の人数は配置先で能力が変わるため、各能力とも「全員をその部門に配置した場合」の最大 */}
-              {plan.hire > 0 && (
-                <p className="text-[10px] text-ink-400">
-                  採用予定の {plan.hire} 人は、製造・販売それぞれに全員を配置した場合で計算しています（両方を同時には満たせません）。
-                </p>
-              )}
             </div>,
           )}
           {card(
@@ -646,7 +643,7 @@ export default function PlanTab({
           {card(
             <span className="flex items-baseline gap-2 flex-wrap">
               <span>このプランの実施に必要な現金</span>
-              <span className="text-xs font-normal text-ink-400">売上が入る前に出ていくお金</span>
+              <span className="text-xs font-normal text-ink-400">当期に出ていくお金の全部</span>
             </span>,
             <div className="space-y-2 text-sm" data-testid="plan-cash">
               {need.items.map((it) => (
@@ -661,15 +658,15 @@ export default function PlanTab({
                 </div>
               ))}
               <div className="flex justify-between items-center rounded-lg bg-canvas px-3 py-2">
-                <span className="font-bold">必要な現金 合計</span>
+                <span className="font-bold">当期の出金 合計</span>
                 <b className="num text-lg" data-testid="plan-cash-total">
                   {fmt(need.total)}
                 </b>
               </div>
               <div className="flex justify-between items-baseline gap-3 px-3">
-                <span className="text-ink-500 text-xs">期首の現金（期首処理の納税・金利を払ったあと）</span>
+                <span className="text-ink-500 text-xs">前期から繰り越した現金</span>
                 <b className="num" data-testid="plan-cash-open">
-                  {fmtA(need.cashAfterOpening)}
+                  {fmtA(need.openingCash)}
                 </b>
               </div>
               {/* 差がマイナスなら売上の入金前に現金が足りなくなる → 借入などで手当てが必要 */}

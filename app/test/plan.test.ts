@@ -48,7 +48,8 @@ function st3(): St {
 test('defaultPlan：投資と単価は未記入（0）、行数は 25。現況は Plan に持たない', () => {
   const p = defaultPlan()
   assert.equal(p.g, 0)
-  assert.equal(p.hire, 0)
+  assert.equal(p.hireMfg, 0)
+  assert.equal(p.hireSales, 0)
   assert.equal(p.machinesNew, 0)
   assert.equal(p.p, 0)
   assert.equal(p.actions.length, PLAN_ROWS)
@@ -57,7 +58,7 @@ test('defaultPlan：投資と単価は未記入（0）、行数は 25。現況�
 
 test('固定費：現況は期首の盤面から（給料・減価償却・家賃・期首金利）、新規は入力から（採用費＋採用者の給料・機械の減価償却・チップ・新規借入金利）', () => {
   const st = st3()
-  const plan = { ...defaultPlan(), hire: 1, machinesNew: 1, edu: 1, ins: 1, ads: 2, dev: 1, loanNew: 100 }
+  const plan = { ...defaultPlan(), hireMfg: 1, machinesNew: 1, edu: 1, ins: 1, ads: 2, dev: 1, loanNew: 100 }
   const fc = fixedCosts(plan, st)
   // 現況：給料 31×4人（製造・販売をまとめて人件費1行）、減価償却 10×1、家賃 25、期首残高 100×5% ＝ 5
   assert.equal(fc.now, 31 * 4 + 10 + 25 + 5)
@@ -140,18 +141,18 @@ test('必要なアクション回数：Q と能力（期首の盤面＋今期の
   reset()
 })
 
-test('必要なアクション回数：機械・教育・広告は能力に効き、採用は効かない。投資そのものの回数も出す', () => {
+test('必要なアクション回数：採用（製造・販売）・機械・教育・広告は能力に効く。投資そのものの回数も出す', () => {
   const st = st3()
-  const plan = { ...defaultPlan(), g: 100, p: 32, v: 12, hire: 3, machinesNew: 1, edu: 1, ads: 2, dev: 2, ins: 1, loanNew: 50 }
+  const plan = { ...defaultPlan(), g: 100, p: 32, v: 12, hireMfg: 2, hireSales: 1, machinesNew: 1, edu: 1, ads: 2, dev: 2, ins: 1, loanNew: 50 }
   const nd = actionNeeds(plan, st)
   const of = (k: string) => nd.find((x) => x.key === k)!
-  // 採用は配置先が決まらないので能力に入れない。製造能力 min(製造2, 機械2台×2)×3(教育あり) ＝ 6個/回、
-  // 販売能力 2人×2 ＋ min(広告2, 4)×2 ＝ 8個/回
-  assert.equal(of('seizo').detail.endsWith('÷ 製造能力 6個'), true)
-  assert.equal(of('hanbai').detail.endsWith('÷ 販売能力 8個'), true)
+  // 製造能力 min(製造2＋採用2, 機械2台×2)×3(教育あり) ＝ 12個/回、
+  // 販売能力 (2＋採用1)人×2 ＋ min(広告2, 6)×2 ＝ 10個/回
+  assert.equal(of('seizo').detail.endsWith('÷ 製造能力 12個'), true)
+  assert.equal(of('hanbai').detail.endsWith('÷ 販売能力 10個'), true)
   // 1回の記帳でまとめられるものは1回、教育・商品開発は1回1枚なので枚数ぶん
   assert.equal(of('saiyo').need, 1)
-  assert.equal(of('saiyo').detail, '3人（1回でまとめて実施）')
+  assert.equal(of('saiyo').detail, '製造 2人・販売 1人（1回でまとめて実施）')
   assert.equal(of('kikai').need, 1)
   assert.equal(of('koukoku').need, 1)
   assert.equal(of('hoken').need, 1)
@@ -440,7 +441,11 @@ test('過去の期の盤面：第1期は前の期が無いので、期首の値�
 
 test('normalizePlan：古い保存値（採用の製造/販売分け・自由記入の text）を今の形に読み替える', () => {
   const p = normalizePlan({ hireMfg: 2, hireSales: 1, actions: [{ text: '仕入れ', amount: -50 }, { text: '仕入 5個', amount: -50 }] })
-  assert.equal(p.hire, 3) // 製造・販売に分けて保存された計画は合計で読む
+  assert.equal(p.hireMfg, 2) // 製造・販売に分けて保存された計画はそのまま
+  assert.equal(p.hireSales, 1)
+  // 合計（hire）だけを保存していた時期の計画は、製造の採用として読む
+  const old = normalizePlan({ hire: 3 })
+  assert.deepEqual([old.hireMfg, old.hireSales], [3, 0])
   assert.equal(p.actions[0].key, 'shiire')
   assert.equal(p.actions[1].key, '') // 一致しない自由記入は未選択
 })
@@ -450,12 +455,12 @@ test('normalizePlan：壊れた保存値は初期値で埋め、行数は 25 に
   assert.deepEqual(normalizePlan('x'), defaultPlan())
   const p = normalizePlan({
     g: 100,
-    hire: 'a',
+    hireMfg: 'a',
     machinesNew: 2.4,
     actions: [{ key: 'shiire', qty: 5, amount: -50 }, { key: 'nope', amount: 3 }, { key: 5 }],
   })
   assert.equal(p.g, 100)
-  assert.equal(p.hire, 0) // 型崩れは 0
+  assert.equal(p.hireMfg, 0) // 型崩れは 0
   assert.equal(p.machinesNew, 2) // 人数・台数は整数に丸める
   assert.equal(p.actions.length, PLAN_ROWS)
   assert.deepEqual(p.actions[0], { key: 'shiire', qty: 5, amount: -50 })
@@ -497,8 +502,8 @@ test('能力の比較：期首の能力と、投資（機械・教育・広告�
       ['sales', 4, 0, 4], // 販売2人 × 2個
     ],
   )
-  // 採用1・機械1・教育1・広告1：採用者は各能力とも「全員をその部門に配置した場合」
-  const c = capacityCompare({ ...defaultPlan(), hire: 1, machinesNew: 1, edu: 1, ads: 1 }, st)
+  // 製造の採用1・販売員の採用1・機械1・教育1・広告1
+  const c = capacityCompare({ ...defaultPlan(), hireMfg: 1, hireSales: 1, machinesNew: 1, edu: 1, ads: 1 }, st)
   const mfg = c.find((x) => x.key === 'mfg')!
   const sales = c.find((x) => x.key === 'sales')!
   assert.equal(mfg.total, 9) // 作業者 min(3, 機械2×2)=3 × 教育あり3個
@@ -507,19 +512,20 @@ test('能力の比較：期首の能力と、投資（機械・教育・広告�
   assert.equal(sales.add, 4)
 })
 
-test('必要な現金：仕入代・固定費（減価償却と期首の金利を除く）・機械代・元本返済と、期首処理後の現金との差', () => {
+test('必要な現金：期首処理・仕入代・固定費（減価償却と期首の金利を除く）・機械代・元本返済の合計と、前期繰越の現金との差', () => {
   const st = st3() // 現金252・期首の自動行 31（納税26・金利5）・借入100×返済率10%
   const plan = { ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }
   // F ＝ 現況 31×4＋10＋25＋5 ＝ 164、新規 減価償却 10 → 174。MQ 174 ÷ M 18 → Q 10
   const n = cashNeeds(plan, st)
   const by = Object.fromEntries(n.items.map((x) => [x.key, x.amount]))
+  assert.equal(by.opening, 31) // 納税 26 ＋ 期首の金利 5
   assert.equal(by.buy, 120) // 期首の材料 0 → 10個 × 12
   assert.equal(by.fixed, 149) // 174 − 減価償却 20 − 期首の金利 5
   assert.equal(by.machine, 100)
   assert.equal(by.repay, 10) // 100 × 10%
-  assert.equal(n.total, 379)
-  assert.equal(n.cashAfterOpening, 221) // 252 − 31
-  assert.equal(n.diff, -158) // 不足
+  assert.equal(n.total, 410)
+  assert.equal(n.openingCash, 252)
+  assert.equal(n.diff, -158) // 252 − 410：不足
   assert.equal(n.sales, 300)
   assert.equal(n.endCash, 142) // −158 ＋ 売上 300
 })
