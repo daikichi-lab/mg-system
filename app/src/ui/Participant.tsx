@@ -36,9 +36,9 @@ import {
   inflowOutflowHTML,
 } from '../lib/figures-account'
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML } from '../lib/figures-review'
+import OrgTab from './OrgTab'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
-import OrgTab from './OrgTab'
 import { planVisible, planVsActual } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
