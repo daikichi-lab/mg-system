@@ -125,6 +125,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await setField(page, 'plan-v', 12)
     // MQ ＝ 100＋97 ＝ 197、M ＝ 20、Q ＝ ⌈197÷20⌉ ＝ 10、PQ ＝ 320、VQ ＝ 120
     await expect(page.getByTestId('plan-MQ')).toHaveText('197')
+    // 3. の G・F 欄に 1. の経常利益目標と 2. の固定費合計がそのまま出る
+    await expect(page.getByTestId('plan-MQ-G')).toHaveText('100')
+    await expect(page.getByTestId('plan-MQ-F')).toHaveText('97')
+    // 4. の単価目標に目安（既定ルール：販売 28・仕入 12）
+    await expect(page.getByTestId('plan-p-hint')).toContainText('28')
+    await expect(page.getByTestId('plan-v-hint')).toContainText('12')
     await expect(page.getByTestId('plan-M')).toHaveText('20')
     await expect(page.getByTestId('plan-Q')).toContainText('10')
     await expect(page.getByTestId('plan-PQ')).toHaveText('320')

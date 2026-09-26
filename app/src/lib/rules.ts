@@ -28,6 +28,10 @@ export interface Rules {
    * 計算には使わず画面の表示だけに効く。6 以上にすると（全5期なので）一度も出ない。
    */
   planFromPeriod: number
+  /** 経営計画書「4. 商品の各単価目標」に出す販売単価（P）の目安。計算には使わず表示だけ（修正.md：販売は28） */
+  planHintP: number
+  /** 経営計画書「4. 商品の各単価目標」に出す売上原価（V）＝仕入単価の目安。計算には使わず表示だけ（修正.md：仕入は12） */
+  planHintV: number
 }
 
 /** 既定ルール ＝ 入門編 標準。現行の計算結果を1円も変えないための基準値。 */
@@ -41,6 +45,8 @@ export const DEFAULT_RULES: Rules = {
   matCap: 15,
   prodCap: 15,
   planFromPeriod: 3,
+  planHintP: 28,
+  planHintV: 12,
 }
 
 const num = (v: unknown, fallback: number): number =>
@@ -72,5 +78,7 @@ export function normalizeRules(input?: Partial<Rules> | null): Rules {
     matCap: num(input.matCap, d.matCap),
     prodCap: num(input.prodCap, d.prodCap),
     planFromPeriod: periodNo(input.planFromPeriod, d.planFromPeriod),
+    planHintP: num(input.planHintP, d.planHintP),
+    planHintV: num(input.planHintV, d.planHintV),
   }
 }
