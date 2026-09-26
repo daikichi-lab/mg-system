@@ -34,11 +34,14 @@ const SAVE_DELAY_MS = 700
 export default function PlanTab({
   game,
   viewPeriod,
+  onToPlay,
   onBack,
 }: {
   game: Game
   /** 履歴から開いた過去の期。今の期と同じ／未指定なら今の期を出す */
   viewPeriod?: number | null
+  /** 計画を立て終えたら記帳タブへ進む（期首処理 → 経営計画書 → 記帳 の流れの最後） */
+  onToPlay?: () => void
   /** 過去の期を見ているときの「履歴に戻る」 */
   onBack?: () => void
 }) {
@@ -769,6 +772,19 @@ export default function PlanTab({
             </ul>
           </div>
         </section>
+      )}
+
+      {/* 計画の最後に記帳へ進むボタン。過去の期の閲覧中と講師の閲覧専用ビューでは記帳しないので出さない */}
+      {onToPlay && !past && !game.spectator && (
+        <div className="flex">
+          <button
+            data-testid="plan-toplay"
+            onClick={onToPlay}
+            className="h-12 px-6 rounded-xl bg-cin-base text-white font-bold ml-auto hover:brightness-95"
+          >
+            記帳をはじめる →
+          </button>
+        </div>
       )}
 
       {/* 「?」の説明。目安をどう出しているかを書く */}

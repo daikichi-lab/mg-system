@@ -93,6 +93,10 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 既定ルール（planFromPeriod=3）：第1期・第2期はタブ自体が出ない
     await expect(page.getByTestId('tab-play')).toBeVisible()
     await expect(page.getByTestId('tab-plan')).toHaveCount(0)
+    // 計画タブが無い期の期首処理は、従来どおり「記帳をはじめる」
+    await page.getByTestId('tab-opening').click()
+    await expect(page.getByTestId('opening-toplay')).toBeVisible()
+    await expect(page.getByTestId('opening-toplan')).toHaveCount(0)
 
     // 第1期：水害テストデータ → 決算 → 次の期へ
     await page.getByTestId('tab-play').click()
@@ -107,6 +111,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await closeAndSettle(page)
     await page.getByTestId('next-period').click()
     await expect(page.getByTestId('hd-period')).toHaveText('第3期')
+
+    // 第3期：期首処理の末尾は「経営計画を作成する」になり、計画タブの最後に「記帳をはじめる」が出る
+    await page.getByTestId('tab-opening').click()
+    await expect(page.getByTestId('opening-toplay')).toHaveCount(0)
+    await page.getByTestId('opening-toplan').click()
+    await expect(page.getByTestId('plan')).toBeVisible()
+    await page.getByTestId('plan-toplay').click()
+    await expect(page.getByTestId('sub-A')).toBeVisible()
 
     // 第3期：経営計画書タブが出る。期首の盤面（製造1・販売1・機械1、第3期の給料 31）から F ＝ 31＋31＋10＋25 ＝ 97
     await page.getByTestId('tab-plan').click()
