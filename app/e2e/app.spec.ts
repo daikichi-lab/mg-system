@@ -125,14 +125,6 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await setField(page, 'plan-v', 12)
     // MQ ＝ 100＋97 ＝ 197、M ＝ 20、Q ＝ ⌈197÷20⌉ ＝ 10、PQ ＝ 320、VQ ＝ 120
     await expect(page.getByTestId('plan-MQ')).toHaveText('197')
-    // 能力の比較：期首（製造1人・機械1台 → 2個、販売1人 → 2個）。投資が無いので合計も同じ
-    await expect(page.getByTestId('plan-cap-mfg-open')).toContainText('2')
-    await expect(page.getByTestId('plan-cap-mfg-total')).toContainText('2')
-    await expect(page.getByTestId('plan-cap-sales-open')).toContainText('2')
-    // 必要な現金：仕入代は（Q10 − 期首の材料1個）× V12 ＝ 108、機械代 0
-    await expect(page.getByTestId('plan-cash-buy')).toHaveText('108')
-    await expect(page.getByTestId('plan-cash-machine')).toHaveText('0')
-    await expect(page.getByTestId('plan-cash-diff')).toBeVisible()
     await expect(page.getByTestId('plan-M')).toHaveText('20')
     await expect(page.getByTestId('plan-Q')).toContainText('10')
     await expect(page.getByTestId('plan-PQ')).toHaveText('320')
@@ -142,6 +134,14 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 計画の STRAC 図（決算書と同じ描画関数を、計画の数値で使う）
     await expect(page.getByTestId('plan-strac')).toContainText('売上高 PQ')
     await expect(page.getByTestId('plan-strac')).toContainText('320') // PQ ＝ P32 × Q10
+    // 能力の比較：期首（製造1人・機械1台 → 2個、販売1人 → 2個）。投資が無いので合計も同じ
+    await expect(page.getByTestId('plan-cap-mfg-open')).toContainText('2')
+    await expect(page.getByTestId('plan-cap-mfg-total')).toContainText('2')
+    await expect(page.getByTestId('plan-cap-sales-open')).toContainText('2')
+    // 必要な現金：仕入代は（Q10 − 期首の材料1個）× V12 ＝ 108、機械代 0
+    await expect(page.getByTestId('plan-cash-buy')).toHaveText('108')
+    await expect(page.getByTestId('plan-cash-machine')).toHaveText('0')
+    await expect(page.getByTestId('plan-cash-diff')).toBeVisible()
     // 目標・単価がそろったので「動き方を決める」が開く
     await expect(page.getByTestId('plan-stage-actions')).toBeVisible()
     await expect(page.getByTestId('plan-stage-locked')).toHaveCount(0)
