@@ -8,6 +8,7 @@ import {
   caps,
   getRules,
   loanRoom,
+  cashNow,
   nextPeriod,
   recompute,
   salaryFor,
@@ -653,4 +654,117 @@ export function planLocked(st: St): boolean {
 /** 経営計画書タブを出すか。数値ルール planFromPeriod の期から（それより前の期はタブ自体を出さない） */
 export function planVisible(st: St): boolean {
   return st.period >= getRules().planFromPeriod
+}
+
+/**
+ * 進捗タブを出すか。数値ルール progressFromPeriod（既定 4）の期から。
+ * 比べる計画が必要なので、経営計画書タブが出ていない期には出さない（ルールの検証を通っていない古いデータへの保険）。
+ */
+export function progressVisible(st: St): boolean {
+  return st.period >= getRules().progressFromPeriod && planVisible(st)
+}
+
+/** 進捗の1行（計画と、ここまでの実績） */
+export interface ProgressItem {
+  key: string
+  label: string
+  unit: string
+  plan: number
+  actual: number
+  /** 実績 ÷ 計画（％・整数）。計画が 0 なら null */
+  rate: number | null
+  /** 計画まで残り（計画 − 実績。0 未満は 0） */
+  remain: number
+}
+export interface ProgressAction {
+  key: string
+  label: string
+  plan: number
+  done: number
+}
+export interface Progress {
+  items: ProgressItem[]
+  actions: ProgressAction[]
+  /** 計画したアクションの合計回数と、そのうち実施した回数（計画に無いアクションは数えない） */
+  plannedTotal: number
+  doneTotal: number
+  /** 売上個数の残りを今の販売能力で割った、あと必要な販売回数。能力 0 なら null */
+  salesLeftTimes: number | null
+  salesCap: number
+  /** 今の現金 */
+  cash: number
+  /**
+   * 粗利の概算に使った1個あたりの売上原価。今期の仕入があれば「仕入金額の合計 ÷ 仕入個数」、
+   * 無ければ計画の売上原価 V（from で区別）
+   */
+  cost: { unit: number; from: 'buy' | 'plan'; buyAmt: number; buyQty: number }
+}
+
+/** 記帳行の個数（仕入・販売は複数行 items の合計、製造は qty） */
+function rowQty(f: Fvals | undefined): number {
+  if (!f) return 0
+  if (Array.isArray(f.items)) return f.items.reduce((s: number, it: Fvals) => s + (Number(it?.qty) || 0), 0)
+  return Number(f.qty) || 0
+}
+
+/**
+ * 進捗タブ：今期の計画（経営計画書）と、ここまでの記帳の実績を並べる。計画の Q が出ていなければ null。
+ *
+ * - 売上個数 Q・売上高 PQ：盤面の salesQty・salesAmt（特売などイベントの販売も含む）
+ * - 粗利 MQ：売上高 −（売上個数 × 1個あたりの売上原価）の**概算**。売上原価は期末の棚卸で決まるため、
+ *   期中は今期の仕入の実績（仕入金額の合計 ÷ 仕入個数）で見る。今期まだ仕入が無ければ計画の売上原価 V
+ * - 仕入個数：計画は「Q − 期首の材料在庫」（6. の必要量と同じ）、実績は今期の仕入の記帳行の個数の合計
+ * - 製造個数：計画は「Q − 期首の製品在庫」、実績は今期の製造の記帳行の個数の合計
+ * - アクション：計画の回数と、今期に記帳した回数（ルールA・Bのアクションだけ。`planVsActual()` と同じ数え方）
+ */
+export function progressNow(plan: Plan, st: St): Progress | null {
+  const fig = planFigures(plan, st)
+  if (fig.Q == null || fig.PQ == null || fig.VQ == null) return null
+  const sumQty = (key: string) => st.tx.filter((t) => t.key === key).reduce((s, t) => s + rowQty(t.fvals), 0)
+  const item = (key: string, label: string, unit: string, p: number, a: number): ProgressItem => ({
+    key,
+    label,
+    unit,
+    plan: p,
+    actual: a,
+    rate: p > 0 ? Math.round((a / p) * 100) : null,
+    remain: Math.max(0, p - a),
+  })
+  const Q = fig.Q
+  // 今期の仕入の実績（記帳した金額と個数）。1個あたりの原価は小数のまま使い、粗利を出すときに丸める
+  const buyQty = sumQty('shiire')
+  const buyAmt = st.tx.filter((t) => t.key === 'shiire').reduce((s, t) => s + (t.amount || 0), 0)
+  const unitCost = buyQty > 0 ? buyAmt / buyQty : plan.v
+  const items = [
+    item('Q', '売上個数 Q', '個', Q, st.salesQty),
+    item('PQ', '売上高 PQ', '', fig.PQ, st.salesAmt),
+    item('MQ', '粗利益 MQ（概算）', '', fig.PQ - fig.VQ, st.salesAmt - Math.round(st.salesQty * unitCost)),
+    item('buy', '仕入個数', '個', Math.max(0, Q - st.openingMatQty), buyQty),
+    item('make', '製造個数', '個', Math.max(0, Q - st.openingProducts), sumQty('seizo')),
+  ]
+  const planned = new Map<string, number>()
+  for (const a of plan.actions) if (a.key) planned.set(a.key, (planned.get(a.key) ?? 0) + 1)
+  const done = new Map<string, number>()
+  for (const t of st.tx) if (t.key && PLAN_ACTION_KEYS.includes(t.key)) done.set(t.key, (done.get(t.key) ?? 0) + 1)
+  const actions = PLAN_ACTION_KEYS.filter((k) => planned.has(k) || done.has(k)).map((k) => ({
+    key: k,
+    label: ACTIONS[k].label,
+    plan: planned.get(k) ?? 0,
+    done: done.get(k) ?? 0,
+  }))
+  const plannedTotal = actions.reduce((s, a) => s + a.plan, 0)
+  // 計画に入れた回数を上限に数える（計画より多くやった分・計画外のアクションは「消化」に入れない）
+  const doneTotal = actions.reduce((s, a) => s + Math.min(a.plan, a.done), 0)
+  const salesCap = caps(st).salesCap
+  const left = Math.max(0, Q - st.salesQty)
+  return {
+    items,
+    actions,
+    plannedTotal,
+    doneTotal,
+    salesLeftTimes: left === 0 ? 0 : salesCap > 0 ? Math.ceil(left / salesCap) : null,
+    salesCap,
+    cash: cashNow(st),
+    cost: { unit: Math.round(unitCost * 10) / 10, from: buyQty > 0 ? 'buy' : 'plan', buyAmt, buyQty },
+  }
 }
