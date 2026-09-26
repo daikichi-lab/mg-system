@@ -12,6 +12,8 @@ import {
   breakEvenG,
   actionNeeds,
   actionAmount,
+  progressNow,
+  progressVisible,
   actionQtyMax,
   rankGap,
   clampQty,
@@ -482,4 +484,59 @@ test('corporateTax：決算と同じ式（30%・最低 5・繰越損失は繰越
   assert.equal(corporateTax(10, 0), 5) // 3 → 最低 5
   assert.equal(corporateTax(200, -130), 21) // 繰越後 70×0.3 ＝ 21
   assert.equal(corporateTax(100, -130), 5) // 繰越を含めてマイナス → 5
+})
+
+test('進捗タブ：第4期以降かつ経営計画書タブが出ている期だけ', () => {
+  reset()
+  const st = st3()
+  assert.equal(progressVisible(st), false) // 第3期
+  st.period = 4
+  assert.equal(progressVisible(st), true)
+  setRules({ planFromPeriod: 6 }) // 計画を立てない研修では比べるものが無いので出さない
+  assert.equal(progressVisible(st), false)
+  reset()
+})
+
+test('進捗：今期の計画と、ここまでの記帳（売上・仕入・製造・アクション回数）を並べる', () => {
+  reset()
+  const st = st3()
+  st.openingMatQty = 2
+  st.staffSales = 2 // 記帳中の盤面。アプリでは recompute() が期首から組み直す
+  st.salesQty = 4
+  st.salesAmt = 120
+  st.tx.push(
+    { id: 3, key: 'shiire', col: 5, amount: 60, fvals: { items: [{ qty: 3, unit: 12 }, { qty: 2, unit: 12 }] } },
+    { id: 4, key: 'seizo', col: null, amount: 0, fvals: { qty: 3 } },
+    { id: 5, key: 'hanbai', col: 2, amount: 120, fvals: { items: [{ qty: 4, unit: 30 }] } },
+    { id: 6, key: 'koukoku', col: 7, amount: 10, fvals: { n: 1 } }, // 計画に無いアクション
+  )
+  const plan = { ...defaultPlan(), p: 30, v: 12 }
+  plan.actions[0] = { key: 'shiire', qty: 5, amount: -60 }
+  plan.actions[1] = { key: 'hanbai', qty: 4, amount: 120 }
+  plan.actions[2] = { key: 'hanbai', qty: 4, amount: 120 }
+  const Q = planFigures(plan, st).Q!
+  const pr = progressNow(plan, st)!
+  const by = Object.fromEntries(pr.items.map((x) => [x.key, x]))
+  assert.equal(by.Q.plan, Q)
+  assert.equal(by.Q.actual, 4)
+  assert.equal(by.Q.remain, Q - 4)
+  assert.equal(by.Q.rate, Math.round((4 / Q) * 100))
+  assert.equal(by.PQ.actual, 120)
+  assert.equal(by.MQ.actual, 120 - 4 * 12) // 概算：売上高 − 売上個数 × 計画の V
+  assert.equal(by.buy.plan, Q - 2) // 期首の材料 2個を引く
+  assert.equal(by.buy.actual, 5) // 複数行の合計
+  assert.equal(by.make.actual, 3)
+  // アクション：販売は計画2回中1回、仕入は1回中1回。広告は計画外（消化には数えない）
+  const act = Object.fromEntries(pr.actions.map((a) => [a.key, a]))
+  assert.deepEqual([act.hanbai.plan, act.hanbai.done], [2, 1])
+  assert.deepEqual([act.koukoku.plan, act.koukoku.done], [0, 1])
+  assert.equal(pr.plannedTotal, 3)
+  assert.equal(pr.doneTotal, 2)
+  // 残り Q−4 個を販売能力 4（販売2人×2）で割る
+  assert.equal(pr.salesCap, 4)
+  assert.equal(pr.salesLeftTimes, Math.ceil((Q - 4) / 4))
+})
+
+test('進捗：計画の Q が出ていなければ比べない（null）', () => {
+  assert.equal(progressNow(defaultPlan(), st3()), null)
 })

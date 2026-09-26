@@ -108,6 +108,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('next-period').click()
     await expect(page.getByTestId('hd-period')).toHaveText('第3期')
 
+    await expect(page.getByTestId('tab-progress')).toHaveCount(0) // 進捗タブは第4期から
     // 第3期：経営計画書タブが出る。期首の盤面（製造1・販売1・機械1、第3期の給料 31）から F ＝ 31＋31＋10＋25 ＝ 97
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan')).toBeVisible()
@@ -191,6 +192,10 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan-note')).toContainText('入力は自動で保存されます')
     await expect(page.getByTestId('plan-g')).toHaveValue('0')
+
+    // 進捗タブ：第4期から出る。第4期の計画はまだ無いので経営計画書へ案内する
+    await page.getByTestId('tab-progress').click()
+    await expect(page.getByTestId('progress-noplan')).toBeVisible()
 
     // 振り返り：第3期の計画と実績の差が出る
     await page.getByTestId('tab-review').click()
