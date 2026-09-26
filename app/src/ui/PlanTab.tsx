@@ -17,6 +17,8 @@ import {
   stateAtPeriod,
   actionNeeds,
   actionAmount,
+  capacityCompare,
+  cashNeeds,
   rankGap,
   actionQtyMax,
   clampQty,
@@ -135,6 +137,8 @@ export default function PlanTab({
 
   const fc = fixedCosts(plan, st)
   const fig = planFigures(plan, st)
+  const capRows = capacityCompare(plan, st)
+  const need = cashNeeds(plan, st)
   const cash = cashPlan(plan, st)
   const needs = actionNeeds(plan, st) // どのアクションを何回しないといけないか
   const gHint = breakEvenG(st) // 期首の利益剰余金がマイナスのときだけ値が入る
@@ -511,6 +515,55 @@ export default function PlanTab({
               </div>
             </div>,
           )}
+          {/* 2. の投資で能力がどれだけ増えるか。期首 ／ 投資で増える分 ／ 合計（投資を全部実施したときの最大） */}
+          {card(
+            <span className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-f-ink">能力の比較</span>
+              <span className="text-xs font-normal text-ink-400">期首の能力と、戦略的投資を全部実施したときの能力（1回あたり）</span>
+            </span>,
+            <div className="space-y-2" data-testid="plan-capacity">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[11px] text-ink-400">
+                      <th className="text-left font-normal py-1"></th>
+                      <th className="text-right font-normal py-1 px-2 whitespace-nowrap">期首</th>
+                      <th className="text-right font-normal py-1 px-2 whitespace-nowrap">投資で増える</th>
+                      <th className="text-right font-normal py-1 pl-2 whitespace-nowrap">合計（最大）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {capRows.map((c) => (
+                      <tr key={c.key} className="border-t border-line/70 align-top" data-testid={`plan-cap-${c.key}`}>
+                        <td className="py-2 pr-2">
+                          <div className="font-bold whitespace-nowrap">{c.label}</div>
+                          <div className="text-[10px] text-ink-400">{c.totalDetail}</div>
+                        </td>
+                        <td className="py-2 px-2 text-right num" data-testid={`plan-cap-${c.key}-open`}>
+                          {c.open}
+                          <span className="text-[10px] text-ink-400 ml-0.5">個</span>
+                        </td>
+                        <td className="py-2 px-2 text-right num text-f-ink" data-testid={`plan-cap-${c.key}-add`}>
+                          {c.add > 0 ? `＋${c.add}` : c.add}
+                          <span className="text-[10px] text-ink-400 ml-0.5">個</span>
+                        </td>
+                        <td className="py-2 pl-2 text-right num font-black text-base" data-testid={`plan-cap-${c.key}-total`}>
+                          {c.total}
+                          <span className="text-[10px] font-normal text-ink-400 ml-0.5">個</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* 採用予定の人数は配置先で能力が変わるため、各能力とも「全員をその部門に配置した場合」の最大 */}
+              {plan.hire > 0 && (
+                <p className="text-[10px] text-ink-400">
+                  採用予定の {plan.hire} 人は、製造・販売それぞれに全員を配置した場合で計算しています（両方を同時には満たせません）。
+                </p>
+              )}
+            </div>,
+          )}
           {card(
             <span className="text-m-ink">{chunks(['3. 商品の必要粗利益（付加価値）', '額（MQ）を計算'])}</span>,
             <div className="flex justify-between items-center rounded-lg bg-m-bg px-3 py-2">
@@ -589,6 +642,54 @@ export default function PlanTab({
                 )}
               </div>,
             )}
+          {/* このプランを実施するのに必要な現金。期首処理を払ったあとの現金と比べて、足りるか・借入が要るかを見る */}
+          {card(
+            <span className="flex items-baseline gap-2 flex-wrap">
+              <span>このプランの実施に必要な現金</span>
+              <span className="text-xs font-normal text-ink-400">売上が入る前に出ていくお金</span>
+            </span>,
+            <div className="space-y-2 text-sm" data-testid="plan-cash">
+              {need.items.map((it) => (
+                <div key={it.key} className="flex justify-between items-baseline gap-3 border-b border-line/60 pb-1.5">
+                  <span className="min-w-0">
+                    <span className="font-bold">{it.label}</span>
+                    <span className="block text-[10px] text-ink-400">{it.detail}</span>
+                  </span>
+                  <b className="num whitespace-nowrap" data-testid={`plan-cash-${it.key}`}>
+                    {fmt(it.amount)}
+                  </b>
+                </div>
+              ))}
+              <div className="flex justify-between items-center rounded-lg bg-canvas px-3 py-2">
+                <span className="font-bold">必要な現金 合計</span>
+                <b className="num text-lg" data-testid="plan-cash-total">
+                  {fmt(need.total)}
+                </b>
+              </div>
+              <div className="flex justify-between items-baseline gap-3 px-3">
+                <span className="text-ink-500 text-xs">期首の現金（期首処理の納税・金利を払ったあと）</span>
+                <b className="num" data-testid="plan-cash-open">
+                  {fmtA(need.cashAfterOpening)}
+                </b>
+              </div>
+              {/* 差がマイナスなら売上の入金前に現金が足りなくなる → 借入などで手当てが必要 */}
+              <div
+                className={`flex justify-between items-center rounded-lg px-3 py-2 font-bold ${
+                  need.diff < 0 ? 'bg-accent/10 text-accent-ink' : 'bg-m-bg text-m-ink'
+                }`}
+                data-testid="plan-cash-diff"
+              >
+                <span>{need.diff < 0 ? '不足（借入などが必要）' : '余裕'}</span>
+                <b className="num text-lg">{fmt(Math.abs(need.diff))}</b>
+              </div>
+              {need.endCash != null && (
+                <p className="text-[11px] text-ink-400 px-1" data-testid="plan-cash-end">
+                  売上高 <b className="num text-ink-600">{fmt(need.sales ?? 0)}</b> が入ると、期末の現金の見込みは{' '}
+                  <b className="num text-ink-600">{fmtA(need.endCash)}</b>
+                </p>
+              )}
+            </div>,
+          )}
           </div>
         )}
       </section>

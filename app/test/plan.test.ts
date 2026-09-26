@@ -12,6 +12,8 @@ import {
   breakEvenG,
   actionNeeds,
   actionAmount,
+  capacityCompare,
+  cashNeeds,
   actionQtyMax,
   rankGap,
   clampQty,
@@ -482,4 +484,53 @@ test('corporateTax：決算と同じ式（30%・最低 5・繰越損失は繰越
   assert.equal(corporateTax(10, 0), 5) // 3 → 最低 5
   assert.equal(corporateTax(200, -130), 21) // 繰越後 70×0.3 ＝ 21
   assert.equal(corporateTax(100, -130), 5) // 繰越を含めてマイナス → 5
+})
+
+test('能力の比較：期首の能力と、投資（機械・教育・広告・採用）を全部実施したときの最大', () => {
+  const st = st3() // 製造2・販売2・機械1・広告0
+  // 何もしなければ 期首＝合計、増分 0
+  const none = capacityCompare(defaultPlan(), st)
+  assert.deepEqual(
+    none.map((c) => [c.key, c.open, c.add, c.total]),
+    [
+      ['mfg', 4, 0, 4], // 作業者 min(2, 機械1×2)=2 × 2個
+      ['sales', 4, 0, 4], // 販売2人 × 2個
+    ],
+  )
+  // 採用1・機械1・教育1・広告1：採用者は各能力とも「全員をその部門に配置した場合」
+  const c = capacityCompare({ ...defaultPlan(), hire: 1, machinesNew: 1, edu: 1, ads: 1 }, st)
+  const mfg = c.find((x) => x.key === 'mfg')!
+  const sales = c.find((x) => x.key === 'sales')!
+  assert.equal(mfg.total, 9) // 作業者 min(3, 機械2×2)=3 × 教育あり3個
+  assert.equal(mfg.add, 5)
+  assert.equal(sales.total, 8) // 販売3人×2 ＋ 広告 min(1, 6)×2
+  assert.equal(sales.add, 4)
+})
+
+test('必要な現金：仕入代・固定費（減価償却と期首の金利を除く）・機械代・元本返済と、期首処理後の現金との差', () => {
+  const st = st3() // 現金252・期首の自動行 31（納税26・金利5）・借入100×返済率10%
+  const plan = { ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }
+  // F ＝ 現況 31×4＋10＋25＋5 ＝ 164、新規 減価償却 10 → 174。MQ 174 ÷ M 18 → Q 10
+  const n = cashNeeds(plan, st)
+  const by = Object.fromEntries(n.items.map((x) => [x.key, x.amount]))
+  assert.equal(by.buy, 120) // 期首の材料 0 → 10個 × 12
+  assert.equal(by.fixed, 149) // 174 − 減価償却 20 − 期首の金利 5
+  assert.equal(by.machine, 100)
+  assert.equal(by.repay, 10) // 100 × 10%
+  assert.equal(n.total, 379)
+  assert.equal(n.cashAfterOpening, 221) // 252 − 31
+  assert.equal(n.diff, -158) // 不足
+  assert.equal(n.sales, 300)
+  assert.equal(n.endCash, 142) // −158 ＋ 売上 300
+})
+
+test('必要な現金：期首に材料があれば仕入代から引く。Q が出せなければ仕入代 0・期末見込みなし', () => {
+  const st = st3()
+  st.openingMatQty = 4
+  const n = cashNeeds({ ...defaultPlan(), p: 30, v: 12 }, st)
+  // F 164 → Q ＝ ⌈164÷18⌉ ＝ 10、仕入は 10 − 4 ＝ 6個
+  assert.equal(n.items.find((x) => x.key === 'buy')!.amount, 72)
+  const noQ = cashNeeds({ ...defaultPlan(), p: 10, v: 12 }, st)
+  assert.equal(noQ.items.find((x) => x.key === 'buy')!.amount, 0)
+  assert.equal(noQ.endCash, null)
 })

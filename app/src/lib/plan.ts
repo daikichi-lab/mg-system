@@ -436,6 +436,142 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
   return { openingCash: st.openingCash, openingAuto, rows }
 }
 
+/** 2. の下に出す能力の比較の1行（製造能力・販売能力） */
+export interface CapacityRow {
+  key: 'mfg' | 'sales'
+  label: string
+  /** 期首の盤面での1回あたりの能力 */
+  open: number
+  /** 戦略的投資を全部実施したときに増える分（total − open） */
+  add: number
+  /** 投資を全部実施したときの1回あたりの最大 */
+  total: number
+  /** 根拠（人数・台数・チップ） */
+  openDetail: string
+  totalDetail: string
+}
+
+/**
+ * 2. 固定費の下に出す「期首の能力」と「戦略的投資を全部実施したときの能力」の比較。
+ * 能力の式は calc の `caps()` をそのまま使う（式を二重に持たない）。
+ *
+ * - 期首：期首のスタッフ・機械・広告チップ。教育チップは期をまたがないので 0 枚
+ * - 投資後：機械購入・教育・広告を足した盤面。
+ *   **採用予定の人数は、製造・販売それぞれに全員を配置した場合で出す**（配置先は計画では決まらないため、各能力の最大値）。
+ *   そのため製造と販売の「最大」を同時に達成できるとは限らない（画面に注記する）
+ */
+export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
+  const open = {
+    ...st,
+    staffMfg: st.openingStaffMfg,
+    staffSales: st.openingStaffSales,
+    machines: st.openingMachines,
+    edu: 0,
+    ads: st.openingAds,
+  }
+  const invested = { ...open, machines: open.machines + plan.machinesNew, edu: plan.edu, ads: open.ads + plan.ads }
+  // 採用予定を全員製造に／全員販売に配置した盤面
+  const mfgMax = caps({ ...invested, staffMfg: invested.staffMfg + plan.hire })
+  const salesMax = caps({ ...invested, staffSales: invested.staffSales + plan.hire })
+  const c0 = caps(open)
+  const mfgDetail = (staff: number, machines: number, edu: number) =>
+    `製造スタッフ ${staff}人・機械 ${machines}台${edu > 0 ? '・教育チップあり' : ''}`
+  const salesDetail = (staff: number, ads: number) => `販売スタッフ ${staff}人・広告 ${ads}枚`
+  return [
+    {
+      key: 'mfg',
+      label: '製造能力',
+      open: c0.mfgCap,
+      add: mfgMax.mfgCap - c0.mfgCap,
+      total: mfgMax.mfgCap,
+      openDetail: mfgDetail(open.staffMfg, open.machines, 0),
+      totalDetail: mfgDetail(invested.staffMfg + plan.hire, invested.machines, plan.edu),
+    },
+    {
+      key: 'sales',
+      label: '販売能力',
+      open: c0.salesCap,
+      add: salesMax.salesCap - c0.salesCap,
+      total: salesMax.salesCap,
+      openDetail: salesDetail(open.staffSales, open.ads),
+      totalDetail: salesDetail(invested.staffSales + plan.hire, invested.ads),
+    },
+  ]
+}
+
+/** 計画の実施に必要な現金の1項目 */
+export interface CashNeedItem {
+  key: 'buy' | 'fixed' | 'machine' | 'repay'
+  label: string
+  detail: string
+  amount: number
+}
+export interface CashNeeds {
+  items: CashNeedItem[]
+  /** 必要な現金の合計 */
+  total: number
+  /** 期首処理（法人税の納付・支払金利）を払ったあとの現金 */
+  cashAfterOpening: number
+  /** cashAfterOpening − total。マイナスなら売上の入金前に足りなくなる額（借入などが必要） */
+  diff: number
+  /** 売上高 PQ。Q が出せないときは null */
+  sales: number | null
+  /** 期末の現金の見込み ＝ cashAfterOpening − total ＋ 売上高。Q が出せないときは null */
+  endCash: number | null
+}
+
+/**
+ * 計画の STRAC 図の後に出す「このプランの実施に必要な現金」。
+ * 比べる元は期首処理（法人税の納付・期首の借入金の金利）を払ったあとの現金（`cashPlan()` と同じ）。
+ *
+ * - 仕入代：期首の材料・製品で足りない個数（Q − 期首の材料在庫。`actionNeeds()` と同じ）× 計画の売上原価 V
+ * - 固定費：F のうち現金で出ていく分。減価償却は現金が出ないので除き、期首の借入金の金利は期首処理で払い済みなので除く
+ * - 機械代：機械購入台数 × 機械の価格（記帳アクションの amount と同じ式）
+ * - 元本返済：期末に返す額。期末処理（calc の `doClosingPrep()`）と同じ「期首の借入残高 × 返済率」（残高が上限）
+ *
+ * 売上の入金は販売した後なので、合計とは別に「期末の現金の見込み」として足して見せる。
+ */
+export function cashNeeds(plan: Plan, st: St): CashNeeds {
+  const R = getRules()
+  const fig = planFigures(plan, st)
+  const fc = fixedCosts(plan, st)
+  const cp = cashPlan(plan, st)
+  const cashAfterOpening = cp.openingCash + cp.openingAuto
+  const buyQty = fig.Q == null ? 0 : Math.max(0, fig.Q - st.openingMatQty)
+  const amt = (key: string) => fc.items.find((x) => x.key === key)?.amount ?? 0
+  const noCash = amt('dep') + amt('depNew') + amt('intOpen')
+  const repay = Math.min(Math.round((st.openingLoan * st.repayRate) / 100), st.openingLoan)
+  const items: CashNeedItem[] = [
+    {
+      key: 'buy',
+      label: '仕入代',
+      detail: fig.Q == null ? '売上必要個数（Q）が未確定です' : `仕入 ${buyQty}個 × 売上原価 V ${plan.v}`,
+      amount: buyQty * plan.v,
+    },
+    {
+      key: 'fixed',
+      label: '固定費',
+      detail: `F ${fc.total} − 減価償却 ${amt('dep') + amt('depNew')} − 期首に払った金利 ${amt('intOpen')}`,
+      amount: fc.total - noCash,
+    },
+    {
+      key: 'machine',
+      label: '機械代',
+      detail: `${plan.machinesNew}台 × ${R.machinePrice}`,
+      amount: plan.machinesNew > 0 ? ACTIONS.kikai.amount({ n: plan.machinesNew }) : 0,
+    },
+    {
+      key: 'repay',
+      label: '元本返済',
+      detail: st.period <= 1 ? '第1期は借入なし' : `期首の借入金 ${st.openingLoan} × 返済率 ${st.repayRate}%`,
+      amount: repay,
+    },
+  ]
+  const total = items.reduce((sum, x) => sum + x.amount, 0)
+  const diff = cashAfterOpening - total
+  return { items, total, cashAfterOpening, diff, sales: fig.PQ, endCash: fig.PQ == null ? null : diff + fig.PQ }
+}
+
 /** 7. 必要なアクション回数の1項目 */
 export interface ActionNeed {
   /** 記帳アクションのキー（アクションプランのプルダウンと同じ） */
