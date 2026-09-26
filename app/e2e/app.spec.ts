@@ -108,11 +108,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('next-period').click()
     await expect(page.getByTestId('hd-period')).toHaveText('第3期')
 
-    await expect(page.getByTestId('tab-progress')).toHaveCount(0) // 進捗タブは第4期から
     // 第3期：経営計画書タブが出る。期首の盤面（製造1・販売1・機械1、第3期の給料 31）から F ＝ 31＋31＋10＋25 ＝ 97
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan')).toBeVisible()
     await expect(page.getByTestId('plan-F')).toHaveText('97')
+    await expect(page.getByTestId('tab-progress')).toHaveCount(0) // 進捗タブは第4期から
     // 「?」で経常利益の目安の説明が開く
     await page.getByTestId('plan-g-help').click()
     await expect(page.getByTestId('plan-g-help-modal')).toContainText('経常利益（G）の決め方')
