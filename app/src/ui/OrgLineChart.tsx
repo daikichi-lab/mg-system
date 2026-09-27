@@ -2,7 +2,7 @@
 // figures-review.ts の multiLineHTML（静的SVG文字列）の置き換え:
 // - 縦軸の目盛り数値＋横破線グリッド
 // - ホバー/タップで最寄りの期にスナップし、各社の値を降順のツールチップで表示
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { fmt, fmtA } from '../lib/calc'
 
 export interface OrgSeries {
@@ -12,8 +12,11 @@ export interface OrgSeries {
   pts: { x: number; y: number }[]
 }
 
-const W = 340
-const H = 160
+// 描画座標系（viewBox）の大きさ。文字や線の太さはこの座標系で決まり、表示幅に合わせて拡大される
+const BASE_W = 340
+const BASE_H = 160
+/** fluid のとき：表示幅 ÷ この倍率 を座標系の幅にする（全幅に出しても文字が大きくなりすぎないように） */
+const FLUID_SCALE = 1.35
 const PAD_L = 40 // 縦軸ラベル分
 const PAD_R = 12
 const PAD_T = 12
@@ -27,9 +30,37 @@ function niceStep(span: number): number {
   return Math.max(1, mag * (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10))
 }
 
-export function OrgLineChart({ series, signed, pct }: { series: OrgSeries[]; signed?: boolean; pct?: boolean }) {
+export function OrgLineChart({
+  series,
+  signed,
+  pct,
+  fluid,
+}: {
+  series: OrgSeries[]
+  signed?: boolean
+  pct?: boolean
+  /**
+   * 横幅いっぱいに出すとき true。座標系の幅を表示幅に合わせて広げ、文字・線は拡大しすぎない。
+   * 狭い画面（表示幅が BASE_W×倍率 未満）では従来どおり BASE_W で描く
+   */
+  fluid?: boolean
+}) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<number | null>(null)
+  const [boxW, setBoxW] = useState(0)
+  const hasData = series.some((se) => se.pts.length > 0)
+  // fluid のときだけ表示幅を測る（グラフが描かれてから。幅が変わったら測り直す）
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!fluid || !hasData || !el) return
+    const update = () => setBoxW(el.getBoundingClientRect().width)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fluid, hasData])
+  const W = fluid ? Math.max(BASE_W, Math.round(boxW / FLUID_SCALE)) : BASE_W
+  const H = fluid && W > BASE_W ? 190 : BASE_H // 横長になりすぎないよう、広いときは少し高くする
 
   const allY = series.flatMap((se) => se.pts.map((p) => p.y))
   if (!allY.length) return <div className="text-ink-300 text-xs py-6 text-center">データなし</div>
