@@ -52,8 +52,8 @@ function saveHidden(org: string, hidden: Set<string>) {
   }
 }
 
-/** 順位表の開閉。研修によらず同じ好みなので研修ごとには分けない */
-const LIST_OPEN_KEY = 'mg-org-rank-open'
+/** 「グラフに出す会社」の開閉。研修によらず同じ好みなので研修ごとには分けない */
+const LIST_OPEN_KEY = 'mg-org-pick-open'
 function loadListOpen(): boolean {
   try {
     return localStorage.getItem(LIST_OPEN_KEY) !== '0'
@@ -75,7 +75,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
   const [metricKey, setMetricKey] = useState('PQ')
   // チェックを外した会社（＝グラフに出さない）。新しく参加した会社は最初から出るよう「外した側」を持つ
   const [hidden, setHidden] = useState<Set<string>>(() => loadHidden(st.org))
-  // 順位表を開いているか。ブラウザごとに覚える（読めない環境では開いた状態）
+  // 「グラフに出す会社」の欄を開いているか。ブラウザごとに覚える（読めない環境では開いた状態）
   const [listOpen, setListOpen] = useState<boolean>(() => loadListOpen())
   const toggleList = (open: boolean) => {
     setListOpen(open)
@@ -156,85 +156,72 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
         <p className="text-ink-300 text-sm p-4 bg-white rounded-2xl border border-line">まだ成績がありません。各社が決算すると表示されます。</p>
       ) : (
         <>
-          {/* 選んだ指数の順位（会社名・社長名）。指数のタブより上に全幅で出し、折りたためる。チェックボックスでグラフに出す会社を選ぶ */}
-          <div className="bg-white rounded-2xl shadow-card border border-line p-4">
-            <div className={`flex items-center justify-between gap-2 flex-wrap ${listOpen ? 'mb-2' : ''}`}>
-              {/* 見出しを押すと一覧を折りたたむ／開く */}
+          {/* グラフに出す会社を選ぶ欄。会社名・社長名とチェックボックスだけ（順位や値は下の順位表に出す）。折りたためる */}
+          <div className="bg-white rounded-2xl shadow-card border border-line p-4" data-testid="org-pick">
+            <div className={`flex items-center justify-between gap-2 flex-wrap ${listOpen ? 'mb-3' : ''}`}>
+              {/* 見出しを押すと折りたたむ／開く */}
               <button
-                data-testid="org-rank-toggle"
+                data-testid="org-pick-toggle"
                 onClick={() => toggleList(!listOpen)}
                 aria-expanded={listOpen}
                 className="font-bold text-sm text-left flex items-baseline gap-1.5"
               >
                 <span className="text-ink-400 text-xs w-3 inline-block">{listOpen ? '▼' : '▶'}</span>
-                {metric.label}の順位
+                グラフに出す会社
                 <span className="text-ink-400 text-[11px] font-normal">
-                  最新の決算{metric.low ? '・低いほど上位' : ''}
-                  {!listOpen && `・${withHist.length}社（グラフに出す ${withHist.length - withHist.filter((c) => hidden.has(c.name)).length}社）`}
+                  {withHist.length - withHist.filter((c) => hidden.has(c.name)).length}／{withHist.length}社
                 </span>
               </button>
               {listOpen && (
-              <div className="flex gap-1 text-[11px] font-bold">
-                <button data-testid="org-check-all" onClick={() => setAll(true)} className="h-7 px-2 rounded-md border border-line">
-                  全員をグラフに出す
-                </button>
-                <button data-testid="org-check-none" onClick={() => setAll(false)} className="h-7 px-2 rounded-md border border-line">
-                  全員外す
-                </button>
-              </div>
+                <div className="flex gap-1 text-[11px] font-bold">
+                  <button data-testid="org-check-all" onClick={() => setAll(true)} className="h-7 px-2 rounded-md border border-line">
+                    全員を出す
+                  </button>
+                  <button data-testid="org-check-none" onClick={() => setAll(false)} className="h-7 px-2 rounded-md border border-line">
+                    全員外す
+                  </button>
+                </div>
               )}
             </div>
             {listOpen && (
-            <>
-            <table className="w-full text-[13px]" data-testid="org-rank">
-              <thead>
-                <tr className="text-[11px] text-ink-400">
-                  <th className="font-normal text-left py-1 w-8">グラフ</th>
-                  <th className="font-normal text-left py-1 px-1 w-10">順位</th>
-                  <th className="font-normal text-left py-1 px-1">会社名／社長名</th>
-                  <th className="font-normal text-right py-1 pl-1">{metric.label}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((x) => {
-                  const me = x.c.name === st.name
-                  return (
-                    <tr key={x.c.name} className={`border-t border-line/60 ${me ? 'bg-amber-50' : ''}`} data-testid={`org-row-${x.c.name}`}>
-                      <td className="py-1.5">
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+                  {withHist.map((c) => {
+                    const me = c.name === st.name
+                    const on = !hidden.has(c.name)
+                    return (
+                      <label
+                        key={c.name}
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer select-none transition ${
+                          on ? 'border-line bg-white' : 'border-line/60 bg-canvas opacity-60'
+                        } ${me ? 'ring-1 ring-amber-300' : ''}`}
+                      >
                         <input
                           type="checkbox"
-                          data-testid={`org-check-${x.c.name}`}
-                          checked={!hidden.has(x.c.name)}
-                          onChange={() => toggle(x.c.name)}
-                          aria-label={`${x.c.name}をグラフに出す`}
-                          className="w-4 h-4 align-middle"
-                          style={{ accentColor: colorOf.get(x.c.name) }}
+                          data-testid={`org-check-${c.name}`}
+                          checked={on}
+                          onChange={() => toggle(c.name)}
+                          className="w-4 h-4 shrink-0"
+                          style={{ accentColor: colorOf.get(c.name) }}
                         />
-                      </td>
-                      <td className="py-1.5 px-1 font-bold num">{x.rank}位</td>
-                      <td className="py-1.5 px-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf.get(x.c.name) }} />
-                          <span className="font-bold truncate">{x.c.name}</span>
-                          {me && <span className="text-ink-400 text-[11px] shrink-0">(あなた)</span>}
-                        </div>
-                        <div className="text-[11px] text-ink-400 pl-4">
-                          社長：{x.c.president || '—'}
-                          <span className="num text-ink-300 ml-1.5">第{x.r.period}期</span>
-                        </div>
-                      </td>
-                      <td className={`py-1.5 pl-1 text-right num font-bold ${x.v < 0 ? 'text-accent-ink' : ''}`}>{metric.f(x.v)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            {noHist.length > 0 && (
-              <p className="mt-2 text-[11px] text-ink-400" data-testid="org-nohist">
-                決算前：{noHist.map((c) => `${c.name}（${c.president || '—'}）`).join('、')}
-              </p>
-            )}
-            </>
+                        <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf.get(c.name) }} />
+                        <span className="min-w-0 leading-tight">
+                          <span className="block text-[13px] font-bold truncate">
+                            {c.name}
+                            {me && <span className="text-ink-400 text-[11px] font-normal"> (あなた)</span>}
+                          </span>
+                          <span className="block text-[11px] text-ink-400 truncate">社長：{c.president || '—'}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+                {noHist.length > 0 && (
+                  <p className="mt-2 text-[11px] text-ink-400" data-testid="org-nohist">
+                    決算前（グラフには出ません）：{noHist.map((c) => `${c.name}（${c.president || '—'}）`).join('、')}
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -274,10 +261,49 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
             {series.length ? (
               <OrgLineChart series={series} signed={metric.opt.signed} pct={metric.opt.pct} fluid />
             ) : (
-              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を上の一覧でチェックしてください。</p>
+              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を上の「グラフに出す会社」でチェックしてください。</p>
             )}
           </div>
 
+
+          {/* 選んだ指数の順位（最新の決算）。グラフの下に全幅で出す */}
+          <div className="bg-white rounded-2xl shadow-card border border-line p-4">
+            <h3 className="font-bold text-sm mb-2">
+              {metric.label}の順位
+              <span className="text-ink-400 text-[11px] font-normal ml-1">最新の決算{metric.low ? '・低いほど上位' : ''}</span>
+            </h3>
+            <table className="w-full text-[13px]" data-testid="org-rank">
+              <thead>
+                <tr className="text-[11px] text-ink-400">
+                  <th className="font-normal text-left py-1 w-12">順位</th>
+                  <th className="font-normal text-left py-1 px-1">会社名／社長名</th>
+                  <th className="font-normal text-right py-1 pl-1">{metric.label}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((x) => {
+                  const me = x.c.name === st.name
+                  return (
+                    <tr key={x.c.name} className={`border-t border-line/60 ${me ? 'bg-amber-50' : ''}`} data-testid={`org-row-${x.c.name}`}>
+                      <td className="py-1.5 font-bold num">{x.rank}位</td>
+                      <td className="py-1.5 px-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf.get(x.c.name) }} />
+                          <span className="font-bold truncate">{x.c.name}</span>
+                          {me && <span className="text-ink-400 text-[11px] shrink-0">(あなた)</span>}
+                        </div>
+                        <div className="text-[11px] text-ink-400 pl-4">
+                          社長：{x.c.president || '—'}
+                          <span className="num text-ink-300 ml-1.5">第{x.r.period}期</span>
+                        </div>
+                      </td>
+                      <td className={`py-1.5 pl-1 text-right num font-bold ${x.v < 0 ? 'text-accent-ink' : ''}`}>{metric.f(x.v)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>
