@@ -84,6 +84,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
   })
 
   test('経営計画書：第3期からタブが出て、計画を入力すると必要個数が出てリロード後も残る', async ({ page }) => {
+    // 第1期〜第4期まで進めて計画・進捗・振り返りまで見る長いテストなので、既定の30秒では足りないことがある（マシンが混んでいるとき）
+    test.setTimeout(60_000)
     await registerOrg(page, 'E2EPLAN')
     await page.goto('/?org=E2EPLAN')
     await page.getByTestId('c-name').fill('E2E計画社')
