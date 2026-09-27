@@ -326,6 +326,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('org-chart')).toContainText('チェックしてください')
     await page.getByTestId('org-check-all').click()
     await expect(page.getByTestId('org-check-E2E製菓')).toBeChecked()
+    // 順位表は折りたためる（見出しを押すと閉じ、もう一度押すと開く）
+    await page.getByTestId('org-rank-toggle').click()
+    await expect(page.getByTestId('org-rank')).toHaveCount(0)
+    await page.getByTestId('org-rank-toggle').click()
+    await expect(page.getByTestId('org-rank')).toContainText('E2E製菓')
 
     // --- 振り返りタブ（推移・気づき） ---
     await page.getByTestId('tab-review').click()

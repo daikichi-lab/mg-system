@@ -52,12 +52,35 @@ function saveHidden(org: string, hidden: Set<string>) {
   }
 }
 
+/** 順位表の開閉。研修によらず同じ好みなので研修ごとには分けない */
+const LIST_OPEN_KEY = 'mg-org-rank-open'
+function loadListOpen(): boolean {
+  try {
+    return localStorage.getItem(LIST_OPEN_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+function saveListOpen(open: boolean) {
+  try {
+    localStorage.setItem(LIST_OPEN_KEY, open ? '1' : '0')
+  } catch {
+    // 保存できなくても表示には影響しない
+  }
+}
+
 export default function OrgTab({ game, toast }: { game: Game; toast: (msg: string) => void }) {
   const st = game.st
   const [companies, setCompanies] = useState<ApiOrgCompany[] | null>(null)
   const [metricKey, setMetricKey] = useState('PQ')
   // チェックを外した会社（＝グラフに出さない）。新しく参加した会社は最初から出るよう「外した側」を持つ
   const [hidden, setHidden] = useState<Set<string>>(() => loadHidden(st.org))
+  // 順位表を開いているか。ブラウザごとに覚える（読めない環境では開いた状態）
+  const [listOpen, setListOpen] = useState<boolean>(() => loadListOpen())
+  const toggleList = (open: boolean) => {
+    setListOpen(open)
+    saveListOpen(open)
+  }
   const load = async () => setCompanies(await game.refreshOrg())
   // 更新ボタン用：取得後にトースト表示
   const reload = async () => {
@@ -133,57 +156,24 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
         <p className="text-ink-300 text-sm p-4 bg-white rounded-2xl border border-line">まだ成績がありません。各社が決算すると表示されます。</p>
       ) : (
         <>
-          {/* 指数のタブ。押すとその指数の順位とグラフに切り替わる。自社の最新値と順位も出す */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2" data-testid="org-metrics">
-            {METRICS.map((m) => {
-              const me = mine(m)
-              const on = m.k === metric.k
-              return (
-                <button
-                  key={m.k}
-                  data-testid={`org-metric-${m.k}`}
-                  onClick={() => setMetricKey(m.k)}
-                  className={`text-left rounded-xl border px-3 py-2 transition ${
-                    on ? 'bg-ink text-white border-ink shadow-sm' : 'bg-white border-line hover:border-ink-300'
-                  }`}
-                >
-                  <div className={`text-[11px] font-bold ${on ? 'text-white/80' : 'text-ink-500'}`}>{m.label}</div>
-                  {me ? (
-                    <div className="flex items-baseline justify-between gap-1">
-                      <span className="num font-black text-lg">{m.f(me.v)}</span>
-                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`}>
-                        {me.rank}/{withHist.length}位
-                      </span>
-                    </div>
-                  ) : (
-                    <div className={`text-[11px] ${on ? 'text-white/70' : 'text-ink-300'}`}>自社は決算前</div>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* PC では推移グラフと順位を横に並べる（グラフが横に伸びすぎて文字が大きくなるのを防ぐ） */}
-          <div className="grid lg:grid-cols-2 gap-4 items-start">
-          {/* 選んだ指数の推移。チェックの付いた会社だけ */}
-          <div className="bg-white rounded-2xl shadow-card border border-line p-4 lg:sticky lg:top-20" data-testid="org-chart">
-            <h3 className="font-bold text-sm mb-2">{metric.label}の推移</h3>
-            {series.length ? (
-              <OrgLineChart series={series} signed={metric.opt.signed} pct={metric.opt.pct} />
-            ) : (
-              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を下の一覧でチェックしてください。</p>
-            )}
-          </div>
-
-          {/* 選んだ指数の順位。チェックボックスでグラフに出す会社を選ぶ */}
+          {/* 選んだ指数の順位（会社名・社長名）。指数のタブより上に全幅で出し、折りたためる。チェックボックスでグラフに出す会社を選ぶ */}
           <div className="bg-white rounded-2xl shadow-card border border-line p-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-              <h3 className="font-bold text-sm">
+            <div className={`flex items-center justify-between gap-2 flex-wrap ${listOpen ? 'mb-2' : ''}`}>
+              {/* 見出しを押すと一覧を折りたたむ／開く */}
+              <button
+                data-testid="org-rank-toggle"
+                onClick={() => toggleList(!listOpen)}
+                aria-expanded={listOpen}
+                className="font-bold text-sm text-left flex items-baseline gap-1.5"
+              >
+                <span className="text-ink-400 text-xs w-3 inline-block">{listOpen ? '▼' : '▶'}</span>
                 {metric.label}の順位
-                <span className="text-ink-400 text-[11px] font-normal ml-1">
+                <span className="text-ink-400 text-[11px] font-normal">
                   最新の決算{metric.low ? '・低いほど上位' : ''}
+                  {!listOpen && `・${withHist.length}社（グラフに出す ${withHist.length - withHist.filter((c) => hidden.has(c.name)).length}社）`}
                 </span>
-              </h3>
+              </button>
+              {listOpen && (
               <div className="flex gap-1 text-[11px] font-bold">
                 <button data-testid="org-check-all" onClick={() => setAll(true)} className="h-7 px-2 rounded-md border border-line">
                   全員をグラフに出す
@@ -192,7 +182,10 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                   全員外す
                 </button>
               </div>
+              )}
             </div>
+            {listOpen && (
+            <>
             <table className="w-full text-[13px]" data-testid="org-rank">
               <thead>
                 <tr className="text-[11px] text-ink-400">
@@ -241,8 +234,50 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                 決算前：{noHist.map((c) => `${c.name}（${c.president || '—'}）`).join('、')}
               </p>
             )}
+            </>
+            )}
           </div>
+
+          {/* 指数のタブ。押すとその指数の順位とグラフに切り替わる。自社の最新値と順位も出す */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2" data-testid="org-metrics">
+            {METRICS.map((m) => {
+              const me = mine(m)
+              const on = m.k === metric.k
+              return (
+                <button
+                  key={m.k}
+                  data-testid={`org-metric-${m.k}`}
+                  onClick={() => setMetricKey(m.k)}
+                  className={`text-left rounded-xl border px-3 py-2 transition ${
+                    on ? 'bg-ink text-white border-ink shadow-sm' : 'bg-white border-line hover:border-ink-300'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${on ? 'text-white/80' : 'text-ink-500'}`}>{m.label}</div>
+                  {me ? (
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="num font-black text-lg">{m.f(me.v)}</span>
+                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`}>
+                        {me.rank}/{withHist.length}位
+                      </span>
+                    </div>
+                  ) : (
+                    <div className={`text-[11px] ${on ? 'text-white/70' : 'text-ink-300'}`}>自社は決算前</div>
+                  )}
+                </button>
+              )
+            })}
           </div>
+
+          {/* 選んだ指数の推移。チェックの付いた会社だけ。画面幅いっぱいに出す */}
+          <div className="bg-white rounded-2xl shadow-card border border-line p-4" data-testid="org-chart">
+            <h3 className="font-bold text-sm mb-2">{metric.label}の推移</h3>
+            {series.length ? (
+              <OrgLineChart series={series} signed={metric.opt.signed} pct={metric.opt.pct} fluid />
+            ) : (
+              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を上の一覧でチェックしてください。</p>
+            )}
+          </div>
+
         </>
       )}
     </div>
