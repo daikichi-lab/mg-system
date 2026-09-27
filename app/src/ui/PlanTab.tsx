@@ -552,10 +552,8 @@ export default function PlanTab({
                           {c.open}
                           <span className="text-[10px] text-ink-400 ml-0.5">個</span>
                         </td>
-                        <td className="py-2 px-2 text-right num text-f-ink" data-testid={`plan-cap-${c.key}-add`}>
-                          {c.add > 0 ? `＋${c.add}` : c.add}
-                          <span className="text-[10px] text-ink-400 ml-0.5">個</span>
-                        </td>
+                        {/* 増えた数は下の内訳の行に出すので、能力の行では空けておく */}
+                        <td className="py-2 px-2" />
                         <td className="py-2 pl-2 text-right num font-black text-base" data-testid={`plan-cap-${c.key}-total`}>
                           {c.total}
                           <span className="text-[10px] font-normal text-ink-400 ml-0.5">個</span>
@@ -576,7 +574,8 @@ export default function PlanTab({
                               ＋{sp.delta}
                               <span className="text-[10px] text-ink-400 ml-0.5">個</span>
                             </td>
-                            <td className="pt-0.5 pl-2 text-right num text-xs text-ink-400 whitespace-nowrap">→ {sp.after}個</td>
+                            {/* 合計は能力の行に出すので、内訳の行では空けておく */}
+                            <td className="pt-0.5 pl-2" />
                           </tr>
                           <tr>
                             <td colSpan={4} className={`pb-1.5 pl-6 text-[10px] ${sp.limited ? 'text-accent-ink' : 'text-ink-400'}`}>
