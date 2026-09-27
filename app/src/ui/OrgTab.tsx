@@ -107,15 +107,19 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
   const colorOf = new Map(withHist.map((c, i) => [c.name, ORG_COLORS[i % ORG_COLORS.length]]))
   const noHist = companies.filter((c) => !latestOf(c))
 
-  // 指数ごとの順位（最新決算の値）。同じ値は同じ順位にする
+  // 「グラフに出す会社」でチェックした会社。順位表・指数のタブの順位・グラフのすべてをこの会社だけで出す
+  const shown = withHist.filter((c) => !hidden.has(c.name))
+  // 指数ごとの順位（最新決算の値・チェックした会社の中で）。同じ値は同じ順位にする
   const ranking = (m: Metric) => {
-    const arr = withHist
+    const arr = shown
       .map((c) => ({ c, r: latestOf(c), v: m.get(latestOf(c)) }))
       .sort((a, b) => (m.low ? a.v - b.v : b.v - a.v))
     return arr.map((x) => ({ ...x, rank: 1 + arr.filter((y) => (m.low ? y.v < x.v : y.v > x.v)).length }))
   }
   const rows = ranking(metric)
   const mine = (m: Metric) => ranking(m).find((x) => x.c.name === st.name)
+  // 自社の最新決算（チェックを外していても値は出す。順位は出さない）
+  const myCompany = withHist.find((c) => c.name === st.name)
 
   const toggle = (name: string) => {
     const next = new Set(hidden)
@@ -129,9 +133,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
     setHidden(next)
     saveHidden(st.org, next)
   }
-  const series = withHist
-    .filter((c) => !hidden.has(c.name))
-    .map((c) => ({
+  const series = shown.map((c) => ({
       name: c.name,
       color: colorOf.get(c.name)!,
       me: c.name === st.name,
@@ -240,11 +242,12 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                   }`}
                 >
                   <div className={`text-[11px] font-bold ${on ? 'text-white/80' : 'text-ink-500'}`}>{m.label}</div>
-                  {me ? (
+                  {myCompany ? (
                     <div className="flex items-baseline justify-between gap-1">
-                      <span className="num font-black text-lg">{m.f(me.v)}</span>
-                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`}>
-                        {me.rank}/{withHist.length}位
+                      <span className="num font-black text-lg">{m.f(m.get(latestOf(myCompany)))}</span>
+                      {/* 順位はチェックした会社の中で。自社のチェックを外しているときは順位を出さない */}
+                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`} data-testid={`org-metric-${m.k}-rank`}>
+                        {me ? `${me.rank}/${shown.length}位` : '順位外'}
                       </span>
                     </div>
                   ) : (
@@ -266,12 +269,16 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
           </div>
 
 
-          {/* 選んだ指数の順位（最新の決算）。グラフの下に全幅で出す */}
+          {/* 選んだ指数の順位（最新の決算・チェックした会社の中で）。グラフの下に全幅で出す */}
           <div className="bg-white rounded-2xl shadow-card border border-line p-4">
             <h3 className="font-bold text-sm mb-2">
               {metric.label}の順位
-              <span className="text-ink-400 text-[11px] font-normal ml-1">最新の決算{metric.low ? '・低いほど上位' : ''}</span>
+              <span className="text-ink-400 text-[11px] font-normal ml-1">
+                最新の決算・チェックした {shown.length}社の中で{metric.low ? '・低いほど上位' : ''}
+              </span>
             </h3>
+            {!rows.length && <p className="text-ink-300 text-xs py-4 text-center">上の「グラフに出す会社」でチェックした会社の順位が出ます。</p>}
+            {rows.length > 0 && (
             <table className="w-full text-[13px]" data-testid="org-rank">
               <thead>
                 <tr className="text-[11px] text-ink-400">
@@ -303,6 +310,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                 })}
               </tbody>
             </table>
+            )}
           </div>
         </>
       )}
