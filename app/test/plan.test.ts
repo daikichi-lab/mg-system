@@ -540,3 +540,31 @@ test('必要な現金：期首に材料があれば仕入代から引く。Q が
   assert.equal(noQ.items.find((x) => x.key === 'buy')!.amount, 0)
   assert.equal(noQ.endCash, null)
 })
+
+test('能力の比較の内訳：投資を流れ順に1つずつ足して増えた個数を出し、上限で頭打ちならその理由を付ける', () => {
+  const st = st3() // 製造2・機械1・販売2・広告0 → 製造 4個・販売 4個
+  // 製造スタッフ2人採用・教育：機械1台では2人しか作業できないので採用は ＋0、教育は作業する2人 × 1個 ＝ ＋2
+  const [mfg, sales] = capacityCompare({ ...defaultPlan(), hireMfg: 2, edu: 1, ads: 4 }, st)
+  assert.deepEqual(
+    mfg.steps.map((x) => [x.key, x.delta, x.after, x.limited]),
+    [
+      ['hireMfg', 0, 4, true],
+      ['edu', 2, 6, false],
+    ],
+  )
+  assert.match(mfg.steps[0].note, /機械が足りません/)
+  // 広告4枚：販売2人なら4枚まで効く → ＋8
+  assert.deepEqual(sales.steps.map((x) => [x.key, x.delta, x.after, x.limited]), [['ads', 8, 12, false]])
+
+  // 機械も買えば採用が効く：採用 ＋0 → 機械1台 ＋4（作業する人 2→4人）→ 教育 ＋4（4人 × 1個）
+  const [mfg2, sales2] = capacityCompare({ ...defaultPlan(), hireMfg: 2, machinesNew: 1, edu: 1, ads: 6 }, st)
+  assert.deepEqual(mfg2.steps.map((x) => [x.key, x.delta]), [['hireMfg', 0], ['machinesNew', 4], ['edu', 4]])
+  // 各段の増分の合計は、投資で増える分（total − open）と一致する
+  assert.equal(mfg2.steps.reduce((s, x) => s + x.delta, 0), mfg2.add)
+  // 広告6枚でも販売2人では4枚までしか効かない → ＋8（頭打ち）
+  assert.deepEqual(sales2.steps.map((x) => [x.key, x.delta, x.limited]), [['ads', 8, true]])
+  assert.match(sales2.steps[0].note, /1人につき2枚まで/)
+
+  // 投資が無ければ内訳は空
+  assert.deepEqual(capacityCompare(defaultPlan(), st).map((x) => x.steps.length), [0, 0])
+})
