@@ -477,7 +477,7 @@ export interface CapacityRow {
   /** 根拠（人数・台数・チップ） */
   openDetail: string
   totalDetail: string
-  /** 投資ごとの内訳。入力した投資だけ、ゲームの流れ順（採用 → 機械 → 教育／採用 → 広告）に足していく */
+  /** 投資ごとの内訳。入力した投資だけ、ゲームの流れ順（採用と機械 → 教育／採用 → 広告）に足していく */
   steps: CapacityStep[]
 }
 
@@ -489,8 +489,8 @@ export interface CapacityRow {
  * - 投資後：製造・販売それぞれの採用、機械購入・教育・広告を足した盤面（`planCaps()` と同じ）
  * - 内訳：能力の式には上限（機械1台で作業できるのは2人まで、広告は販売スタッフ1人につき2枚まで効く）があり、
  *   投資の効果は足し算にならない。そこで投資を**ゲームの流れ順に1つずつ足し**、そのたびに増えた個数を出す
- *   （製造：採用 → 機械 → 教育、販売：採用 → 広告）。各段の増分の合計は必ず total − open になる。
- *   上限で思ったほど増えない段には理由を付ける
+ *   （製造：採用と機械はセットで効くので1段にまとめる → 教育、販売：採用 → 広告）。各段の増分の合計は必ず total − open になる。
+ *   上限で思ったほど増えない段・機械が余る段には理由を付ける（判定は両方を足した後の盤面で行う）
  */
 export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
   type Board = St
@@ -505,7 +505,10 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
   const c0 = caps(open)
   const c1 = planCaps(plan, st)
 
-  // ---- 製造：採用 → 機械 → 教育 ----
+  // ---- 製造：（採用・機械）→ 教育 ----
+  // 製造スタッフと機械はセットで効く（機械1台で作業できるのは2人まで）。別々の段にすると
+  // 「採用の段では機械が足りない」「機械の段ではスタッフが足りない」と両方が不足に見えてしまうので、1つの段にまとめ、
+  // 足りない／余るかは両方を足した後の盤面で判定する
   const mfgSteps: CapacityStep[] = []
   let b = open
   let cur = c0.mfgCap
@@ -516,21 +519,41 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
     b = next
     cur = after
   }
-  const perWorker = (edu: number) => (edu > 0 ? 3 : 2) // 作業する人1人あたりの製造個数（教育チップで 2 → 3）
-  if (plan.hireMfg > 0)
-    addMfg('hireMfg', `製造スタッフを ${plan.hireMfg}人採用`, { ...b, staffMfg: b.staffMfg + plan.hireMfg }, (delta, nb) => {
-      const full = plan.hireMfg * perWorker(nb.edu)
-      return delta < full
-        ? { note: `機械が足りません。機械1台で作業できるのは2人まで（機械 ${nb.machines}台 → ${nb.machines * 2}人）`, limited: true }
-        : { note: `1人あたり ${perWorker(nb.edu)}個`, limited: false }
-    })
-  if (plan.machinesNew > 0)
-    addMfg('machinesNew', `機械を ${plan.machinesNew}台購入`, { ...b, machines: b.machines + plan.machinesNew }, (delta, nb) => {
-      const full = plan.machinesNew * 2 * perWorker(nb.edu)
-      return delta < full
-        ? { note: `製造スタッフが足りません。機械1台で2人まで作業できます（製造スタッフ ${nb.staffMfg}人）`, limited: true }
-        : { note: `機械1台で2人が作業できる → 1台あたり ${2 * perWorker(nb.edu)}個`, limited: false }
-    })
+  if (plan.hireMfg > 0 || plan.machinesNew > 0) {
+    const parts = [
+      plan.hireMfg > 0 ? `製造スタッフを ${plan.hireMfg}人採用` : '',
+      plan.machinesNew > 0 ? `機械を ${plan.machinesNew}台購入` : '',
+    ].filter(Boolean)
+    addMfg(
+      'staffMachines',
+      parts.join('・'),
+      { ...b, staffMfg: b.staffMfg + plan.hireMfg, machines: b.machines + plan.machinesNew },
+      (_delta, nb) => {
+        const slots = nb.machines * 2 // 機械で作業できる人数の上限
+        const workers = Math.min(nb.staffMfg, slots)
+        const enough = Math.ceil(nb.staffMfg / 2) // 製造スタッフ全員が作業するのに要る台数
+        if (nb.staffMfg > slots) {
+          // 人が余る：あと何台あれば全員が作業できるか
+          const more = enough - nb.machines
+          return {
+            note: `機械が足りません。機械1台で作業できるのは2人まで（機械 ${nb.machines}台 → ${slots}人）。あと ${more}台で製造スタッフ ${nb.staffMfg}人全員が作業できます`,
+            limited: true,
+          }
+        }
+        if (plan.machinesNew > 0 && slots - nb.staffMfg >= 2) {
+          // 機械が丸ごと1台以上遊ぶ：今期の購入は何台で足りたか
+          const needBuy = Math.max(0, enough - st.openingMachines)
+          return plan.hireMfg > 0 || needBuy > 0
+            ? {
+                note: `機械が余ります。製造スタッフ ${nb.staffMfg}人なら機械は ${enough}台で足ります（今期の購入は ${needBuy}台で十分）`,
+                limited: true,
+              }
+            : { note: `製造スタッフが足りません。機械を買っても作業する人がいません（製造スタッフ ${nb.staffMfg}人 → 機械 ${enough}台で足ります）`, limited: true }
+        }
+        return { note: `作業する人 ${workers}人 × ${nb.edu > 0 ? 3 : 2}個（機械 ${nb.machines}台で ${slots}人まで作業できる）`, limited: false }
+      },
+    )
+  }
   if (plan.edu > 0)
     addMfg('edu', '教育チップを使う', { ...b, edu: plan.edu }, (_delta, nb) => {
       const workers = Math.min(nb.staffMfg, nb.machines * 2)
