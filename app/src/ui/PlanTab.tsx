@@ -3,10 +3,12 @@
 // 参加者の入力は Plan（lib/plan.ts）に持ち、金額の計算はすべて lib/plan.ts の純関数で行う。
 // 保存は入力が落ち着いてから（SAVE_DELAY_MS）まとめて game.savePlan() → DB。タブを離れるときは即保存。
 // 数値ルール planFromPeriod より前の期ではこのタブ自体が出ない（Participant.tsx 側で制御）。
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA, loanRoom } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
 import type { Game } from '../state/useGame'
+// 能力の比較の内訳行（1行に2つの tr）を組むのに使う。他の PR と import 行が衝突しないよう別の行にしている
+import { Fragment } from 'react'
 import {
   normalizePlan,
   fixedCosts,
