@@ -449,6 +449,22 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
 }
 
 /** 2. の下に出す能力の比較の1行（製造能力・販売能力） */
+/** 能力の比較の内訳の1段（投資を1つ足したときに能力がいくつ増えるか） */
+export interface CapacityStep {
+  key: string
+  /** 何をしたか（例：製造スタッフを 2人採用） */
+  label: string
+  /** この投資で増えた個数 */
+  delta: number
+  /** この投資まで足したときの能力 */
+  after: number
+  /** 増え方の根拠。思ったほど増えないときはその理由（機械が足りない など） */
+  note: string
+  /** 投資したのに増え方が上限で頭打ちになったか（画面で注意の色にする） */
+  limited: boolean
+}
+
+/** 2. の下に出す能力の比較の1行（製造能力・販売能力） */
 export interface CapacityRow {
   key: 'mfg' | 'sales'
   label: string
@@ -461,6 +477,8 @@ export interface CapacityRow {
   /** 根拠（人数・台数・チップ） */
   openDetail: string
   totalDetail: string
+  /** 投資ごとの内訳。入力した投資だけ、ゲームの流れ順（採用 → 機械 → 教育／採用 → 広告）に足していく */
+  steps: CapacityStep[]
 }
 
 /**
@@ -469,9 +487,14 @@ export interface CapacityRow {
  *
  * - 期首：期首のスタッフ・機械・広告チップ。教育チップは期をまたがないので 0 枚
  * - 投資後：製造・販売それぞれの採用、機械購入・教育・広告を足した盤面（`planCaps()` と同じ）
+ * - 内訳：能力の式には上限（機械1台で作業できるのは2人まで、広告は販売スタッフ1人につき2枚まで効く）があり、
+ *   投資の効果は足し算にならない。そこで投資を**ゲームの流れ順に1つずつ足し**、そのたびに増えた個数を出す
+ *   （製造：採用 → 機械 → 教育、販売：採用 → 広告）。各段の増分の合計は必ず total − open になる。
+ *   上限で思ったほど増えない段には理由を付ける
  */
 export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
-  const open = {
+  type Board = St
+  const open: Board = {
     ...st,
     staffMfg: st.openingStaffMfg,
     staffSales: st.openingStaffSales,
@@ -481,8 +504,66 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
   }
   const c0 = caps(open)
   const c1 = planCaps(plan, st)
-  const mfgStaff = open.staffMfg + plan.hireMfg
-  const salesStaff = open.staffSales + plan.hireSales
+
+  // ---- 製造：採用 → 機械 → 教育 ----
+  const mfgSteps: CapacityStep[] = []
+  let b = open
+  let cur = c0.mfgCap
+  const addMfg = (key: string, label: string, next: Board, note: (delta: number, nb: Board) => { note: string; limited: boolean }) => {
+    const after = caps(next).mfgCap
+    const delta = after - cur
+    mfgSteps.push({ key, label, delta, after, ...note(delta, next) })
+    b = next
+    cur = after
+  }
+  const perWorker = (edu: number) => (edu > 0 ? 3 : 2) // 作業する人1人あたりの製造個数（教育チップで 2 → 3）
+  if (plan.hireMfg > 0)
+    addMfg('hireMfg', `製造スタッフを ${plan.hireMfg}人採用`, { ...b, staffMfg: b.staffMfg + plan.hireMfg }, (delta, nb) => {
+      const full = plan.hireMfg * perWorker(nb.edu)
+      return delta < full
+        ? { note: `機械が足りません。機械1台で作業できるのは2人まで（機械 ${nb.machines}台 → ${nb.machines * 2}人）`, limited: true }
+        : { note: `1人あたり ${perWorker(nb.edu)}個`, limited: false }
+    })
+  if (plan.machinesNew > 0)
+    addMfg('machinesNew', `機械を ${plan.machinesNew}台購入`, { ...b, machines: b.machines + plan.machinesNew }, (delta, nb) => {
+      const full = plan.machinesNew * 2 * perWorker(nb.edu)
+      return delta < full
+        ? { note: `製造スタッフが足りません。機械1台で2人まで作業できます（製造スタッフ ${nb.staffMfg}人）`, limited: true }
+        : { note: `機械1台で2人が作業できる → 1台あたり ${2 * perWorker(nb.edu)}個`, limited: false }
+    })
+  if (plan.edu > 0)
+    addMfg('edu', '教育チップを使う', { ...b, edu: plan.edu }, (_delta, nb) => {
+      const workers = Math.min(nb.staffMfg, nb.machines * 2)
+      return workers > 0
+        ? { note: `作業する人 ${workers}人 × 1個（1人あたり 2個 → 3個）`, limited: false }
+        : { note: '作業できる製造スタッフがいないので増えません', limited: true }
+    })
+
+  // ---- 販売：採用 → 広告 ----
+  const salesSteps: CapacityStep[] = []
+  let sb = open
+  let scur = c0.salesCap
+  const addSales = (key: string, label: string, next: Board, note: (delta: number, nb: Board) => { note: string; limited: boolean }) => {
+    const after = caps(next).salesCap
+    const delta = after - scur
+    salesSteps.push({ key, label, delta, after, ...note(delta, next) })
+    sb = next
+    scur = after
+  }
+  if (plan.hireSales > 0)
+    addSales('hireSales', `販売員を ${plan.hireSales}人採用`, { ...sb, staffSales: sb.staffSales + plan.hireSales }, (delta) => {
+      const base = plan.hireSales * 2
+      // 期首の広告が人数の上限で効いていなかった分が、採用で効くようになることがある
+      return { note: delta > base ? `1人あたり 2個 ＋ 効くようになった広告 ${delta - base}個` : '1人あたり 2個', limited: false }
+    })
+  if (plan.ads > 0)
+    addSales('ads', `広告を ${plan.ads}枚`, { ...sb, ads: sb.ads + plan.ads }, (delta, nb) => {
+      const cap = nb.staffSales * 2 // 広告が効く枚数の上限
+      return delta < plan.ads * 2
+        ? { note: `広告は販売スタッフ1人につき2枚まで効きます（販売スタッフ ${nb.staffSales}人 → ${cap}枚まで）`, limited: true }
+        : { note: '1枚あたり 2個', limited: false }
+    })
+
   const mfgDetail = (staff: number, machines: number, edu: number) =>
     `製造スタッフ ${staff}人・機械 ${machines}台${edu > 0 ? '・教育チップあり' : ''}`
   const salesDetail = (staff: number, ads: number) => `販売スタッフ ${staff}人・広告 ${ads}枚`
@@ -494,7 +575,8 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
       add: c1.mfgCap - c0.mfgCap,
       total: c1.mfgCap,
       openDetail: mfgDetail(open.staffMfg, open.machines, 0),
-      totalDetail: mfgDetail(mfgStaff, open.machines + plan.machinesNew, plan.edu),
+      totalDetail: mfgDetail(open.staffMfg + plan.hireMfg, open.machines + plan.machinesNew, plan.edu),
+      steps: mfgSteps,
     },
     {
       key: 'sales',
@@ -503,7 +585,8 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
       add: c1.salesCap - c0.salesCap,
       total: c1.salesCap,
       openDetail: salesDetail(open.staffSales, open.ads),
-      totalDetail: salesDetail(salesStaff, open.ads + plan.ads),
+      totalDetail: salesDetail(open.staffSales + plan.hireSales, open.ads + plan.ads),
+      steps: salesSteps,
     },
   ]
 }
