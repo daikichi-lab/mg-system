@@ -212,6 +212,17 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 進捗タブ：第4期から出る。第4期の計画はまだ無いので経営計画書へ案内する
     await page.getByTestId('tab-progress').click()
     await expect(page.getByTestId('progress-noplan')).toBeVisible()
+    // 計画（G・P・V）を入れると、目標 G に必要な粗利と打ち手（数量・単価）が出る
+    await page.getByTestId('tab-plan').click()
+    await setField(page, 'plan-g', 50)
+    await setField(page, 'plan-p', 30)
+    await setField(page, 'plan-v', 12)
+    await page.getByTestId('tab-progress').click()
+    await expect(page.getByTestId('progress-status')).toBeVisible()
+    await expect(page.getByTestId('progress-mq')).toContainText('必要な粗利')
+    await expect(page.getByTestId('progress-lever-q')).toContainText('個 売る')
+    await expect(page.getByTestId('progress-lever-p')).toContainText('以上で売る')
+    await expect(page.getByTestId('progress-factor-F')).toBeVisible()
 
     // 振り返り：第3期の計画と実績の差が出る
     await page.getByTestId('tab-review').click()
