@@ -107,6 +107,14 @@ export function applyApiState(st: St, data: ApiState): Result[] {
   return results
 }
 
+/**
+ * 新しく始めた会社の期末返済率（%）の初期値（issue #77）。期首処理の「期末返済（期首残高 × ◯ %）」で講師・参加者が変えられる。
+ * 計算エンジンの既定（calc の newState() の repayRate 0）は golden-master の前提なので変えず、会社を始めるときだけ入れる。
+ * 保存済みの会社は保存値を使うので、この値を変えても開催中の研修の数値は動かない。
+ */
+export const DEFAULT_REPAY_RATE = 5
+
+/** 会社を始める（資本金の行を入れる）。まだ始まっていない会社だけに使う（再開した会社には呼ばない） */
 export function startCompany(
   st: St,
   opt: { name: string; president: string; org: string; capital: number; period?: number },
@@ -115,6 +123,7 @@ export function startCompany(
   st.president = opt.president
   st.org = opt.org
   st.period = opt.period || 1
+  st.repayRate = DEFAULT_REPAY_RATE
   const cap = opt.capital || 300
   const row = st.tx.find((t) => t.isCapital)
   if (row) row.amount = cap
