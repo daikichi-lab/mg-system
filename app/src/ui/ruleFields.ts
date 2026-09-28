@@ -1,6 +1,6 @@
 // ルール編集・確認画面で共通に使う項目定義。
 //
-// 9項目を「ゲームの流れ順」の7グループに分けている。縦に並べるより、
+// 各項目を「ゲームの流れ順」のグループに分けている。縦に並べるより、
 // 講師が盤面のどの場面の数字かを追いやすいため。
 // 各項目には効く先の勘定科目（記帳台帳の列）を持たせ、画面ではその列の色で示す。
 // 盤面の上限や決算でしか出てこないものは列を持たない（chip を出さない）。
@@ -11,7 +11,7 @@ export type ColRef = number | null
 
 export interface NumField {
   kind: 'num'
-  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap' | 'planFromPeriod'
+  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap' | 'planFromPeriod' | 'progressFromPeriod' | 'planHintP' | 'planHintV'
   label: string
   desc: string
   unit?: string
@@ -168,6 +168,34 @@ export const GROUPS: Group[] = [
         desc: 'この期から参加者アプリに「経営計画書」タブが出ます。1 なら第1期から、6 以上なら出しません。計算には影響しません',
         unit: '期から',
         min: 1,
+        col: null,
+        colNote: '画面の表示',
+      },
+      {
+        kind: 'num',
+        key: 'progressFromPeriod',
+        label: '進捗タブを出す期',
+        desc: 'この期から参加者アプリに「進捗」タブ（今期の計画と途中経過の比較）が出ます。経営計画書タブを出す期より後の期にしてください。6 以上なら出しません。計算には影響しません',
+        unit: '期から',
+        min: 2,
+        col: null,
+        colNote: '画面の表示',
+      },
+      {
+        kind: 'num',
+        key: 'planHintP',
+        label: '販売単価（P）の目安',
+        desc: '経営計画書の「4. 商品の各単価目標」に目安として出します。計算には影響しません',
+        min: 0,
+        col: null,
+        colNote: '画面の表示',
+      },
+      {
+        kind: 'num',
+        key: 'planHintV',
+        label: '仕入単価（V）の目安',
+        desc: '経営計画書の「4. 商品の各単価目標」に目安として出します。計算には影響しません',
+        min: 0,
         col: null,
         colNote: '画面の表示',
       },

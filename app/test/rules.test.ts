@@ -33,6 +33,23 @@ test('normalizeRules：planFromPeriod は1以上の整数だけ受け付け、�
   assert.equal(normalizeRules({ planFromPeriod: '3' as unknown as number }).planFromPeriod, 3)
 })
 
+test('normalizeRules：経営計画書の単価の目安は既定 販売28・仕入12、壊れた値は既定に落とす', () => {
+  assert.equal(DEFAULT_RULES.planHintP, 28)
+  assert.equal(DEFAULT_RULES.planHintV, 12)
+  assert.equal(normalizeRules({ planHintP: 30, planHintV: 13 }).planHintP, 30)
+  assert.equal(normalizeRules({ planHintP: 30, planHintV: 13 }).planHintV, 13)
+  // 保存済みのルール（この項目が無い時代のもの）は既定を補う
+  assert.equal(normalizeRules({ rent: 20 }).planHintP, 28)
+  assert.equal(normalizeRules({ planHintV: 'x' as unknown as number }).planHintV, 12)
+})
+
+test('normalizeRules：進捗タブを出す期は既定 4、1以上の整数だけ受け付ける', () => {
+  assert.equal(DEFAULT_RULES.progressFromPeriod, 4)
+  assert.equal(normalizeRules({ progressFromPeriod: 5 }).progressFromPeriod, 5)
+  assert.equal(normalizeRules({ progressFromPeriod: 0 }).progressFromPeriod, 4)
+  assert.equal(normalizeRules({ rent: 20 }).progressFromPeriod, 4) // 項目が無い保存済みのルールは既定を補う
+})
+
 test('normalizeRules：配列は複製する（既定値を書き換えない）', () => {
   const a = normalizeRules(null)
   a.materialPrices.push(99)

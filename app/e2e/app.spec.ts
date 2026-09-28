@@ -112,6 +112,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan')).toBeVisible()
     await expect(page.getByTestId('plan-F')).toHaveText('97')
+    await expect(page.getByTestId('tab-progress')).toHaveCount(0) // 進捗タブは第4期から
     // 「?」で経常利益の目安の説明が開く
     await page.getByTestId('plan-g-help').click()
     await expect(page.getByTestId('plan-g-help-modal')).toContainText('経常利益（G）の決め方')
@@ -125,6 +126,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await setField(page, 'plan-v', 12)
     // MQ ＝ 100＋97 ＝ 197、M ＝ 20、Q ＝ ⌈197÷20⌉ ＝ 10、PQ ＝ 320、VQ ＝ 120
     await expect(page.getByTestId('plan-MQ')).toHaveText('197')
+    // 3. の G・F 欄に 1. の経常利益目標と 2. の固定費合計がそのまま出る
+    await expect(page.getByTestId('plan-MQ-G')).toHaveText('100')
+    await expect(page.getByTestId('plan-MQ-F')).toHaveText('97')
+    // 4. の単価目標に目安（既定ルール：販売 28・仕入 12）
+    await expect(page.getByTestId('plan-p-hint')).toContainText('28')
+    await expect(page.getByTestId('plan-v-hint')).toContainText('12')
     await expect(page.getByTestId('plan-M')).toHaveText('20')
     await expect(page.getByTestId('plan-Q')).toContainText('10')
     await expect(page.getByTestId('plan-PQ')).toHaveText('320')
@@ -199,6 +206,10 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan-note')).toContainText('入力は自動で保存されます')
     await expect(page.getByTestId('plan-g')).toHaveValue('0')
+
+    // 進捗タブ：第4期から出る。第4期の計画はまだ無いので経営計画書へ案内する
+    await page.getByTestId('tab-progress').click()
+    await expect(page.getByTestId('progress-noplan')).toBeVisible()
 
     // 振り返り：第3期の計画と実績の差が出る
     await page.getByTestId('tab-review').click()
@@ -802,6 +813,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
     await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
     await page.getByTestId('f-planFromPeriod').fill('1')
+    // 進捗タブを出す期は経営計画書より後の期でないと保存できない（既定 4）
+    await expect(page.getByTestId('f-progressFromPeriod')).toHaveValue('4')
+    await page.getByTestId('f-progressFromPeriod').fill('1')
+    await page.getByTestId('rule-save').click()
+    await expect(page.getByTestId('rule-err')).toContainText('進捗タブを出す期')
+    await page.getByTestId('f-progressFromPeriod').fill('2')
     await page.getByTestId('rule-save').click()
     await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
 
