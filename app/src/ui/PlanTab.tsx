@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA, loanRoom, getRules } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
 import type { Game } from '../state/useGame'
+// 能力の比較の内訳行（1行に2つの tr）を組むのに使う。他の PR と import 行が衝突しないよう別の行にしている
+import { Fragment } from 'react'
 import {
   normalizePlan,
   fixedCosts,
@@ -17,6 +19,8 @@ import {
   stateAtPeriod,
   actionNeeds,
   actionAmount,
+  capacityCompare,
+  cashNeeds,
   rankGap,
   actionQtyMax,
   clampQty,
@@ -135,6 +139,8 @@ export default function PlanTab({
 
   const fc = fixedCosts(plan, st)
   const fig = planFigures(plan, st)
+  const capRows = capacityCompare(plan, st)
+  const need = cashNeeds(plan, st)
   const cash = cashPlan(plan, st)
   const needs = actionNeeds(plan, st) // どのアクションを何回しないといけないか
   const gHint = breakEvenG(st) // 期首の利益剰余金がマイナスのときだけ値が入る
@@ -455,9 +461,12 @@ export default function PlanTab({
                       </tr>
                     </thead>
                     <tbody>
-                      {invRow('hire', '一般管理費', '今期 採用するスタッフ', plan.hire, (v) => update({ hire: v }), '人',
-                        `採用費 ${u.hire} × ${plan.hire}人`, item('hire').amount)}
-                      {derivedRow('hireSalary', '人件費', '採用したスタッフの期末給料', `給料 ${u.sal} × ${plan.hire}人`, item('hireSalary').amount)}
+                      {/* 採用は製造・販売に分けて入れる（配置先で能力が変わるため） */}
+                      {invRow('hireMfg', '一般管理費', '今期 採用する製造スタッフ', plan.hireMfg, (v) => update({ hireMfg: v }), '人',
+                        `採用費 ${u.hire} × ${plan.hireMfg}人`, item('hireMfg').amount)}
+                      {invRow('hireSales', '一般管理費', '今期 採用する販売員', plan.hireSales, (v) => update({ hireSales: v }), '人',
+                        `採用費 ${u.hire} × ${plan.hireSales}人`, item('hireSales').amount)}
+                      {derivedRow('hireSalary', '人件費', '採用したスタッフの期末給料', `給料 ${u.sal} × ${plan.hireMfg + plan.hireSales}人`, item('hireSalary').amount)}
                       {invRow('machinesNew', '減価償却費', '今期 購入する機械（什器）', plan.machinesNew, (v) => update({ machinesNew: v }), '台',
                         `減価償却 ${u.dep} × ${plan.machinesNew}台`, item('depNew').amount)}
                       {/* 教育チップは期を通して最大1枚（記帳と同じ） */}
@@ -508,6 +517,82 @@ export default function PlanTab({
                 <b className="num text-f-ink text-lg" data-testid="plan-F">
                   {fmt(fig.F)}
                 </b>
+              </div>
+            </div>,
+          )}
+          {/* 2. の投資で能力がどれだけ増えるか。期首 ／ 投資で増える分 ／ 合計（投資を全部実施したときの最大） */}
+          {card(
+            <span className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-f-ink">能力の比較</span>
+              <span className="text-xs font-normal text-ink-400">期首の能力と、戦略的投資でどれだけ増えるか（1回あたり）</span>
+            </span>,
+            <div className="space-y-2" data-testid="plan-capacity">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[11px] text-ink-400">
+                      <th className="text-left font-normal py-1"></th>
+                      <th className="text-right font-normal py-1 px-2 whitespace-nowrap">期首</th>
+                      <th className="text-right font-normal py-1 px-2 whitespace-nowrap">投資で増える</th>
+                      <th className="text-right font-normal py-1 pl-2 whitespace-nowrap">合計（最大）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {capRows.map((c) => (
+                      <Fragment key={c.key}>
+                      <tr className="border-t border-line/70 align-top" data-testid={`plan-cap-${c.key}`}>
+                        <td className="py-2 pr-2">
+                          <div className="font-bold whitespace-nowrap">{c.label}</div>
+                          <div className="text-[10px] text-ink-400">期首：{c.openDetail}</div>
+                        </td>
+                        <td className="py-2 px-2 text-right num" data-testid={`plan-cap-${c.key}-open`}>
+                          {c.open}
+                          <span className="text-[10px] text-ink-400 ml-0.5">個</span>
+                        </td>
+                        {/* 増えた数は下の内訳の行に出すので、能力の行では空けておく */}
+                        <td className="py-2 px-2" />
+                        <td className="py-2 pl-2 text-right num font-black text-base" data-testid={`plan-cap-${c.key}-total`}>
+                          {c.total}
+                          <span className="text-[10px] font-normal text-ink-400 ml-0.5">個</span>
+                        </td>
+                      </tr>
+                      {/* 投資ごとの内訳：流れ順に1つずつ足したときに何個増えるか。上限で頭打ちの投資は理由を注意の色で出す */}
+                      {c.steps.map((sp) => (
+                        <Fragment key={sp.key}>
+                          {/* 名前は「期首」の列までまたいで幅を取り、根拠・理由は次の行に全幅で出す（スマホで細く折り返さないように） */}
+                          <tr className="align-top" data-testid={`plan-cap-step-${sp.key}`}>
+                            <td colSpan={2} className="pt-0.5 pr-2 pl-3 text-xs text-ink-600">
+                              └ {sp.label}
+                            </td>
+                            <td
+                              className={`pt-0.5 px-2 text-right num text-xs whitespace-nowrap ${sp.delta > 0 ? 'text-f-ink' : 'text-accent-ink'}`}
+                              data-testid={`plan-cap-step-${sp.key}-delta`}
+                            >
+                              ＋{sp.delta}
+                              <span className="text-[10px] text-ink-400 ml-0.5">個</span>
+                            </td>
+                            {/* 合計は能力の行に出すので、内訳の行では空けておく */}
+                            <td className="pt-0.5 pl-2" />
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className={`pb-1.5 pl-6 text-[10px] ${sp.limited ? 'text-accent-ink' : 'text-ink-400'}`}>
+                              {sp.limited ? '⚠ ' : ''}
+                              {sp.note}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                      {!c.steps.length && (
+                        <tr>
+                          <td colSpan={4} className="pb-1.5 pl-3 text-[10px] text-ink-400">
+                            {c.key === 'mfg' ? '製造スタッフの採用・機械購入・教育' : '販売員の採用・広告'}を入れると、ここに増える内訳が出ます
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>,
           )}
@@ -619,6 +704,54 @@ export default function PlanTab({
                 )}
               </div>,
             )}
+          {/* このプランを実施するのに必要な現金。期首処理を払ったあとの現金と比べて、足りるか・借入が要るかを見る */}
+          {card(
+            <span className="flex items-baseline gap-2 flex-wrap">
+              <span>このプランの実施に必要な現金</span>
+              <span className="text-xs font-normal text-ink-400">当期に出ていくお金の全部</span>
+            </span>,
+            <div className="space-y-2 text-sm" data-testid="plan-cash">
+              {need.items.map((it) => (
+                <div key={it.key} className="flex justify-between items-baseline gap-3 border-b border-line/60 pb-1.5">
+                  <span className="min-w-0">
+                    <span className="font-bold">{it.label}</span>
+                    <span className="block text-[10px] text-ink-400">{it.detail}</span>
+                  </span>
+                  <b className="num whitespace-nowrap" data-testid={`plan-cash-${it.key}`}>
+                    {fmt(it.amount)}
+                  </b>
+                </div>
+              ))}
+              <div className="flex justify-between items-center rounded-lg bg-canvas px-3 py-2">
+                <span className="font-bold">当期の出金 合計</span>
+                <b className="num text-lg" data-testid="plan-cash-total">
+                  {fmt(need.total)}
+                </b>
+              </div>
+              <div className="flex justify-between items-baseline gap-3 px-3">
+                <span className="text-ink-500 text-xs">前期から繰り越した現金</span>
+                <b className="num" data-testid="plan-cash-open">
+                  {fmtA(need.openingCash)}
+                </b>
+              </div>
+              {/* 差がマイナスなら売上の入金前に現金が足りなくなる → 借入などで手当てが必要 */}
+              <div
+                className={`flex justify-between items-center rounded-lg px-3 py-2 font-bold ${
+                  need.diff < 0 ? 'bg-accent/10 text-accent-ink' : 'bg-m-bg text-m-ink'
+                }`}
+                data-testid="plan-cash-diff"
+              >
+                <span>{need.diff < 0 ? '不足（借入などが必要）' : '余裕'}</span>
+                <b className="num text-lg">{fmt(Math.abs(need.diff))}</b>
+              </div>
+              {need.endCash != null && (
+                <p className="text-[11px] text-ink-400 px-1" data-testid="plan-cash-end">
+                  売上高 <b className="num text-ink-600">{fmt(need.sales ?? 0)}</b> が入ると、期末の現金の見込みは{' '}
+                  <b className="num text-ink-600">{fmtA(need.endCash)}</b>
+                </p>
+              )}
+            </div>,
+          )}
           </div>
         )}
       </section>

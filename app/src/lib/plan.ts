@@ -99,7 +99,8 @@ export interface Plan {
    * 2. 戦略的投資（新規）：今期に行う予定の投資。
    * 現況（期首の会社盤にいる人・機械・家賃・期首借入残高の金利）は入力せず、盤面から自動で出す。
    */
-  hire: number // スタッフ採用の人数（製造・販売は分けない）
+  hireMfg: number // 製造スタッフの採用人数
+  hireSales: number // 販売スタッフ（販売員）の採用人数
   machinesNew: number // 機械購入台数（減価償却が増える）
   edu: number
   ins: number
@@ -115,14 +116,13 @@ export interface Plan {
 
 /**
  * 計画どおりに投資したときの1回あたりの能力。
- * 盤面は「期首 ＋ 今期の機械購入・教育・広告」で組む（教育チップは期をまたがない）。
- * **採用予定は入れない**：製造・販売どちらに配置するかで能力が変わり、計画では決められないため。
+ * 盤面は「期首 ＋ 今期の採用（製造・販売）・機械購入・教育・広告」で組む（教育チップは期をまたがない）。
  */
 function planCaps(plan: Plan, st: St) {
   return caps({
     ...st,
-    staffMfg: st.openingStaffMfg,
-    staffSales: st.openingStaffSales,
+    staffMfg: st.openingStaffMfg + plan.hireMfg,
+    staffSales: st.openingStaffSales + plan.hireSales,
     machines: st.openingMachines + plan.machinesNew,
     edu: plan.edu,
     ads: st.openingAds + plan.ads,
@@ -194,7 +194,8 @@ function actionKey(a: Record<string, unknown> | undefined): string {
 export function defaultPlan(): Plan {
   return {
     g: 0,
-    hire: 0,
+    hireMfg: 0,
+    hireSales: 0,
     machinesNew: 0,
     edu: 0,
     ins: 0,
@@ -215,8 +216,11 @@ export function normalizePlan(input: unknown): Plan {
   const acts = Array.isArray(o.actions) ? o.actions : []
   return {
     g: num0(o.g),
-    // 製造・販売を分けて保存された古い計画は、合計を採用人数として読む
-    hire: o.hire === undefined ? int0(o.hireMfg) + int0(o.hireSales) : int0(o.hire),
+    // 採用は製造・販売に分けて持つ。2026-09-15〜26 の間は合計（hire）だけを保存していたので、
+    // その計画は配置先が分からないため製造の採用として読む（固定費の合計は配置先によらず同じ）
+    ...(o.hireMfg === undefined && o.hireSales === undefined
+      ? { hireMfg: int0(o.hire), hireSales: 0 }
+      : { hireMfg: int0(o.hireMfg), hireSales: int0(o.hireSales) }),
     machinesNew: int0(o.machinesNew),
     edu: Math.min(EDU_MAX, int0(o.edu)), // 教育チップは最大1枚
     ins: int0(o.ins),
@@ -371,8 +375,16 @@ export function fixedCosts(plan: Plan, st: St): FixedCosts {
     { key: 'rent', label: '家賃', detail: '期末に必ず発生する家賃', amount: R.rent, col: 'now' },
     { key: 'intOpen', label: '営業外費用', detail: `期首の借入金 ${st.openingLoan} × 金利${units.ratePct}%`, amount: interestOpen, col: 'now' },
     // 新規（入力から）
-    { key: 'hire', label: '一般管理費', detail: `採用費 ${units.hire} × ${plan.hire}人`, amount: unit('saiyo', { mfg: plan.hire }), col: 'new' },
-    { key: 'hireSalary', label: '人件費', detail: `給料 ${sal} × ${plan.hire}人`, amount: sal * plan.hire, col: 'new' },
+    // 採用：製造・販売それぞれの採用費と、採用した人の期末給料（給料は配置先によらず同じ単価）
+    { key: 'hireMfg', label: '一般管理費', detail: `採用費 ${units.hire} × ${plan.hireMfg}人`, amount: unit('saiyo', { mfg: plan.hireMfg }), col: 'new' },
+    { key: 'hireSales', label: '一般管理費', detail: `採用費 ${units.hire} × ${plan.hireSales}人`, amount: unit('saiyo', { sales: plan.hireSales }), col: 'new' },
+    {
+      key: 'hireSalary',
+      label: '人件費',
+      detail: `給料 ${sal} × ${plan.hireMfg + plan.hireSales}人`,
+      amount: sal * (plan.hireMfg + plan.hireSales),
+      col: 'new',
+    },
     { key: 'depNew', label: '減価償却費', detail: `減価償却 ${R.depPerMachine} × ${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
     { key: 'edu', label: '一般管理費', detail: `${units.edu} × ${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
     { key: 'ins', label: '一般管理費', detail: `${units.ins} × ${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
@@ -437,6 +449,252 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
   return { openingCash: st.openingCash, openingAuto, rows }
 }
 
+/** 2. の下に出す能力の比較の1行（製造能力・販売能力） */
+/** 能力の比較の内訳の1段（投資を1つ足したときに能力がいくつ増えるか） */
+export interface CapacityStep {
+  key: string
+  /** 何をしたか（例：製造スタッフを 2人採用） */
+  label: string
+  /** この投資で増えた個数 */
+  delta: number
+  /** この投資まで足したときの能力 */
+  after: number
+  /** 増え方の根拠。思ったほど増えないときはその理由（機械が足りない など） */
+  note: string
+  /** 投資したのに増え方が上限で頭打ちになったか（画面で注意の色にする） */
+  limited: boolean
+}
+
+/** 2. の下に出す能力の比較の1行（製造能力・販売能力） */
+export interface CapacityRow {
+  key: 'mfg' | 'sales'
+  label: string
+  /** 期首の盤面での1回あたりの能力 */
+  open: number
+  /** 戦略的投資を全部実施したときに増える分（total − open） */
+  add: number
+  /** 投資を全部実施したときの1回あたりの最大 */
+  total: number
+  /** 根拠（人数・台数・チップ） */
+  openDetail: string
+  totalDetail: string
+  /** 投資ごとの内訳。入力した投資だけ、ゲームの流れ順（採用と機械 → 教育／採用 → 広告）に足していく */
+  steps: CapacityStep[]
+}
+
+/**
+ * 2. 固定費の下に出す「期首の能力」と「戦略的投資を全部実施したときの能力」の比較。
+ * 能力の式は calc の `caps()` をそのまま使う（式を二重に持たない）。
+ *
+ * - 期首：期首のスタッフ・機械・広告チップ。教育チップは期をまたがないので 0 枚
+ * - 投資後：製造・販売それぞれの採用、機械購入・教育・広告を足した盤面（`planCaps()` と同じ）
+ * - 内訳：能力の式には上限（機械1台で作業できるのは2人まで、広告は販売スタッフ1人につき2枚まで効く）があり、
+ *   投資の効果は足し算にならない。そこで投資を**ゲームの流れ順に1つずつ足し**、そのたびに増えた個数を出す
+ *   （製造：採用と機械はセットで効くので1段にまとめる → 教育、販売：採用 → 広告）。各段の増分の合計は必ず total − open になる。
+ *   上限で思ったほど増えない段・機械が余る段には理由を付ける（判定は両方を足した後の盤面で行う）
+ */
+export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
+  type Board = St
+  const open: Board = {
+    ...st,
+    staffMfg: st.openingStaffMfg,
+    staffSales: st.openingStaffSales,
+    machines: st.openingMachines,
+    edu: 0,
+    ads: st.openingAds,
+  }
+  const c0 = caps(open)
+  const c1 = planCaps(plan, st)
+
+  // ---- 製造：（採用・機械）→ 教育 ----
+  // 製造スタッフと機械はセットで効く（機械1台で作業できるのは2人まで）。別々の段にすると
+  // 「採用の段では機械が足りない」「機械の段ではスタッフが足りない」と両方が不足に見えてしまうので、1つの段にまとめ、
+  // 足りない／余るかは両方を足した後の盤面で判定する
+  const mfgSteps: CapacityStep[] = []
+  let b = open
+  let cur = c0.mfgCap
+  const addMfg = (key: string, label: string, next: Board, note: (delta: number, nb: Board) => { note: string; limited: boolean }) => {
+    const after = caps(next).mfgCap
+    const delta = after - cur
+    mfgSteps.push({ key, label, delta, after, ...note(delta, next) })
+    b = next
+    cur = after
+  }
+  if (plan.hireMfg > 0 || plan.machinesNew > 0) {
+    const parts = [
+      plan.hireMfg > 0 ? `製造スタッフを ${plan.hireMfg}人採用` : '',
+      plan.machinesNew > 0 ? `機械を ${plan.machinesNew}台購入` : '',
+    ].filter(Boolean)
+    addMfg(
+      'staffMachines',
+      parts.join('・'),
+      { ...b, staffMfg: b.staffMfg + plan.hireMfg, machines: b.machines + plan.machinesNew },
+      (_delta, nb) => {
+        const slots = nb.machines * 2 // 機械で作業できる人数の上限
+        const workers = Math.min(nb.staffMfg, slots)
+        const enough = Math.ceil(nb.staffMfg / 2) // 製造スタッフ全員が作業するのに要る台数
+        if (nb.staffMfg > slots) {
+          // 人が余る：あと何台あれば全員が作業できるか
+          const more = enough - nb.machines
+          return {
+            note: `機械が足りません。機械1台で作業できるのは2人まで（機械 ${nb.machines}台 → ${slots}人）。あと ${more}台で製造スタッフ ${nb.staffMfg}人全員が作業できます`,
+            limited: true,
+          }
+        }
+        if (plan.machinesNew > 0 && slots - nb.staffMfg >= 2) {
+          // 機械が丸ごと1台以上遊ぶ：今期の購入は何台で足りたか
+          const needBuy = Math.max(0, enough - st.openingMachines)
+          return plan.hireMfg > 0 || needBuy > 0
+            ? {
+                note: `機械が余ります。製造スタッフ ${nb.staffMfg}人なら機械は ${enough}台で足ります（今期の購入は ${needBuy}台で十分）`,
+                limited: true,
+              }
+            : { note: `製造スタッフが足りません。機械を買っても作業する人がいません（製造スタッフ ${nb.staffMfg}人 → 機械 ${enough}台で足ります）`, limited: true }
+        }
+        return { note: `作業する人 ${workers}人 × ${nb.edu > 0 ? 3 : 2}個（機械 ${nb.machines}台で ${slots}人まで作業できる）`, limited: false }
+      },
+    )
+  }
+  if (plan.edu > 0)
+    addMfg('edu', '教育チップを使う', { ...b, edu: plan.edu }, (_delta, nb) => {
+      const workers = Math.min(nb.staffMfg, nb.machines * 2)
+      return workers > 0
+        ? { note: `作業する人 ${workers}人 × 1個（1人あたり 2個 → 3個）`, limited: false }
+        : { note: '作業できる製造スタッフがいないので増えません', limited: true }
+    })
+
+  // ---- 販売：採用 → 広告 ----
+  const salesSteps: CapacityStep[] = []
+  let sb = open
+  let scur = c0.salesCap
+  const addSales = (key: string, label: string, next: Board, note: (delta: number, nb: Board) => { note: string; limited: boolean }) => {
+    const after = caps(next).salesCap
+    const delta = after - scur
+    salesSteps.push({ key, label, delta, after, ...note(delta, next) })
+    sb = next
+    scur = after
+  }
+  if (plan.hireSales > 0)
+    addSales('hireSales', `販売員を ${plan.hireSales}人採用`, { ...sb, staffSales: sb.staffSales + plan.hireSales }, (delta) => {
+      const base = plan.hireSales * 2
+      // 期首の広告が人数の上限で効いていなかった分が、採用で効くようになることがある
+      return { note: delta > base ? `1人あたり 2個 ＋ 効くようになった広告 ${delta - base}個` : '1人あたり 2個', limited: false }
+    })
+  if (plan.ads > 0)
+    addSales('ads', `広告を ${plan.ads}枚`, { ...sb, ads: sb.ads + plan.ads }, (delta, nb) => {
+      const cap = nb.staffSales * 2 // 広告が効く枚数の上限
+      return delta < plan.ads * 2
+        ? { note: `広告は販売スタッフ1人につき2枚まで効きます（販売スタッフ ${nb.staffSales}人 → ${cap}枚まで）`, limited: true }
+        : { note: '1枚あたり 2個', limited: false }
+    })
+
+  const mfgDetail = (staff: number, machines: number, edu: number) =>
+    `製造スタッフ ${staff}人・機械 ${machines}台${edu > 0 ? '・教育チップあり' : ''}`
+  const salesDetail = (staff: number, ads: number) => `販売スタッフ ${staff}人・広告 ${ads}枚`
+  return [
+    {
+      key: 'mfg',
+      label: '製造能力',
+      open: c0.mfgCap,
+      add: c1.mfgCap - c0.mfgCap,
+      total: c1.mfgCap,
+      openDetail: mfgDetail(open.staffMfg, open.machines, 0),
+      totalDetail: mfgDetail(open.staffMfg + plan.hireMfg, open.machines + plan.machinesNew, plan.edu),
+      steps: mfgSteps,
+    },
+    {
+      key: 'sales',
+      label: '販売能力',
+      open: c0.salesCap,
+      add: c1.salesCap - c0.salesCap,
+      total: c1.salesCap,
+      openDetail: salesDetail(open.staffSales, open.ads),
+      totalDetail: salesDetail(open.staffSales + plan.hireSales, open.ads + plan.ads),
+      steps: salesSteps,
+    },
+  ]
+}
+
+/** 計画の実施に必要な現金の1項目 */
+export interface CashNeedItem {
+  key: 'opening' | 'buy' | 'fixed' | 'machine' | 'repay'
+  label: string
+  detail: string
+  amount: number
+}
+export interface CashNeeds {
+  items: CashNeedItem[]
+  /** 当期に出ていく現金の合計 */
+  total: number
+  /** 前期から繰り越した現金（期首の現金） */
+  openingCash: number
+  /** openingCash − total。マイナスなら売上の入金前に足りなくなる額（借入などが必要） */
+  diff: number
+  /** 売上高 PQ。Q が出せないときは null */
+  sales: number | null
+  /** 期末の現金の見込み ＝ openingCash − total ＋ 売上高。Q が出せないときは null */
+  endCash: number | null
+}
+
+/**
+ * 計画の STRAC 図の後に出す「このプランの実施に必要な現金」＝ 当期に出ていく現金の全部。
+ * 前期から繰り越した現金と比べる。
+ *
+ * - 期首処理：記帳済みの期首の自動行（法人税の納付・期首の借入金の金利。`cashPlan()` と同じ）
+ * - 仕入代：期首の材料・製品で足りない個数（Q − 期首の材料在庫。`actionNeeds()` と同じ）× 計画の売上原価 V
+ * - 固定費：F のうち現金で出ていく分。減価償却は現金が出ないので除き、期首の借入金の金利は期首処理の行に入れたので除く
+ * - 機械代：機械購入台数 × 機械の価格（記帳アクションの amount と同じ式）
+ * - 元本返済：期末に返す額。期末処理（calc の `doClosingPrep()`）と同じ「期首の借入残高 × 返済率」（残高が上限）
+ *
+ * 売上の入金は販売した後なので、合計とは別に「期末の現金の見込み」として足して見せる。
+ */
+export function cashNeeds(plan: Plan, st: St): CashNeeds {
+  const R = getRules()
+  const fig = planFigures(plan, st)
+  const fc = fixedCosts(plan, st)
+  const tax = st.tx.filter((t) => t.isOpeningTax).reduce((sum, t) => sum + (t.amount || 0), 0)
+  const interest = st.tx.filter((t) => t.isOpeningInterest).reduce((sum, t) => sum + (t.amount || 0), 0)
+  const buyQty = fig.Q == null ? 0 : Math.max(0, fig.Q - st.openingMatQty)
+  const amt = (key: string) => fc.items.find((x) => x.key === key)?.amount ?? 0
+  const dep = amt('dep') + amt('depNew')
+  const repay = Math.min(Math.round((st.openingLoan * st.repayRate) / 100), st.openingLoan)
+  const items: CashNeedItem[] = [
+    {
+      key: 'opening',
+      label: '期首処理',
+      detail: `法人税の納付 ${tax} ＋ 期首の借入金の金利 ${interest}`,
+      amount: tax + interest,
+    },
+    {
+      key: 'buy',
+      label: '仕入代',
+      detail: fig.Q == null ? '売上必要個数（Q）が未確定です' : `仕入 ${buyQty}個 × 売上原価 V ${plan.v}`,
+      amount: buyQty * plan.v,
+    },
+    {
+      key: 'fixed',
+      label: '固定費',
+      detail: `F ${fc.total} − 減価償却 ${dep} − 期首の金利 ${amt('intOpen')}（期首処理に含む）`,
+      amount: fc.total - dep - amt('intOpen'),
+    },
+    {
+      key: 'machine',
+      label: '機械代',
+      detail: `${plan.machinesNew}台 × ${R.machinePrice}`,
+      amount: plan.machinesNew > 0 ? ACTIONS.kikai.amount({ n: plan.machinesNew }) : 0,
+    },
+    {
+      key: 'repay',
+      label: '元本返済',
+      detail: st.period <= 1 ? '第1期は借入なし' : `期首の借入金 ${st.openingLoan} × 返済率 ${st.repayRate}%`,
+      amount: repay,
+    },
+  ]
+  const total = items.reduce((sum, x) => sum + x.amount, 0)
+  const diff = st.openingCash - total
+  return { items, total, openingCash: st.openingCash, diff, sales: fig.PQ, endCash: fig.PQ == null ? null : diff + fig.PQ }
+}
+
 /** 7. 必要なアクション回数の1項目 */
 export interface ActionNeed {
   /** 記帳アクションのキー（アクションプランのプルダウンと同じ） */
@@ -455,8 +713,7 @@ export interface ActionNeed {
  *
  * - 仕入れ／製造／販売：期首在庫で足りない分 ÷ 1回あたりの上限（切り上げ）。
  *   能力の式は calc の `caps()` をそのまま使う（式を二重に持たない）。
- *   盤面は「期首 ＋ 今期の機械購入・教育・広告」で組む。教育チップは期をまたがないので計画の枚数がそのまま効く。
- *   **採用予定は能力に入れない**：製造・販売どちらに配置するかで能力が変わり、計画では決められないため。
+ *   盤面は「期首 ＋ 今期の採用（製造・販売）・機械購入・教育・広告」で組む。教育チップは期をまたがないので計画の枚数がそのまま効く。
  * - 投資（採用・機械購入・広告・保険・教育・商品開発・借入）：入力があるものだけ出す。
  *   教育と商品開発は記帳フォームが1回1枚固定なので枚数＝回数、それ以外は1回でまとめて記帳できる。
  */
@@ -488,7 +745,8 @@ export function actionNeeds(plan: Plan, st: St): ActionNeed[] {
     push('seizo', times(make, c.mfgCap), `${make}個 ÷ 製造能力 ${c.mfgCap}個`)
     push('hanbai', times(Q, c.salesCap), `${Q}個 ÷ 販売能力 ${c.salesCap}個`)
   }
-  if (plan.hire > 0) push('saiyo', 1, `${plan.hire}人（1回でまとめて実施）`)
+  if (plan.hireMfg + plan.hireSales > 0)
+    push('saiyo', 1, `製造 ${plan.hireMfg}人・販売 ${plan.hireSales}人（1回でまとめて実施）`)
   if (plan.machinesNew > 0) push('kikai', 1, `${plan.machinesNew}台（1回でまとめて実施）`)
   if (plan.ads > 0) push('koukoku', 1, `${plan.ads}枚（1回でまとめて実施）`)
   if (plan.ins > 0) push('hoken', 1, `${plan.ins}枚（1回でまとめて実施）`)
