@@ -2,7 +2,7 @@
 // 単価はすべて数値ルールと記帳アクションから引くので、ルールを差し替えたときに追従することも見る。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newState, setRules, corporateTax, type Result, type St } from '../src/lib/calc.ts'
+import { newState, setRules, corporateTax, recompute, ACTIONS, type Result, type St } from '../src/lib/calc.ts'
 import {
   defaultPlan,
   normalizePlan,
@@ -24,6 +24,7 @@ import {
   PLAN_ROWS,
   PLAN_ACTION_KEYS,
 } from '../src/lib/plan.ts'
+import { progressNow, progressVisible } from '../src/lib/plan.ts'
 
 const reset = () => setRules(null)
 
@@ -274,6 +275,100 @@ test('clampQty：上限を超えた数量は上限まで、マイナスは 0 に
 
 test('normalizePlan：教育の枚数は最大1枚に収める', () => {
   assert.equal(normalizePlan({ edu: 5 }).edu, 1)
+})
+
+test('進捗タブ：第4期以降かつ経営計画書タブが出ている期だけ', () => {
+  reset()
+  const st = st3()
+  assert.equal(progressVisible(st), false) // 第3期
+  st.period = 4
+  assert.equal(progressVisible(st), true)
+  setRules({ planFromPeriod: 6 }) // 計画を立てない研修では比べるものが無いので出さない
+  assert.equal(progressVisible(st), false)
+  setRules({ progressFromPeriod: 5 }) // 研修ごとに出す期を変えられる
+  assert.equal(progressVisible(st), false)
+  st.period = 5
+  assert.equal(progressVisible(st), true)
+  reset()
+})
+
+test('進捗（指針）：今の盤面で決算した粗利・固定費と、未実施の投資から、目標 G までの残りと打ち手を出す', () => {
+  reset()
+  const st = st3() // 第3期・製造2・販売2・機械1・借入100・期首の自動行（納税26・金利5）
+  // 記帳：仕入 6個 × 13、製造 4個、販売 4個 × 32、広告 1枚（計画は 2枚）
+  const push = (key: string, fvals: Record<string, unknown>) =>
+    st.tx.push({ id: st.seq++, key, fvals, col: ACTIONS[key].col, amount: ACTIONS[key].amount(fvals) || 0 })
+  push('shiire', { items: [{ qty: 6, unit: 13 }] })
+  push('seizo', { qty: 4 })
+  push('hanbai', { items: [{ qty: 4, unit: 32 }] })
+  push('koukoku', { n: 1 })
+  recompute(st)
+  // 計画：G 50・P 30・V 12・広告 2枚 → F ＝ 現況 164 ＋ 広告 20 ＝ 184、MQ 234 ÷ M 18 → Q 13
+  const plan = { ...defaultPlan(), g: 50, p: 30, v: 12, ads: 2 }
+  plan.actions[0] = { key: 'hanbai', qty: 6, amount: 180 }
+  plan.actions[1] = { key: 'hanbai', qty: 6, amount: 180 }
+  const gd = progressNow(plan, st)!
+  // 今の盤面で決算：売上 128 − 売上原価（平均 13 × 4個 ＝ 52）＝ 粗利 76
+  assert.equal(gd.mqDone, 76)
+  // 固定費：給料 31×4 ＋ 広告 10 ＋ 家賃 25 ＋ 期首の金利 5 ＋ 減価償却 10 ＝ 174、未実施の広告 1枚 10 → 見込み 184
+  assert.equal(gd.fNow, 174)
+  assert.equal(gd.fRemain, 10)
+  assert.equal(gd.fForecast, 184)
+  assert.equal(gd.remainItems.length, 1)
+  // 必要な粗利 ＝ 50 ＋ 184 ＝ 234、残り 234 − 76 ＝ 158
+  assert.equal(gd.needMQ, 234)
+  assert.equal(gd.remainMQ, 158)
+  // 単価の見込み：販売 128÷4 ＝ 32、仕入 78÷6 ＝ 13 → 1個あたりの粗利 19
+  assert.deepEqual([gd.p.now, gd.v.now, gd.m], [32, 13, 19])
+  // 打ち手①：158 ÷ 19 → あと 9個（計画の残り 13 − 4 ＝ 9個と同じ）。販売能力 2人×2 ＋ 広告1枚×2 ＝ 6 → 2回
+  assert.equal(gd.needQ, 9)
+  assert.equal(gd.planRemainQ, 9)
+  assert.equal(gd.salesTimes, 2)
+  // 打ち手②：残り 9個で 158 → 13 ＋ 158÷9 ＝ 30.6 → 平均 31 以上
+  assert.equal(gd.needP, 31)
+  // 計画の残り 9個を今の単価で売ると G ＝ 76 ＋ 9×19 − 184 ＝ 63 ≧ 目標 50
+  assert.equal(gd.gIfPlan, 63)
+  assert.equal(gd.status, 'onTrack')
+  // 前提の違い：固定費は計画どおり、販売単価は ＋2（有利）、仕入単価は ＋1（不利）
+  const f = Object.fromEntries(gd.factors.map((x) => [x.key, x]))
+  assert.deepEqual([f.F.diff, f.F.good], [0, null])
+  assert.deepEqual([f.P.diff, f.P.good], [2, true])
+  assert.deepEqual([f.V.diff, f.V.good], [1, false])
+  // アクション：販売は計画2回中1回、広告は計画外（消化には数えない）
+  const act = Object.fromEntries(gd.actions.map((a) => [a.key, a]))
+  assert.deepEqual([act.hanbai.plan, act.hanbai.done], [2, 1])
+  assert.deepEqual([gd.plannedTotal, gd.doneTotal], [2, 1])
+  // 本物の盤面は決算されていない（写しで決算している）
+  assert.equal(st.settled, false)
+  assert.equal(st.closingPrep, false)
+
+  // 計画に無い採用（販売員1人）をすると固定費が 採用費 5 ＋ 給料 31 ＝ 36 増え、「粗利を余分に稼ぐ必要」と出る
+  push('saiyo', { mfg: 0, sales: 1, fail: 0 })
+  recompute(st)
+  const gd2 = progressNow(plan, st)!
+  assert.equal(gd2.fForecast, 184 + 36)
+  const f2 = gd2.factors.find((x) => x.key === 'F')!
+  assert.deepEqual([f2.diff, f2.good], [36, false])
+  assert.match(f2.note, /余分に稼ぐ/)
+  assert.equal(gd2.needQ, Math.ceil((158 + 36) / 19)) // 11個（計画の残りより 2個多い）
+  // 計画の残り 9個を今の単価で売っても G ＝ 76 ＋ 9×19 − 220 ＝ 27 で目標 50 に届かない
+  assert.equal(gd2.gIfPlan, 27)
+  assert.equal(gd2.status, 'short')
+})
+
+test('進捗（指針）：まだ販売・仕入が無ければ計画の P・V で見込み、何もしていなければ計画どおりの Q が要る', () => {
+  const st = st3()
+  recompute(st)
+  const gd = progressNow({ ...defaultPlan(), g: 50, p: 30, v: 12 }, st)!
+  assert.deepEqual([gd.p.from, gd.v.from, gd.m], ['plan', 'plan', 18])
+  // F 164 ＋ G 50 ＝ 214、Q ＝ ⌈214÷18⌉ ＝ 12。まだ何も稼いでいないので残り 214 → 12個
+  assert.equal(gd.remainMQ, 214)
+  assert.equal(gd.needQ, 12)
+  assert.equal(gd.planRemainQ, 12)
+})
+
+test('進捗：計画の Q が出ていなければ比べない（null）', () => {
+  assert.equal(progressNow(defaultPlan(), st3()), null)
 })
 
 test('1位との差：純資産が1番多い他社との差と、それを埋めるのに必要な経常利益', () => {

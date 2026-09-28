@@ -39,7 +39,8 @@ import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML } from '../l
 import OrgTab from './OrgTab'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
-import { planVisible, planVsActual } from '../lib/plan'
+import ProgressTab from './ProgressTab'
+import { planVisible, planVsActual, progressVisible } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
@@ -55,6 +56,7 @@ const TABS = [
   ['opening', '期首処理'],
   ['plan', '経営計画書'],
   ['play', '記帳'],
+  ['progress', '進捗'],
   ['closing', '期末処理'],
   ['statement', '決算書'],
   ['history', '履歴'],
@@ -110,7 +112,9 @@ export default function Participant() {
   }
   // 経営計画書タブは数値ルール planFromPeriod の期から出す（それより前の期はタブ自体を出さない）
   const planOn = planVisible(st)
-  const tabs = TABS.filter(([k]) => k !== 'plan' || planOn)
+  // 進捗タブは第4期以降（計画と途中経過を比べる。lib/plan.ts の progressVisible）
+  const progressOn = progressVisible(st)
+  const tabs = TABS.filter(([k]) => (k !== 'plan' || planOn) && (k !== 'progress' || progressOn))
 
   // 会社情報の「期の選択」：現在＝最新に戻る／過去＝その期の決算書を閲覧
   const curView = stmtView ? stmtView.period : st.period
@@ -143,7 +147,12 @@ export default function Participant() {
       <nav className="max-w-5xl mx-auto px-3 sm:px-6 pb-2 pt-3">
         <div
           className={`grid gap-1 bg-canvas border border-line rounded-xl p-1 ${
-            tabs.length > 8 ? 'grid-cols-3 sm:grid-cols-9' : 'grid-cols-4 sm:grid-cols-8'
+            // タブ数（経営計画書・進捗は期によって出ない）に合わせて、PC では1行に収める
+            tabs.length > 9
+              ? 'grid-cols-4 sm:grid-cols-10'
+              : tabs.length > 8
+                ? 'grid-cols-3 sm:grid-cols-9'
+                : 'grid-cols-4 sm:grid-cols-8'
           }`}
         >
           {tabs.map(([k, label]) => {
@@ -209,6 +218,7 @@ export default function Participant() {
             readOnly={game.spectator}
           />
         )}
+        {tab === 'progress' && progressOn && <ProgressTab game={game} onToPlan={() => go('plan')} />}
         {tab === 'closing' && (
           <ClosingTab game={game} onStatement={() => go('statement')} onUnsettle={onUnsettle} />
         )}

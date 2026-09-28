@@ -8,10 +8,12 @@ import {
   caps,
   getRules,
   loanRoom,
+  cashNow,
   nextPeriod,
   recompute,
   salaryFor,
   corporateTax,
+  settle,
   type Fvals,
   type Result,
   type St,
@@ -805,4 +807,245 @@ export function planLocked(st: St): boolean {
 /** 経営計画書タブを出すか。数値ルール planFromPeriod の期から（それより前の期はタブ自体を出さない） */
 export function planVisible(st: St): boolean {
   return st.period >= getRules().planFromPeriod
+}
+
+/**
+ * 進捗タブを出すか。数値ルール progressFromPeriod（既定 4）の期から。
+ * 比べる計画が必要なので、経営計画書タブが出ていない期には出さない（ルールの検証を通っていない古いデータへの保険）。
+ */
+export function progressVisible(st: St): boolean {
+  return st.period >= getRules().progressFromPeriod && planVisible(st)
+}
+
+/** 計画アクションの計画回数と、今期に記帳した回数 */
+export interface ProgressAction {
+  key: string
+  label: string
+  plan: number
+  done: number
+}
+
+/** 計画と今の見込みで違う前提（固定費・販売単価・仕入単価）。目標 G までの粗利にどう効くかを出す */
+export interface GuideFactor {
+  key: 'F' | 'P' | 'V'
+  label: string
+  plan: number
+  now: number
+  /** now − plan */
+  diff: number
+  /** 目標 G に対して有利か（固定費・仕入単価は少ないほど、販売単価は高いほど有利）。差が 0 なら null */
+  good: boolean | null
+  /** 何が起きていて、どうすればよいか */
+  note: string
+}
+
+/**
+ * 進捗タブ（管理会計の指針）：目標 G を達成するために、今の見込みで何をすればよいか。
+ *
+ * - 今の盤面のまま期末を迎えた場合の粗利・固定費は、決算そのもの（calc の `settle()`）を盤面の写しで走らせて出す（式を二重に持たない）
+ * - 固定費の見込み ＝ その固定費 ＋ 計画に入れたのにまだ実施していない投資の固定費（採用・機械・チップ・借入の金利。`fixedCosts()` と同じ式）
+ * - 必要な粗利 MQ ＝ 目標 G ＋ 固定費の見込み。そこから今までに稼いだ粗利を引いた残りを、これからの販売で稼ぐ
+ * - これからの1個あたりの粗利 M ＝ 販売単価の見込み − 仕入単価の見込み
+ *   販売単価の見込みは今期の販売の平均（売上高 ÷ 売上個数）、仕入単価の見込みは今期の仕入の平均（仕入金額の合計 ÷ 仕入個数）。
+ *   まだ販売・仕入が無ければ計画の P・V
+ */
+export interface Guide {
+  targetG: number
+  /** 固定費：計画 ／ 今の盤面で期末を迎えた場合 ／ 計画のうち未実施の投資の分 ／ 見込み（＝後の2つの合計） */
+  fPlan: number
+  fNow: number
+  fRemain: number
+  fForecast: number
+  /** 未実施の投資の内訳（例：販売費 10 × 2枚） */
+  remainItems: { label: string; detail: string; amount: number }[]
+  /** 今までに稼いだ粗利（今の盤面で決算した場合の mPQ） */
+  mqDone: number
+  /** 目標 G に必要な粗利 ＝ 目標 G ＋ 固定費の見込み */
+  needMQ: number
+  /** これからの販売で稼ぐ粗利 ＝ needMQ − mqDone（0 以下なら達成見込み） */
+  remainMQ: number
+  p: { plan: number; now: number; from: 'sales' | 'plan' }
+  v: { plan: number; now: number; from: 'buy' | 'plan'; buyAmt: number; buyQty: number }
+  /** これからの1個あたりの粗利（p.now − v.now） */
+  m: number
+  planQ: number
+  soldQ: number
+  /** 計画の残り個数（計画の Q − 売上個数） */
+  planRemainQ: number
+  /** 打ち手①：今の単価のまま、あと何個売れば目標 G に届くか（M ≦ 0 なら null） */
+  needQ: number | null
+  /** 打ち手②：計画の残り個数のまま、平均いくら以上で売れば届くか（計画の残りが 0 なら null） */
+  needP: number | null
+  /** 計画の残り個数を今の単価で売った場合の G */
+  gIfPlan: number
+  /** achieved＝今の時点で届く／onTrack＝計画の残りを今の単価で売れば届く／short＝このままでは届かない */
+  status: 'achieved' | 'onTrack' | 'short'
+  factors: GuideFactor[]
+  salesCap: number
+  /** needQ を今の販売能力で売るのに要る販売の回数（能力 0 なら null） */
+  salesTimes: number | null
+  cash: number
+  actions: ProgressAction[]
+  plannedTotal: number
+  doneTotal: number
+}
+
+/** 記帳行の個数（仕入・販売は複数行 items の合計、製造は qty） */
+function rowQty(f: Fvals | undefined): number {
+  if (!f) return 0
+  if (Array.isArray(f.items)) return f.items.reduce((s: number, it: Fvals) => s + (Number(it?.qty) || 0), 0)
+  return Number(f.qty) || 0
+}
+
+/** 今の盤面のまま期末を迎えた場合の決算。盤面の写しで決算を走らせる（本物の盤面は変えない）。決算済みならその結果 */
+function closeNow(st: St): Result | null {
+  if (st.settled) return st.result
+  return settle(structuredClone(st))
+}
+
+/** 今期に記帳した投資の量（計画の戦略的投資と同じ単位） */
+function investedSoFar(st: St) {
+  const sum = (key: string, field: string) =>
+    st.tx.filter((t) => t.key === key).reduce((s, t) => s + (Number(t.fvals?.[field]) || 0), 0)
+  return {
+    hireMfg: sum('saiyo', 'mfg'),
+    hireSales: sum('saiyo', 'sales'),
+    machinesNew: sum('kikai', 'n'),
+    edu: sum('kyoiku', 'n'),
+    ins: sum('hoken', 'n'),
+    ads: sum('koukoku', 'n'),
+    dev: sum('kaihatsu', 'n'),
+    loanNew: sum('kariire', 'a'),
+  }
+}
+
+export function progressNow(plan: Plan, st: St): Guide | null {
+  const fig = planFigures(plan, st)
+  if (fig.Q == null || fig.PQ == null || fig.VQ == null) return null
+  const res = closeNow(st)
+  const mqDone = res ? res.mPQ : 0
+  const fNow = res ? res.F : 0
+
+  // 計画に入れたのに、まだ記帳していない投資。その固定費を見込みに足す
+  const done = investedSoFar(st)
+  const rest: Plan = { ...defaultPlan() }
+  for (const k of ['hireMfg', 'hireSales', 'machinesNew', 'edu', 'ins', 'ads', 'dev', 'loanNew'] as const)
+    rest[k] = Math.max(0, plan[k] - done[k])
+  const restFc = fixedCosts(rest, st)
+  const remainItems = restFc.items
+    .filter((x) => x.col === 'new' && x.amount > 0)
+    .map((x) => ({ label: x.label, detail: x.detail, amount: x.amount }))
+  const fRemain = restFc.next
+  const fForecast = fNow + fRemain
+
+  // これからの単価の見込み：今期の実績があればその平均、無ければ計画の値
+  const buyQty = st.tx.filter((t) => t.key === 'shiire').reduce((s, t) => s + rowQty(t.fvals), 0)
+  const buyAmt = st.tx.filter((t) => t.key === 'shiire').reduce((s, t) => s + (t.amount || 0), 0)
+  const pNow = st.salesQty > 0 ? Math.round((st.salesAmt / st.salesQty) * 10) / 10 : plan.p
+  const vNow = buyQty > 0 ? Math.round((buyAmt / buyQty) * 10) / 10 : plan.v
+  const m = Math.round((pNow - vNow) * 10) / 10
+
+  const needMQ = plan.g + fForecast
+  const remainMQ = needMQ - mqDone
+  const planRemainQ = Math.max(0, fig.Q - st.salesQty)
+  const needQ = remainMQ <= 0 ? 0 : m > 0 ? Math.ceil(remainMQ / m) : null
+  const needP = remainMQ <= 0 || planRemainQ === 0 ? null : Math.ceil(vNow + remainMQ / planRemainQ)
+  const gIfPlan = Math.round(mqDone + planRemainQ * m - fForecast)
+  const status = remainMQ <= 0 ? 'achieved' : gIfPlan >= plan.g ? 'onTrack' : 'short'
+
+  // 計画との前提の違い。粗利単価で割って「何個分」に直して見せる
+  const units = (money: number) => (m > 0 ? `約 ${Math.ceil(Math.abs(money) / m)}個分` : '')
+  const fDiff = fForecast - fig.F
+  const pDiff = Math.round((pNow - plan.p) * 10) / 10
+  const vDiff = Math.round((vNow - plan.v) * 10) / 10
+  const factors: GuideFactor[] = [
+    {
+      key: 'F',
+      label: '固定費 F',
+      plan: fig.F,
+      now: fForecast,
+      diff: fDiff,
+      good: fDiff === 0 ? null : fDiff < 0,
+      note:
+        fDiff > 0
+          ? `計画より ${fDiff} 多い。その分の粗利を余分に稼ぐ必要があります（今の粗利単価で${units(fDiff)}）`
+          : fDiff < 0
+            ? `計画より ${-fDiff} 少ない。その分、必要な粗利が減ります（${units(fDiff)}）`
+            : '計画どおり',
+    },
+    {
+      key: 'P',
+      label: '販売単価 P',
+      plan: plan.p,
+      now: pNow,
+      diff: pDiff,
+      good: pDiff === 0 ? null : pDiff > 0,
+      note:
+        pDiff > 0
+          ? `計画より ${pDiff} 高い。1個あたりの粗利が増えるので、売る個数は計画より少なくて済みます`
+          : pDiff < 0
+            ? `計画より ${-pDiff} 低い。1個あたりの粗利が減るので、単価を戻すか個数を増やす必要があります`
+            : st.salesQty > 0
+              ? '計画どおり'
+              : 'まだ販売が無いので計画の値',
+    },
+    {
+      key: 'V',
+      label: '仕入単価 V',
+      plan: plan.v,
+      now: vNow,
+      diff: vDiff,
+      good: vDiff === 0 ? null : vDiff < 0,
+      note:
+        vDiff > 0
+          ? `計画より ${vDiff} 高い。1個あたりの粗利が減るので、安く仕入れるか単価・個数を上げる必要があります`
+          : vDiff < 0
+            ? `計画より ${-vDiff} 安い。1個あたりの粗利が増えます`
+            : buyQty > 0
+              ? '計画どおり'
+              : 'まだ仕入が無いので計画の値',
+    },
+  ]
+
+  // アクションの計画回数と実施回数（ルールA・Bのアクションだけ。`planVsActual()` と同じ数え方）
+  const planned = new Map<string, number>()
+  for (const a of plan.actions) if (a.key) planned.set(a.key, (planned.get(a.key) ?? 0) + 1)
+  const doneCnt = new Map<string, number>()
+  for (const t of st.tx) if (t.key && PLAN_ACTION_KEYS.includes(t.key)) doneCnt.set(t.key, (doneCnt.get(t.key) ?? 0) + 1)
+  const actions = PLAN_ACTION_KEYS.filter((k) => planned.has(k) || doneCnt.has(k)).map((k) => ({
+    key: k,
+    label: ACTIONS[k].label,
+    plan: planned.get(k) ?? 0,
+    done: doneCnt.get(k) ?? 0,
+  }))
+  const salesCap = caps(st).salesCap
+  return {
+    targetG: plan.g,
+    fPlan: fig.F,
+    fNow,
+    fRemain,
+    fForecast,
+    remainItems,
+    mqDone,
+    needMQ,
+    remainMQ,
+    p: { plan: plan.p, now: pNow, from: st.salesQty > 0 ? 'sales' : 'plan' },
+    v: { plan: plan.v, now: vNow, from: buyQty > 0 ? 'buy' : 'plan', buyAmt, buyQty },
+    m,
+    planQ: fig.Q,
+    soldQ: st.salesQty,
+    planRemainQ,
+    needQ,
+    needP,
+    gIfPlan,
+    status,
+    factors,
+    salesCap,
+    salesTimes: needQ == null ? null : needQ === 0 ? 0 : salesCap > 0 ? Math.ceil(needQ / salesCap) : null,
+    cash: cashNow(st),
+    actions,
+    // 計画に入れた回数を上限に数える（計画より多くやった分・計画外のアクションは「消化」に入れない）
+    plannedTotal: actions.reduce((s, a) => s + a.plan, 0),
+    doneTotal: actions.reduce((s, a) => s + Math.min(a.plan, a.done), 0),
+  }
 }

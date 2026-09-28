@@ -122,6 +122,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
   })
 
   test('経営計画書：第3期からタブが出て、計画を入力すると必要個数が出てリロード後も残る', async ({ page }) => {
+    // 第1期〜第4期まで進めて計画・進捗・振り返りまで見る長いテストなので、既定の30秒では足りないことがある（マシンが混んでいるとき）
+    test.setTimeout(60_000)
     await registerOrg(page, 'E2EPLAN')
     await page.goto('/?org=E2EPLAN')
     await page.getByTestId('c-name').fill('E2E計画社')
@@ -162,6 +164,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan')).toBeVisible()
     await expect(page.getByTestId('plan-F')).toHaveText('97')
+    await expect(page.getByTestId('tab-progress')).toHaveCount(0) // 進捗タブは第4期から
     // 「?」で経常利益の目安の説明が開く
     await page.getByTestId('plan-g-help').click()
     await expect(page.getByTestId('plan-g-help-modal')).toContainText('経常利益（G）の決め方')
@@ -255,6 +258,21 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-plan').click()
     await expect(page.getByTestId('plan-note')).toContainText('入力は自動で保存されます')
     await expect(page.getByTestId('plan-g')).toHaveValue('0')
+
+    // 進捗タブ：第4期から出る。第4期の計画はまだ無いので経営計画書へ案内する
+    await page.getByTestId('tab-progress').click()
+    await expect(page.getByTestId('progress-noplan')).toBeVisible()
+    // 計画（G・P・V）を入れると、目標 G に必要な粗利と打ち手（数量・単価）が出る
+    await page.getByTestId('tab-plan').click()
+    await setField(page, 'plan-g', 50)
+    await setField(page, 'plan-p', 30)
+    await setField(page, 'plan-v', 12)
+    await page.getByTestId('tab-progress').click()
+    await expect(page.getByTestId('progress-status')).toBeVisible()
+    await expect(page.getByTestId('progress-mq')).toContainText('必要な粗利')
+    await expect(page.getByTestId('progress-lever-q')).toContainText('個 売る')
+    await expect(page.getByTestId('progress-lever-p')).toContainText('以上で売る')
+    await expect(page.getByTestId('progress-factor-F')).toBeVisible()
 
     // 振り返り：第3期の計画と実績の差が出る
     await page.getByTestId('tab-review').click()
@@ -868,6 +886,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
     await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
     await page.getByTestId('f-planFromPeriod').fill('1')
+    // 進捗タブを出す期は経営計画書より後の期でないと保存できない（既定 4）
+    await expect(page.getByTestId('f-progressFromPeriod')).toHaveValue('4')
+    await page.getByTestId('f-progressFromPeriod').fill('1')
+    await page.getByTestId('rule-save').click()
+    await expect(page.getByTestId('rule-err')).toContainText('進捗タブを出す期')
+    await page.getByTestId('f-progressFromPeriod').fill('2')
     await page.getByTestId('rule-save').click()
     await expect(page).toHaveURL(/\/admin\/rules\/\d+$/)
 
