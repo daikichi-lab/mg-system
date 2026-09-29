@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA, loanRoom, getRules } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
 import type { Game } from '../state/useGame'
+// 能力の比較の内訳行（1行に2つの tr）を組むのに使う
+import { Fragment } from 'react'
 import {
   normalizePlan,
   fixedCosts,
@@ -525,7 +527,7 @@ export default function PlanTab({
           {card(
             <span className="flex items-baseline gap-2 flex-wrap">
               <span className="text-f-ink">能力の比較</span>
-              <span className="text-xs font-normal text-ink-400">期首の能力と、戦略的投資を全部実施したときの能力（1回あたり）</span>
+              <span className="text-xs font-normal text-ink-400">期首の能力と、戦略的投資でどれだけ増えるか（1回あたり）</span>
             </span>,
             <div className="space-y-2" data-testid="plan-capacity">
               <div className="overflow-x-auto">
@@ -540,24 +542,57 @@ export default function PlanTab({
                   </thead>
                   <tbody>
                     {capRows.map((c) => (
-                      <tr key={c.key} className="border-t border-line/70 align-top" data-testid={`plan-cap-${c.key}`}>
+                      <Fragment key={c.key}>
+                      <tr className="border-t border-line/70 align-top" data-testid={`plan-cap-${c.key}`}>
                         <td className="py-2 pr-2">
                           <div className="font-bold whitespace-nowrap">{c.label}</div>
-                          <div className="text-[10px] text-ink-400">{c.totalDetail}</div>
+                          <div className="text-[10px] text-ink-400">期首：{c.openDetail}</div>
                         </td>
                         <td className="py-2 px-2 text-right num" data-testid={`plan-cap-${c.key}-open`}>
                           {c.open}
                           <span className="text-[10px] text-ink-400 ml-0.5">個</span>
                         </td>
-                        <td className="py-2 px-2 text-right num text-f-ink" data-testid={`plan-cap-${c.key}-add`}>
-                          {c.add > 0 ? `＋${c.add}` : c.add}
-                          <span className="text-[10px] text-ink-400 ml-0.5">個</span>
-                        </td>
+                        {/* 増えた数は下の内訳の行に出すので、能力の行では空けておく */}
+                        <td className="py-2 px-2" />
                         <td className="py-2 pl-2 text-right num font-black text-base" data-testid={`plan-cap-${c.key}-total`}>
                           {c.total}
                           <span className="text-[10px] font-normal text-ink-400 ml-0.5">個</span>
                         </td>
                       </tr>
+                      {/* 投資ごとの内訳：流れ順に1つずつ足したときに何個増えるか。上限で頭打ちの投資は理由を注意の色で出す */}
+                      {c.steps.map((sp) => (
+                        <Fragment key={sp.key}>
+                          {/* 名前は「期首」の列までまたいで幅を取り、根拠・理由は次の行に全幅で出す（スマホで細く折り返さないように） */}
+                          <tr className="align-top" data-testid={`plan-cap-step-${sp.key}`}>
+                            <td colSpan={2} className="pt-0.5 pr-2 pl-3 text-xs text-ink-600">
+                              └ {sp.label}
+                            </td>
+                            <td
+                              className={`pt-0.5 px-2 text-right num text-xs whitespace-nowrap ${sp.delta > 0 ? 'text-f-ink' : 'text-accent-ink'}`}
+                              data-testid={`plan-cap-step-${sp.key}-delta`}
+                            >
+                              ＋{sp.delta}
+                              <span className="text-[10px] text-ink-400 ml-0.5">個</span>
+                            </td>
+                            {/* 合計は能力の行に出すので、内訳の行では空けておく */}
+                            <td className="pt-0.5 pl-2" />
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className={`pb-1.5 pl-6 text-[10px] ${sp.limited ? 'text-accent-ink' : 'text-ink-400'}`}>
+                              {sp.limited ? '⚠ ' : ''}
+                              {sp.note}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                      {!c.steps.length && (
+                        <tr>
+                          <td colSpan={4} className="pb-1.5 pl-3 text-[10px] text-ink-400">
+                            {c.key === 'mfg' ? '製造スタッフの採用・機械購入・教育' : '販売員の採用・広告'}を入れると、ここに増える内訳が出ます
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

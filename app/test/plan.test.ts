@@ -540,3 +540,45 @@ test('必要な現金：期首に材料があれば仕入代から引く。Q が
   assert.equal(noQ.items.find((x) => x.key === 'buy')!.amount, 0)
   assert.equal(noQ.endCash, null)
 })
+
+test('能力の比較の内訳：投資を流れ順に足して増えた個数を出す。製造スタッフと機械はセットで1段、不足・余りは足した後で判定する', () => {
+  const st = st3() // 製造2・機械1・販売2・広告0 → 製造 4個・販売 4個
+  // 製造スタッフ2人採用・教育：機械1台では2人しか作業できないので採用は ＋0（あと1台で全員が作業できる）、
+  // 教育は作業する2人 × 1個 ＝ ＋2
+  const [mfg, sales] = capacityCompare({ ...defaultPlan(), hireMfg: 2, edu: 1, ads: 4 }, st)
+  assert.deepEqual(
+    mfg.steps.map((x) => [x.key, x.delta, x.after, x.limited]),
+    [
+      ['staffMachines', 0, 4, true],
+      ['edu', 2, 6, false],
+    ],
+  )
+  assert.match(mfg.steps[0].note, /機械が足りません.*あと 1台/)
+  // 広告4枚：販売2人なら4枚まで効く → ＋8
+  assert.deepEqual(sales.steps.map((x) => [x.key, x.delta, x.after, x.limited]), [['ads', 8, 12, false]])
+
+  // 採用2人＋機械1台：4人が機械2台でちょうど作業できる → ＋4（不足も余りもない）→ 教育 ＋4
+  const [mfg2, sales2] = capacityCompare({ ...defaultPlan(), hireMfg: 2, machinesNew: 1, edu: 1, ads: 6 }, st)
+  assert.deepEqual(mfg2.steps.map((x) => [x.key, x.delta, x.limited]), [['staffMachines', 4, false], ['edu', 4, false]])
+  assert.equal(mfg2.steps[0].label, '製造スタッフを 2人採用・機械を 1台購入')
+  // 各段の増分の合計は、投資で増える分（total − open）と一致する
+  assert.equal(mfg2.steps.reduce((s, x) => s + x.delta, 0), mfg2.add)
+  // 広告6枚でも販売2人では4枚までしか効かない → ＋8（頭打ち）
+  assert.deepEqual(sales2.steps.map((x) => [x.key, x.delta, x.limited]), [['ads', 8, true]])
+  assert.match(sales2.steps[0].note, /1人につき2枚まで/)
+
+  // 採用2人＋機械4台（不具合の再現）：両方が不足とは出さず、機械が余る（4人なら2台で足りる・購入は1台で十分）とだけ出す
+  const [mfg3] = capacityCompare({ ...defaultPlan(), hireMfg: 2, machinesNew: 4 }, st)
+  assert.equal(mfg3.steps.length, 1)
+  assert.equal(mfg3.steps[0].delta, 4)
+  assert.match(mfg3.steps[0].note, /機械が余ります.*2台で足ります.*購入は 1台で十分/)
+  assert.doesNotMatch(mfg3.steps[0].note, /製造スタッフが足りません/)
+
+  // 機械だけ買っても作業する人がいない（製造2人・機械1台で足りている）
+  const [mfg4] = capacityCompare({ ...defaultPlan(), machinesNew: 2 }, st)
+  assert.deepEqual([mfg4.steps[0].delta, mfg4.steps[0].limited], [0, true])
+  assert.match(mfg4.steps[0].note, /製造スタッフが足りません/)
+
+  // 投資が無ければ内訳は空
+  assert.deepEqual(capacityCompare(defaultPlan(), st).map((x) => x.steps.length), [0, 0])
+})
