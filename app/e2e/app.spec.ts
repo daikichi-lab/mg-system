@@ -437,7 +437,7 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     // 全イベント（販売機会→仕入機会→在庫被害→退職→費用→手番のみ）
     await event(page, 'kaihatsu_win', { qty: 2 })
-    await event(page, 'dokusen', { qty: 2, unit: 45 })
+    await event(page, 'dokusen', { 'qty-0': 2, 'unit-0': 45 }) // 販売と同じ複数行のフォーム
     await event(page, 'tokubai', { qty: 3 })
     await event(page, 'keiki', { qty: 2 })
     await act(page, 'hoken') // ルールB（イベントを挟んだので可）

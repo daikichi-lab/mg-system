@@ -254,12 +254,29 @@ function validate(st: St, key: string, f: Fvals): string[] {
         if (f.qty > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
       }
       break
-    case 'dokusen':
-      if ((f.qty || 0) > 0) {
-        if (f.qty > 2 * st.staffSales) errs.push('販売スタッフ1人につき2個までです')
-        if (f.qty > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
+    case 'dokusen': {
+      // 複数行（個数×売価）。上限は全行の合計で判定する（販売と同じ）。以前の1組の形も rowsOf() が1行として読む
+      const items = rowsOf(f)
+      let q = 0
+      let bad = false
+      for (const it of items) {
+        // 0個も可（カードを引いたが売らなかった記録。以前の1組の形の既定値も 0 だった）
+        if (!Number.isInteger(it.qty) || it.qty < 0) {
+          errs.push('独占販売の個数は0以上で入力してください')
+          bad = true
+        }
+        if (!Number.isInteger(it.unit) || it.unit < 0) {
+          errs.push('売価は0以上で入力してください')
+          bad = true
+        }
+        q += it.qty || 0
+      }
+      if (!bad) {
+        if (q > 2 * st.staffSales) errs.push(`販売スタッフ1人につき2個までです（上限 ${2 * st.staffSales}・合計 ${q}）`)
+        if (q > st.products) errs.push(`製品が足りません（在庫 ${st.products}）`)
       }
       break
+    }
     case 'tokubai':
       if ((f.qty || 0) < 0) errs.push('個数を確認してください')
       if (f.qty > 5) errs.push('特別サービスは最大5個までです')
@@ -301,7 +318,7 @@ function validate(st: St, key: string, f: Fvals): string[] {
 
 function rownote(key: string, f: Fvals): string {
   const a = ACTIONS[key]
-  if (key === 'shiire' || key === 'hanbai') return rowsOf(f).map((x) => `${x.qty}×${x.unit}`).join(' ＋ ')
+  if (key === 'shiire' || key === 'hanbai' || key === 'dokusen') return rowsOf(f).map((x) => `${x.qty}×${x.unit}`).join(' ＋ ')
   if (key === 'saiyo') return `製造${f.mfg || 0}・販売${f.sales || 0}${f.fail ? '・失敗' + f.fail : ''}`
   if (key === 'seizo') return `製品+${f.qty}`
   if (key === 'kaihatsu') return f.result === '失敗' ? '開発 失敗' : `開発+${f.n}`
@@ -310,7 +327,6 @@ function rownote(key: string, f: Fvals): string {
   if (key === 'tokubai') return `${f.qty || 0}×10`
   if (key === 'keiki') return `${f.qty || 0}×12`
   if (key === 'kaihatsu_win') return `${f.qty || 0}×32`
-  if (key === 'dokusen') return `${f.qty || 0}×${f.unit || 0}`
   if (key === 'suigai' || key === 'ibutsu') {
     const d = f.discard || 0
     return f.payout ? `${d}×10` : `破棄${d}個`

@@ -2188,8 +2188,14 @@ function ActionModal({
     return o
   })
   const [items, setItems] = useState<Record<string, string>[]>(() => {
-    if (form?.multi && Array.isArray(editTx?.fvals?.items) && editTx.fvals.items.length) {
-      return editTx.fvals.items.map((it: Fvals) => {
+    // 複数行の保存値を行に戻す。以前の1組の形（独占販売の qty・unit など）は1行として読む
+    const saved: Fvals[] | null = Array.isArray(editTx?.fvals?.items) && editTx.fvals.items.length
+      ? editTx.fvals.items
+      : editTx?.fvals?.qty != null
+        ? [editTx.fvals]
+        : null
+    if (form?.multi && saved) {
+      return saved.map((it: Fvals) => {
         const o: Record<string, string> = {}
         form.rowFields!.forEach((fl) => (o[fl.name] = String(it[fl.name] ?? fl.default)))
         return o
@@ -2287,7 +2293,7 @@ function ActionModal({
                 入力できる個数{form?.multi ? '（合計）' : ''}
                 <span className="text-ink-400 font-normal text-xs ml-1">{c.why}で決まります</span>
               </span>
-              <span className="num">{c.max} 個まで</span>
+              <span className="num whitespace-nowrap">{c.max} 個まで</span>
             </div>
           )
         })}
