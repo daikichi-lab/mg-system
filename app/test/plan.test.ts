@@ -530,6 +530,12 @@ test('必要な現金：期首処理・仕入代・固定費（減価償却と�
   assert.equal(n.endCash, 142) // −158 ＋ 売上 300
 })
 
+test('必要な現金：元本返済は今期あらたに借入する金額も含める（期末処理と同じ式）', () => {
+  const st = st3() // 借入100・返済率10%
+  const n = cashNeeds({ ...defaultPlan(), loanNew: 200, p: 30, v: 12 }, st)
+  assert.equal(n.items.find((x) => x.key === 'repay')!.amount, 30) // (100 ＋ 200) × 10%
+})
+
 test('必要な現金：期首に材料があれば仕入代から引く。Q が出せなければ仕入代 0・期末見込みなし', () => {
   const st = st3()
   st.openingMatQty = 4

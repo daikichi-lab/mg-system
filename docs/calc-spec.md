@@ -32,7 +32,7 @@ function newState() {
     scrapQty:0,                // 当期の廃棄個数（異物混入=製品/水害=材料）
     // --- インストラクター設定（期ごと） ---
     loanMult:1,                // 借入枠の倍率（純資産×倍率）
-    repayRate:0,               // 期末強制返済率（%）（期首借入残高×%）
+    repayRate:0,               // 期末強制返済率（%）（(期首借入残高＋当期借入額)×%）
     // --- 記帳・状態フラグ ---
     tx:[], seq:1,              // 現金出納帳の行配列 / ID採番カウンタ
     settled:false,             // 決算確定済み
@@ -318,10 +318,13 @@ function doClosingPrep() {
                         isClosing:true})
   tx.push({label:'家賃(期末)', col:8, amount:25, isClosing:true})   // 家賃固定25（管理費）
 
-  // 期末強制返済 = min( round(期首借入残高 × 返済率% / 100), 現在の借入残高 )
-  repay = Math.min( Math.round(st.openingLoan * st.repayRate / 100), st.loan )
+  // 期末強制返済 = min( round((期首借入残高 ＋ 当期借入額) × 返済率% / 100), 現在の借入残高 )
+  //   当期借入額 ＝ 当期の借入（kariire）の記帳額の合計。期中に借りた分にも元本返済が発生する（2026-09 issue #79 で変更。
+  //   それまでは期首借入残高だけが対象だった）
+  borrowed = sum(tx where key=='kariire' の amount)
+  repay = Math.min( Math.round((st.openingLoan + borrowed) * st.repayRate / 100), st.loan )
   if repay>0: tx.push({key:'hensai', fvals:{a:repay}, label:'借入金返済(期末)', col:9,
-                       amount:repay, note:`期首残高{fmt(openingLoan)}×{repayRate}%`,
+                       amount:repay, note: borrowed>0 ? `(期首残高{openingLoan}＋当期借入{borrowed})×{repayRate}%` : `期首残高{openingLoan}×{repayRate}%`,
                        isClosing:true, isAutoRepay:true})
   st.closingPrep = true
   recompute()
