@@ -52,12 +52,35 @@ function saveHidden(org: string, hidden: Set<string>) {
   }
 }
 
+/** 「グラフに出す会社」の開閉。研修によらず同じ好みなので研修ごとには分けない */
+const LIST_OPEN_KEY = 'mg-org-pick-open'
+function loadListOpen(): boolean {
+  try {
+    return localStorage.getItem(LIST_OPEN_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+function saveListOpen(open: boolean) {
+  try {
+    localStorage.setItem(LIST_OPEN_KEY, open ? '1' : '0')
+  } catch {
+    // 保存できなくても表示には影響しない
+  }
+}
+
 export default function OrgTab({ game, toast }: { game: Game; toast: (msg: string) => void }) {
   const st = game.st
   const [companies, setCompanies] = useState<ApiOrgCompany[] | null>(null)
   const [metricKey, setMetricKey] = useState('PQ')
   // チェックを外した会社（＝グラフに出さない）。新しく参加した会社は最初から出るよう「外した側」を持つ
   const [hidden, setHidden] = useState<Set<string>>(() => loadHidden(st.org))
+  // 「グラフに出す会社」の欄を開いているか。ブラウザごとに覚える（読めない環境では開いた状態）
+  const [listOpen, setListOpen] = useState<boolean>(() => loadListOpen())
+  const toggleList = (open: boolean) => {
+    setListOpen(open)
+    saveListOpen(open)
+  }
   const load = async () => setCompanies(await game.refreshOrg())
   // 更新ボタン用：取得後にトースト表示
   const reload = async () => {
@@ -84,15 +107,19 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
   const colorOf = new Map(withHist.map((c, i) => [c.name, ORG_COLORS[i % ORG_COLORS.length]]))
   const noHist = companies.filter((c) => !latestOf(c))
 
-  // 指数ごとの順位（最新決算の値）。同じ値は同じ順位にする
+  // 「グラフに出す会社」でチェックした会社。順位表・指数のタブの順位・グラフのすべてをこの会社だけで出す
+  const shown = withHist.filter((c) => !hidden.has(c.name))
+  // 指数ごとの順位（最新決算の値・チェックした会社の中で）。同じ値は同じ順位にする
   const ranking = (m: Metric) => {
-    const arr = withHist
+    const arr = shown
       .map((c) => ({ c, r: latestOf(c), v: m.get(latestOf(c)) }))
       .sort((a, b) => (m.low ? a.v - b.v : b.v - a.v))
     return arr.map((x) => ({ ...x, rank: 1 + arr.filter((y) => (m.low ? y.v < x.v : y.v > x.v)).length }))
   }
   const rows = ranking(metric)
   const mine = (m: Metric) => ranking(m).find((x) => x.c.name === st.name)
+  // 自社の最新決算（チェックを外していても値は出す。順位は出さない）
+  const myCompany = withHist.find((c) => c.name === st.name)
 
   const toggle = (name: string) => {
     const next = new Set(hidden)
@@ -106,9 +133,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
     setHidden(next)
     saveHidden(st.org, next)
   }
-  const series = withHist
-    .filter((c) => !hidden.has(c.name))
-    .map((c) => ({
+  const series = shown.map((c) => ({
       name: c.name,
       color: colorOf.get(c.name)!,
       me: c.name === st.name,
@@ -133,6 +158,75 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
         <p className="text-ink-300 text-sm p-4 bg-white rounded-2xl border border-line">まだ成績がありません。各社が決算すると表示されます。</p>
       ) : (
         <>
+          {/* グラフに出す会社を選ぶ欄。会社名・社長名とチェックボックスだけ（順位や値は下の順位表に出す）。折りたためる */}
+          <div className="bg-white rounded-2xl shadow-card border border-line p-4" data-testid="org-pick">
+            <div className={`flex items-center justify-between gap-2 flex-wrap ${listOpen ? 'mb-3' : ''}`}>
+              {/* 見出しを押すと折りたたむ／開く */}
+              <button
+                data-testid="org-pick-toggle"
+                onClick={() => toggleList(!listOpen)}
+                aria-expanded={listOpen}
+                className="font-bold text-sm text-left flex items-baseline gap-1.5"
+              >
+                <span className="text-ink-400 text-xs w-3 inline-block">{listOpen ? '▼' : '▶'}</span>
+                グラフに出す会社
+                <span className="text-ink-400 text-[11px] font-normal">
+                  {withHist.length - withHist.filter((c) => hidden.has(c.name)).length}／{withHist.length}社
+                </span>
+              </button>
+              {listOpen && (
+                <div className="flex gap-1 text-[11px] font-bold">
+                  <button data-testid="org-check-all" onClick={() => setAll(true)} className="h-7 px-2 rounded-md border border-line">
+                    全員を出す
+                  </button>
+                  <button data-testid="org-check-none" onClick={() => setAll(false)} className="h-7 px-2 rounded-md border border-line">
+                    全員外す
+                  </button>
+                </div>
+              )}
+            </div>
+            {listOpen && (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+                  {withHist.map((c) => {
+                    const me = c.name === st.name
+                    const on = !hidden.has(c.name)
+                    return (
+                      <label
+                        key={c.name}
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer select-none transition ${
+                          on ? 'border-line bg-white' : 'border-line/60 bg-canvas opacity-60'
+                        } ${me ? 'ring-1 ring-amber-300' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          data-testid={`org-check-${c.name}`}
+                          checked={on}
+                          onChange={() => toggle(c.name)}
+                          className="w-4 h-4 shrink-0"
+                          style={{ accentColor: colorOf.get(c.name) }}
+                        />
+                        <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf.get(c.name) }} />
+                        <span className="min-w-0 leading-tight">
+                          <span className="block text-[13px] font-bold truncate">
+                            {c.name}
+                            {me && <span className="text-ink-400 text-[11px] font-normal"> (あなた)</span>}
+                          </span>
+                          <span className="block text-[11px] text-ink-400 truncate">社長：{c.president || '—'}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+                {noHist.length > 0 && (
+                  <p className="mt-2 text-[11px] text-ink-400" data-testid="org-nohist">
+                    決算前（グラフには出ません）：{noHist.map((c) => `${c.name}（${c.president || '—'}）`).join('、')}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
           {/* 指数のタブ。押すとその指数の順位とグラフに切り替わる。自社の最新値と順位も出す */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2" data-testid="org-metrics">
             {METRICS.map((m) => {
@@ -148,11 +242,12 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                   }`}
                 >
                   <div className={`text-[11px] font-bold ${on ? 'text-white/80' : 'text-ink-500'}`}>{m.label}</div>
-                  {me ? (
+                  {myCompany ? (
                     <div className="flex items-baseline justify-between gap-1">
-                      <span className="num font-black text-lg">{m.f(me.v)}</span>
-                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`}>
-                        {me.rank}/{withHist.length}位
+                      <span className="num font-black text-lg">{m.f(m.get(latestOf(myCompany)))}</span>
+                      {/* 順位はチェックした会社の中で。自社のチェックを外しているときは順位を出さない */}
+                      <span className={`num text-[11px] ${on ? 'text-white/80' : 'text-ink-400'}`} data-testid={`org-metric-${m.k}-rank`}>
+                        {me ? `${me.rank}/${shown.length}位` : '順位外'}
                       </span>
                     </div>
                   ) : (
@@ -163,41 +258,31 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
             })}
           </div>
 
-          {/* PC では推移グラフと順位を横に並べる（グラフが横に伸びすぎて文字が大きくなるのを防ぐ） */}
-          <div className="grid lg:grid-cols-2 gap-4 items-start">
-          {/* 選んだ指数の推移。チェックの付いた会社だけ */}
-          <div className="bg-white rounded-2xl shadow-card border border-line p-4 lg:sticky lg:top-20" data-testid="org-chart">
+          {/* 選んだ指数の推移。チェックの付いた会社だけ。画面幅いっぱいに出す */}
+          <div className="bg-white rounded-2xl shadow-card border border-line p-4" data-testid="org-chart">
             <h3 className="font-bold text-sm mb-2">{metric.label}の推移</h3>
             {series.length ? (
-              <OrgLineChart series={series} signed={metric.opt.signed} pct={metric.opt.pct} />
+              <OrgLineChart series={series} signed={metric.opt.signed} pct={metric.opt.pct} fluid />
             ) : (
-              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を下の一覧でチェックしてください。</p>
+              <p className="text-ink-300 text-xs py-6 text-center">グラフに出す会社を上の「グラフに出す会社」でチェックしてください。</p>
             )}
           </div>
 
-          {/* 選んだ指数の順位。チェックボックスでグラフに出す会社を選ぶ */}
+
+          {/* 選んだ指数の順位（最新の決算・チェックした会社の中で）。グラフの下に全幅で出す */}
           <div className="bg-white rounded-2xl shadow-card border border-line p-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-              <h3 className="font-bold text-sm">
-                {metric.label}の順位
-                <span className="text-ink-400 text-[11px] font-normal ml-1">
-                  最新の決算{metric.low ? '・低いほど上位' : ''}
-                </span>
-              </h3>
-              <div className="flex gap-1 text-[11px] font-bold">
-                <button data-testid="org-check-all" onClick={() => setAll(true)} className="h-7 px-2 rounded-md border border-line">
-                  全員をグラフに出す
-                </button>
-                <button data-testid="org-check-none" onClick={() => setAll(false)} className="h-7 px-2 rounded-md border border-line">
-                  全員外す
-                </button>
-              </div>
-            </div>
+            <h3 className="font-bold text-sm mb-2">
+              {metric.label}の順位
+              <span className="text-ink-400 text-[11px] font-normal ml-1">
+                最新の決算・チェックした {shown.length}社の中で{metric.low ? '・低いほど上位' : ''}
+              </span>
+            </h3>
+            {!rows.length && <p className="text-ink-300 text-xs py-4 text-center">上の「グラフに出す会社」でチェックした会社の順位が出ます。</p>}
+            {rows.length > 0 && (
             <table className="w-full text-[13px]" data-testid="org-rank">
               <thead>
                 <tr className="text-[11px] text-ink-400">
-                  <th className="font-normal text-left py-1 w-8">グラフ</th>
-                  <th className="font-normal text-left py-1 px-1 w-10">順位</th>
+                  <th className="font-normal text-left py-1 w-12">順位</th>
                   <th className="font-normal text-left py-1 px-1">会社名／社長名</th>
                   <th className="font-normal text-right py-1 pl-1">{metric.label}</th>
                 </tr>
@@ -207,18 +292,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                   const me = x.c.name === st.name
                   return (
                     <tr key={x.c.name} className={`border-t border-line/60 ${me ? 'bg-amber-50' : ''}`} data-testid={`org-row-${x.c.name}`}>
-                      <td className="py-1.5">
-                        <input
-                          type="checkbox"
-                          data-testid={`org-check-${x.c.name}`}
-                          checked={!hidden.has(x.c.name)}
-                          onChange={() => toggle(x.c.name)}
-                          aria-label={`${x.c.name}をグラフに出す`}
-                          className="w-4 h-4 align-middle"
-                          style={{ accentColor: colorOf.get(x.c.name) }}
-                        />
-                      </td>
-                      <td className="py-1.5 px-1 font-bold num">{x.rank}位</td>
+                      <td className="py-1.5 font-bold num">{x.rank}位</td>
                       <td className="py-1.5 px-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf.get(x.c.name) }} />
@@ -236,12 +310,7 @@ export default function OrgTab({ game, toast }: { game: Game; toast: (msg: strin
                 })}
               </tbody>
             </table>
-            {noHist.length > 0 && (
-              <p className="mt-2 text-[11px] text-ink-400" data-testid="org-nohist">
-                決算前：{noHist.map((c) => `${c.name}（${c.president || '—'}）`).join('、')}
-              </p>
             )}
-          </div>
           </div>
         </>
       )}

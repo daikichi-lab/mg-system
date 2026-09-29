@@ -386,9 +386,19 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // チェックを外すとグラフから消え、全員外すとグラフの案内になる
     await page.getByTestId('org-check-E2E製菓').uncheck()
     await expect(page.getByTestId('org-check-E2E製菓')).not.toBeChecked()
+    // チェックを外した会社は順位表からも外れ、自社なら指数のタブの順位も出さない
+    await expect(page.getByTestId('org-row-E2E製菓')).toHaveCount(0)
+    await expect(page.getByTestId('org-metric-G-rank')).toHaveText('順位外')
     await page.getByTestId('org-check-none').click()
     await expect(page.getByTestId('org-chart')).toContainText('チェックしてください')
     await page.getByTestId('org-check-all').click()
+    await expect(page.getByTestId('org-check-E2E製菓')).toBeChecked()
+    await expect(page.getByTestId('org-row-E2E製菓')).toBeVisible()
+    // 「グラフに出す会社」の欄は折りたためる（順位表はグラフの下に出たまま）
+    await page.getByTestId('org-pick-toggle').click()
+    await expect(page.getByTestId('org-check-E2E製菓')).toHaveCount(0)
+    await expect(page.getByTestId('org-rank')).toContainText('E2E製菓')
+    await page.getByTestId('org-pick-toggle').click()
     await expect(page.getByTestId('org-check-E2E製菓')).toBeChecked()
 
     // --- 振り返りタブ（推移・気づき） ---
