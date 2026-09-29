@@ -145,6 +145,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('next-period').click()
     await expect(page.getByTestId('hd-period')).toHaveText('第2期')
     await expect(page.getByTestId('tab-plan')).toHaveCount(0)
+    // 新しく始めた会社の期末返済率は 5% から
+    await page.getByTestId('tab-opening').click()
+    await expect(page.getByTestId('op-repayrate')).toHaveValue('5')
 
     // 第2期：記帳なしで決算 → 次の期へ
     await page.getByTestId('tab-play').click()

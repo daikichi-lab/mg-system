@@ -470,3 +470,11 @@ test('⑥ 特別損益の内訳：什器売却の値が無い古い決算結果�
   const r = { colTot: [0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0], scrap: 1, avg: 12 } as unknown as Result
   assert.deepEqual(calc.specialBreakdown(r), { insurance: 30, scrapLoss: 12, saleLoss: 0 })
 })
+
+test('会社を始めると期末返済率の初期値は 5%（計算エンジンの既定 0 は変えない）', () => {
+  assert.equal(calc.newState().repayRate, 0) // golden-master の前提
+  const st = calc.newState()
+  game.startCompany(st, { name: 'X', president: 'P', org: 'O', capital: 300 })
+  assert.equal(st.repayRate, game.DEFAULT_REPAY_RATE)
+  assert.equal(game.DEFAULT_REPAY_RATE, 5)
+})
