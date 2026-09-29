@@ -27,26 +27,6 @@ function setupProduced(st: St, qty: number, unit = 12) {
   assert.deepEqual(game.recordAction(st, 'seizo', { qty: Math.min(qty, 4) }), [])
 }
 
-test('独占販売：販売と同じく複数行で記帳でき、上限（販売スタッフ1人につき2個）は合計で判定。以前の1組の形も同じ結果', () => {
-  const st = newGame()
-  setupProduced(st, 4) // 機械1・製造2/販売2・材料4 → 製品4
-  // 販売2人 → 4個まで。2行で合計4個
-  assert.deepEqual(game.recordAction(st, 'dokusen', { items: [{ qty: 2, unit: 45 }, { qty: 2, unit: 40 }] }), [])
-  const row = st.tx[st.tx.length - 1]
-  assert.equal(row.amount, 2 * 45 + 2 * 40)
-  assert.equal(st.salesQty, 4)
-  assert.equal(st.products, 0)
-  // 合計が上限を超えると記帳できない
-  const st2 = newGame()
-  setupProduced(st2, 4)
-  const errs = game.recordAction(st2, 'dokusen', { items: [{ qty: 3, unit: 45 }, { qty: 2, unit: 40 }] })
-  assert.ok(errs.some((e) => e.includes('販売スタッフ1人につき2個')))
-  // 以前の1組の形（qty・unit を直接持つ）も1行として同じ金額・売上になる
-  const def = calc.ACTIONS.dokusen
-  assert.equal(def.amount({ qty: 2, unit: 45 }), 90)
-  assert.equal(def.amount({ items: [{ qty: 2, unit: 45 }] }), 90)
-})
-
 test('① 幽霊販売クランプ：入力数が在庫を超えても salesQty は実売数まで', () => {
   const st = newGame()
   // バリデーションを迂回して直接 tx を積む（破損データ・旧データの再現）
@@ -77,6 +57,26 @@ test('② 行削除：後続の販売が成立しなくなる仕入行の削除�
   assert.ok(err, '削除はエラーで拒否される: ' + err)
   assert.equal(st.tx.length, before, '台帳は変わらない')
   assert.equal(calc.settleBlockReason(st), null, '整合状態が保たれ決算可能')
+})
+
+test('独占販売：販売と同じく複数行で記帳でき、上限（販売スタッフ1人につき2個）は合計で判定。以前の1組の形も同じ結果', () => {
+  const st = newGame()
+  setupProduced(st, 4) // 機械1・製造2/販売2・材料4 → 製品4
+  // 販売2人 → 4個まで。2行で合計4個
+  assert.deepEqual(game.recordAction(st, 'dokusen', { items: [{ qty: 2, unit: 45 }, { qty: 2, unit: 40 }] }), [])
+  const row = st.tx[st.tx.length - 1]
+  assert.equal(row.amount, 2 * 45 + 2 * 40)
+  assert.equal(st.salesQty, 4)
+  assert.equal(st.products, 0)
+  // 合計が上限を超えると記帳できない
+  const st2 = newGame()
+  setupProduced(st2, 4)
+  const errs = game.recordAction(st2, 'dokusen', { items: [{ qty: 3, unit: 45 }, { qty: 2, unit: 40 }] })
+  assert.ok(errs.some((e) => e.includes('販売スタッフ1人につき2個')))
+  // 以前の1組の形（qty・unit を直接持つ）も1行として同じ金額・売上になる
+  const def = calc.ACTIONS.dokusen
+  assert.equal(def.amount({ qty: 2, unit: 45 }), 90)
+  assert.equal(def.amount({ items: [{ qty: 2, unit: 45 }] }), 90)
 })
 
 test('② 行削除：影響のない行の削除は成功する', () => {
