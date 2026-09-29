@@ -43,6 +43,13 @@ test('normalizeRules：経営計画書の単価の目安は既定 販売28・仕
   assert.equal(normalizeRules({ planHintV: 'x' as unknown as number }).planHintV, 12)
 })
 
+test('normalizeRules：進捗タブを出す期は既定 4、1以上の整数だけ受け付ける', () => {
+  assert.equal(DEFAULT_RULES.progressFromPeriod, 4)
+  assert.equal(normalizeRules({ progressFromPeriod: 5 }).progressFromPeriod, 5)
+  assert.equal(normalizeRules({ progressFromPeriod: 0 }).progressFromPeriod, 4)
+  assert.equal(normalizeRules({ rent: 20 }).progressFromPeriod, 4) // 項目が無い保存済みのルールは既定を補う
+})
+
 test('normalizeRules：配列は複製する（既定値を書き換えない）', () => {
   const a = normalizeRules(null)
   a.materialPrices.push(99)
