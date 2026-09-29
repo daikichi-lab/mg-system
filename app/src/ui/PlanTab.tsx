@@ -737,6 +737,15 @@ export default function PlanTab({
                   {fmtA(need.openingCash)}
                 </b>
               </div>
+              {/* 今期借りる予定の額は使える現金に入るので、不足から差し引く */}
+              {need.loanIn > 0 && (
+                <div className="flex justify-between items-baseline gap-3 px-3">
+                  <span className="text-ink-500 text-xs">＋ 今期あらたに借入する金額</span>
+                  <b className="num" data-testid="plan-cash-loan">
+                    {fmt(need.loanIn)}
+                  </b>
+                </div>
+              )}
               {/* 差がマイナスなら売上の入金前に現金が足りなくなる → 借入などで手当てが必要 */}
               <div
                 className={`flex justify-between items-center rounded-lg px-3 py-2 font-bold ${
@@ -744,7 +753,7 @@ export default function PlanTab({
                 }`}
                 data-testid="plan-cash-diff"
               >
-                <span>{need.diff < 0 ? '不足（借入などが必要）' : '余裕'}</span>
+                <span>{need.diff < 0 ? (need.loanIn > 0 ? '不足（さらに借入などが必要）' : '不足（借入などが必要）') : '余裕'}</span>
                 <b className="num text-lg">{fmt(Math.abs(need.diff))}</b>
               </div>
               {need.endCash != null && (
