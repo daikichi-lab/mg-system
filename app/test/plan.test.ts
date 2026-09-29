@@ -530,6 +530,18 @@ test('必要な現金：期首処理・仕入代・固定費（減価償却と�
   assert.equal(n.endCash, 142) // −158 ＋ 売上 300
 })
 
+test('必要な現金：今期あらたに借入する金額は使える現金に足し、不足から差し引く', () => {
+  const st = st3() // 現金252
+  const base = cashNeeds({ ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }, st)
+  const withLoan = cashNeeds({ ...defaultPlan(), machinesNew: 1, p: 30, v: 12, loanNew: 100 }, st)
+  assert.equal(base.loanIn, 0)
+  assert.equal(withLoan.loanIn, 100)
+  // 借入すると金利（固定費）と元本返済で出金も増えるが、借入額の分だけ使える現金が増える
+  assert.equal(withLoan.diff, st.openingCash + 100 - withLoan.total)
+  assert.ok(withLoan.diff > base.diff)
+  assert.equal(withLoan.endCash, withLoan.diff + (withLoan.sales ?? 0))
+})
+
 test('必要な現金：期首に材料があれば仕入代から引く。Q が出せなければ仕入代 0・期末見込みなし', () => {
   const st = st3()
   st.openingMatQty = 4

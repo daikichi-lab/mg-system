@@ -521,11 +521,13 @@ export interface CashNeeds {
   total: number
   /** 前期から繰り越した現金（期首の現金） */
   openingCash: number
-  /** openingCash − total。マイナスなら売上の入金前に足りなくなる額（借入などが必要） */
+  /** 今期あらたに借入する金額（2. 固定費の戦略的投資で入れた額）。入金として使える現金に足す */
+  loanIn: number
+  /** openingCash ＋ loanIn − total。マイナスなら売上の入金前に足りなくなる額（さらに借入などが必要） */
   diff: number
   /** 売上高 PQ。Q が出せないときは null */
   sales: number | null
-  /** 期末の現金の見込み ＝ openingCash − total ＋ 売上高。Q が出せないときは null */
+  /** 期末の現金の見込み ＝ openingCash ＋ loanIn − total ＋ 売上高。Q が出せないときは null */
   endCash: number | null
 }
 
@@ -584,8 +586,17 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
     },
   ]
   const total = items.reduce((sum, x) => sum + x.amount, 0)
-  const diff = st.openingCash - total
-  return { items, total, openingCash: st.openingCash, diff, sales: fig.PQ, endCash: fig.PQ == null ? null : diff + fig.PQ }
+  // 今期借りる予定の額は使える現金に入るので、不足から差し引く（借入の予定を入れれば不足が減る）
+  const diff = st.openingCash + plan.loanNew - total
+  return {
+    items,
+    total,
+    openingCash: st.openingCash,
+    loanIn: plan.loanNew,
+    diff,
+    sales: fig.PQ,
+    endCash: fig.PQ == null ? null : diff + fig.PQ,
+  }
 }
 
 /** 7. 必要なアクション回数の1項目 */
