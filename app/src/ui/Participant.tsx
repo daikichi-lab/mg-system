@@ -18,6 +18,8 @@ import {
   flows,
   getRules,
   salaryFor,
+  closingRepay,
+  borrowedThisPeriod,
   IN_COLS,
   type St,
   type Result,
@@ -551,7 +553,9 @@ function OpeningTab({
   const cap = loanCap(st)
   const room = loanRoom(st)
   const interest = Math.round(st.openingLoan * 0.05)
-  const repayPlan = Math.round((st.openingLoan * st.repayRate) / 100)
+  // 期末の元本返済の見込み。期中に借りた分も含む（(期首残高＋今期の借入) × 返済率。期末処理と同じ closingRepay()）
+  const repayPlan = closingRepay(st)
+  const borrowedNow = borrowedThisPeriod(st)
   // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
   // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わるため、
   // ここでは単価（期末処理と同じ salaryFor()）と計上ルールだけを示し、人数での見込み額は出さない。
@@ -662,7 +666,7 @@ function OpeningTab({
             </div>
             <div className="flex items-center justify-between py-1.5 mt-1 rounded-lg px-2 bg-m-bg gap-2 flex-wrap">
               <span className="font-bold text-m-ink">
-                期末返済（期首残高 ×
+                期末返済（{borrowedNow > 0 ? `(期首残高＋今期の借入 ${fmt(borrowedNow)})` : '(期首残高＋今期の借入)'} ×
                 <select
                   data-testid="op-repayrate"
                   value={st.repayRate}
@@ -737,7 +741,7 @@ function OpeningTab({
             <div data-testid="oc-repay" className="num font-black text-lg">
               {first ? '—' : `${st.repayRate}%`}
             </div>
-            <div className="text-[10px] text-ink-400 whitespace-nowrap">期首の借入残高 × 返済率</div>
+            <div className="text-[10px] text-ink-400 whitespace-nowrap">(期首の借入残高＋今期の借入) × 返済率</div>
           </div>
         </div>
       </div>

@@ -645,7 +645,7 @@ export interface CashNeeds {
  * - 仕入代：期首の材料・製品で足りない個数（Q − 期首の材料在庫。`actionNeeds()` と同じ）× 計画の売上原価 V
  * - 固定費：F のうち現金で出ていく分。減価償却は現金が出ないので除き、期首の借入金の金利は期首処理の行に入れたので除く
  * - 機械代：機械購入台数 × 機械の価格（記帳アクションの amount と同じ式）
- * - 元本返済：期末に返す額。期末処理（calc の `doClosingPrep()`）と同じ「期首の借入残高 × 返済率」（残高が上限）
+ * - 元本返済：期末に返す額。期末処理（calc の `closingRepay()`）と同じ「(期首の借入残高 ＋ 今期あらたに借入する金額) × 返済率」（残高が上限）
  *
  * 売上の入金は販売した後なので、合計とは別に「期末の現金の見込み」として足して見せる。
  */
@@ -658,7 +658,9 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
   const buyQty = fig.Q == null ? 0 : Math.max(0, fig.Q - st.openingMatQty)
   const amt = (key: string) => fc.items.find((x) => x.key === key)?.amount ?? 0
   const dep = amt('dep') + amt('depNew')
-  const repay = Math.min(Math.round((st.openingLoan * st.repayRate) / 100), st.openingLoan)
+  // 期末処理（calc の closingRepay()）と同じく、期中に借りる分（今期あらたに借入する金額）にも元本返済が発生する
+  const loanBase = st.openingLoan + plan.loanNew
+  const repay = Math.min(Math.round((loanBase * st.repayRate) / 100), loanBase)
   const items: CashNeedItem[] = [
     {
       key: 'opening',
@@ -687,7 +689,10 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
     {
       key: 'repay',
       label: '元本返済',
-      detail: st.period <= 1 ? '第1期は借入なし' : `期首の借入金 ${st.openingLoan} × 返済率 ${st.repayRate}%`,
+      detail:
+        st.period <= 1
+          ? '第1期は借入なし'
+          : `(期首の借入金 ${st.openingLoan} ＋ 今期の借入 ${plan.loanNew}) × 返済率 ${st.repayRate}%`,
       amount: repay,
     },
   ]

@@ -809,6 +809,20 @@ export function salaryFor(period: number): number {
 }
 
 // ---- 期末処理 ----
+/** 当期に借り入れた額（借入 kariire の記帳額の合計）。期末の元本返済の対象に含める */
+export function borrowedThisPeriod(st: St): number {
+  return st.tx.filter((t) => t.key === 'kariire').reduce((s, t) => s + (t.amount || 0), 0)
+}
+
+/**
+ * 期末の元本返済額 ＝ min(round((期首の借入残高 ＋ 当期の借入額) × 返済率 ÷ 100), 今の借入残高)。
+ * 期中に借りた分にも元本返済が発生する（docs/calc-spec.md §6。issue #79 までは期首の借入残高だけが対象だった）。
+ * 期末処理（doClosingPrep）と期首処理の見込み表示で同じ式を使う。
+ */
+export function closingRepay(st: St): number {
+  return Math.min(r(((st.openingLoan + borrowedThisPeriod(st)) * st.repayRate) / 100), st.loan)
+}
+
 export function doClosingPrep(st: St) {
   if (st.settled || st.closingPrep) return
   recompute(st)
@@ -822,7 +836,8 @@ export function doClosingPrep(st: St) {
   if (salary > 0)
     st.tx.push({ id: st.seq++, label: '給料(期末)', col: 6, amount: salary, note: salNote, isClosing: true })
   st.tx.push({ id: st.seq++, label: '家賃(期末)', col: 8, amount: getRules().rent, isClosing: true })
-  const repay = Math.min(r((st.openingLoan * st.repayRate) / 100), st.loan)
+  const repay = closingRepay(st)
+  const borrowed = borrowedThisPeriod(st)
   if (repay > 0)
     st.tx.push({
       id: st.seq++,
@@ -831,7 +846,7 @@ export function doClosingPrep(st: St) {
       label: '借入金返済(期末)',
       col: 9,
       amount: repay,
-      note: `期首残高${st.openingLoan}×${st.repayRate}%`,
+      note: borrowed > 0 ? `(期首残高${st.openingLoan}＋当期借入${borrowed})×${st.repayRate}%` : `期首残高${st.openingLoan}×${st.repayRate}%`,
       isClosing: true,
       isAutoRepay: true,
     })

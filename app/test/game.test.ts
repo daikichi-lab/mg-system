@@ -27,6 +27,30 @@ function setupProduced(st: St, qty: number, unit = 12) {
   assert.deepEqual(game.recordAction(st, 'seizo', { qty: Math.min(qty, 4) }), [])
 }
 
+test('期末返済：期中に借りた分も含めて (期首残高＋当期借入) × 返済率。残高が上限', () => {
+  const st = calc.newState()
+  st.period = 2
+  st.openingLoan = 100
+  st.repayRate = 10
+  st.tx.push({ id: st.seq++, label: '資本金', col: 0, amount: 300, isCapital: true })
+  st.tx.push({ id: st.seq++, key: 'kariire', fvals: { a: 200 }, col: 1, amount: 200 })
+  calc.recompute(st)
+  assert.equal(calc.borrowedThisPeriod(st), 200)
+  assert.equal(calc.closingRepay(st), 30) // (100 ＋ 200) × 10%
+  calc.doClosingPrep(st)
+  const row = st.tx.find((t) => t.isAutoRepay)!
+  assert.equal(row.amount, 30)
+  assert.equal(row.note, '(期首残高100＋当期借入200)×10%')
+  // 期中に借りていなければ従来どおり期首残高だけ
+  const st2 = calc.newState()
+  st2.period = 2
+  st2.openingLoan = 100
+  st2.repayRate = 10
+  st2.tx.push({ id: st2.seq++, label: '資本金', col: 0, amount: 300, isCapital: true })
+  calc.recompute(st2)
+  assert.equal(calc.closingRepay(st2), 10)
+})
+
 test('① 幽霊販売クランプ：入力数が在庫を超えても salesQty は実売数まで', () => {
   const st = newGame()
   // バリデーションを迂回して直接 tx を積む（破損データ・旧データの再現）

@@ -607,6 +607,12 @@ test('能力の比較：期首の能力と、投資（機械・教育・広告�
   assert.equal(sales.add, 4)
 })
 
+test('必要な現金：元本返済は今期あらたに借入する金額も含める（期末処理と同じ式）', () => {
+  const st = st3() // 借入100・返済率10%
+  const n = cashNeeds({ ...defaultPlan(), loanNew: 200, p: 30, v: 12 }, st)
+  assert.equal(n.items.find((x) => x.key === 'repay')!.amount, 30) // (100 ＋ 200) × 10%
+})
+
 test('必要な現金：期首処理・仕入代・固定費（減価償却と期首の金利を除く）・機械代・元本返済の合計と、前期繰越の現金との差', () => {
   const st = st3() // 現金252・期首の自動行 31（納税26・金利5）・借入100×返済率10%
   const plan = { ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }
