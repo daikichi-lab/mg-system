@@ -53,6 +53,13 @@ function seizoCap(st: St) {
   const m = c.reduce((a, b) => (b.max < a.max ? b : a))
   return { max: Math.max(0, m.max), why: m.why }
 }
+/** 独占販売：販売スタッフ1人につき2個・製品在庫 のうち最小（販売能力ではなく人数で決まる） */
+function dokusenCap(st: St) {
+  const byStaff = st.staffSales * 2
+  return byStaff <= st.products
+    ? { max: Math.max(0, byStaff), why: '販売スタッフ1人につき2個' }
+    : { max: Math.max(0, st.products), why: '製品在庫' }
+}
 /** 販売：販売能力・製品在庫 のうち最小 */
 function hanbaiCap(st: St) {
   const sc = caps(st).salesCap
@@ -155,9 +162,12 @@ function buildForms(r: Rules): Record<string, FormDef> {
     },
     // イベント（フォームありのもの）
     kaihatsu_win: { fields: [{ name: 'qty', label: '個数', type: 'int', default: 0, min: 0 }], note: '開発チップ1枚2個・1個32で販売' },
+    // 販売と同じ複数行（個数×売価）。上限は全行の合計
     dokusen: {
-      fields: [
-        { name: 'qty', label: '個数', type: 'int', default: 0, min: 0 },
+      fields: [],
+      multi: true,
+      rowFields: [
+        { name: 'qty', label: '個数', type: 'int', default: 0, min: 0, capOf: dokusenCap },
         { name: 'unit', label: '売価', type: 'int', default: 30, min: 0 },
       ],
       note: '販売スタッフ1人につき2個・空いた市場で独占',

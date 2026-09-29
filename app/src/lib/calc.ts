@@ -530,20 +530,25 @@ export const ACTIONS: Record<string, ActionDef> = {
       st.salesAmt += n * 32
     },
   },
+  // 独占販売：販売と同じく複数行（個数×売価）を1回で記帳できる（issue #83）。
+  // 以前の1組の形（fvals に qty・unit を直接持つ）も rows() が1行として読むので、保存済みの行の結果は変わらない
   dokusen: {
     label: '独占販売!',
     rule: 'X',
     cat: '販売機会',
     col: 2,
     side: 'in',
+    multi: true,
     account: '売上',
-    amount: (f) => (f.qty || 0) * (f.unit || 0),
-    apply: (st, f) => {
-      const n = Math.min(f.qty || 0, st.products)
-      st.products -= n
-      st.salesQty += n
-      st.salesAmt += n * (f.unit || 0)
-    },
+    amount: (f) => rows(f).reduce((s, x) => s + (x.qty || 0) * (x.unit || 0), 0),
+    apply: (st, f) =>
+      rows(f).forEach((x) => {
+        // 販売と同じく、盤面に無い製品は売れない（会計側も実売数でカウントする）
+        const n = Math.min(x.qty || 0, st.products)
+        st.products -= n
+        st.salesQty += n
+        st.salesAmt += n * (x.unit || 0)
+      }),
   },
   tokubai: {
     label: '特別サービス!',
