@@ -85,7 +85,7 @@ function FieldInput({
               data-testid={`f-loanFrom-${k}`}
               value={rules.loanFrom[k]}
               onChange={(e) => set({ loanFrom: { ...rules.loanFrom, [k]: Number(e.target.value) } })}
-              className="h-9 border border-line rounded-lg px-2 bg-white text-sm"
+              className="h-9 border border-line rounded-lg px-2 bg-canvas text-sm"
             >
               {fromOpts.map((p) => (
                 <option key={p} value={p}>
@@ -102,7 +102,7 @@ function FieldInput({
             data-testid="f-loanCombine"
             value={rules.loanCombine}
             onChange={(e) => set({ loanCombine: e.target.value as LoanCombine })}
-            className="h-9 border border-line rounded-lg px-2 bg-white text-sm"
+            className="h-9 border border-line rounded-lg px-2 bg-canvas text-sm"
           >
             {(['min', 'max'] as const).map((c) => (
               <option key={c} value={c}>
