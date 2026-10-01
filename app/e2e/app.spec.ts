@@ -896,6 +896,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('new-ruleset').click()
     await page.getByTestId('rule-name-input').fill('E2E 機械高騰')
     await page.getByTestId('f-machinePrice').fill('120')
+    // 借入枠の決め方：第2期は銀行審査（純資産倍率・月商倍率・債務償還年数の最小）、月商倍率は 3ヶ月
+    await page.getByTestId('f-loanMode-1').selectOption('bank')
+    await page.getByTestId('f-loanSalesMonths').fill('3')
     // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
     await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
     await page.getByTestId('f-planFromPeriod').fill('1')
@@ -943,6 +946,19 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // リロードしても、その研修のルールで盤面が組み直される
     await page.reload()
     await expect(page.getByTestId('hd-cash')).toHaveText('180')
+
+    // 第1期を決算して第2期へ：期首処理の借入枠が銀行審査（3つの基準と、一番小さい枠）になる
+    await page.getByTestId('tab-play').click()
+    await closeAndSettle(page)
+    await page.getByTestId('next-period').click()
+    await expect(page.getByTestId('hd-period')).toHaveText('第2期')
+    await page.getByTestId('tab-opening').click()
+    await expect(page.getByTestId('op-loan-mode')).toContainText('銀行審査')
+    await expect(page.getByTestId('op-loan-equity')).toBeVisible()
+    await expect(page.getByTestId('op-loan-sales')).toContainText('× 3ヶ月')
+    await expect(page.getByTestId('op-loan-debt')).toBeVisible()
+    // 第1期は売上が無いので月商倍率・債務償還年数の枠は 0 → 借入できない
+    await expect(page.getByTestId('op-loan-criteria')).toContainText('この基準で枠が決まります')
 
     // --- 4. 進行中にするとルールは変更できない ---
     await page.goto('/admin')

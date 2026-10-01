@@ -2,7 +2,7 @@
 // 編集画面と同じ6グループで並べるが、入力欄ではなく数字として見せる。
 import { useEffect, useRef, useState } from 'react'
 import { api, type ApiRuleset } from '../lib/api'
-import { normalizeRules, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_MODE_LABELS, type Rules } from '../lib/rules'
 import { GROUPS, COL_NAMES, COL_STYLE, SALARY_PERIODS, type Field } from './ruleFields'
 
 export function ColChip({ col, note }: { col: number | null; note?: string }) {
@@ -33,6 +33,19 @@ function Value({ field, rules }: { field: Field; rules: Rules }) {
           <div key={i} className="rounded-lg border border-line bg-canvas px-3 py-1.5 text-center min-w-[72px]">
             <div className="text-ink-400 text-[10px] leading-none">第{i + 1}期</div>
             <div className="num font-bold text-base leading-tight mt-1">{rules.salaryTable[i] ?? '—'}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (field.kind === 'loanModes') {
+    // 期ごとの借入枠の決め方。第1期は借入なし
+    return (
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: SALARY_PERIODS }, (_, i) => (
+          <div key={i} className="rounded-lg border border-line bg-canvas px-3 py-1.5 text-center min-w-[96px]">
+            <div className="text-ink-400 text-[10px] leading-none">第{i + 1}期</div>
+            <div className="font-bold text-sm leading-tight mt-1">{i === 0 ? '借入なし' : LOAN_MODE_LABELS[rules.loanModes[i]]}</div>
           </div>
         ))}
       </div>

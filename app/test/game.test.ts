@@ -522,3 +522,61 @@ test('会社を始めると期末返済率の初期値は 5%（計算エンジ�
   assert.equal(st.repayRate, game.DEFAULT_REPAY_RATE)
   assert.equal(game.DEFAULT_REPAY_RATE, 5)
 })
+
+test('借入枠：期ごとの決め方（純資産倍率／月商倍率／債務償還年数／銀行審査＝最小）', () => {
+  calc.setRules(null)
+  const st = calc.newState()
+  st.period = 3
+  st.openingCapital = 300
+  st.retained = 100 // 純資産 400
+  st.loanMult = 1
+  st.prevPQ = 600 // 月商 50
+  st.prevG = 80
+  st.prevDep = 20
+  st.prevTax = 24 // 返済原資 76
+  calc.recompute(st)
+  // 既定（純資産倍率）：400 × 1
+  assert.equal(calc.loanMode(st), 'equity')
+  assert.equal(calc.loanCap(st), 400)
+  // 月商倍率：50 × 6ヶ月 ＝ 300
+  calc.setRules({ loanModes: ['equity', 'equity', 'sales', 'equity', 'equity'] })
+  assert.equal(calc.loanCap(st), 300)
+  // 債務償還年数：76 × 5年 ＝ 380
+  calc.setRules({ loanModes: ['equity', 'equity', 'debt', 'equity', 'equity'] })
+  assert.equal(calc.loanCap(st), 380)
+  // 銀行審査：3つの最小（月商倍率 300）。基準は3つとも出す
+  calc.setRules({ loanModes: ['equity', 'equity', 'bank', 'equity', 'equity'], loanSalesMonths: 3 })
+  assert.deepEqual(calc.loanCriteria(st).map((c) => [c.key, c.cap]), [['equity', 400], ['sales', 150], ['debt', 380]])
+  assert.equal(calc.loanCap(st), 150)
+  // 赤字（返済原資がマイナス）なら債務償還年数の枠は 0 → 銀行審査では借りられない
+  st.prevG = -50
+  assert.equal(calc.loanCap(st), 0)
+  // 前期の値が無い（補えなかった）ときは純資産倍率だけ
+  st.prevPQ = null
+  st.prevG = null
+  assert.deepEqual(calc.loanCriteria(st).map((c) => c.key), ['equity'])
+  // 第1期は借入なし
+  st.period = 1
+  assert.equal(calc.loanCap(st), 0)
+  calc.setRules(null)
+})
+
+test('前期の決算の値：期またぎで入り、保存値が無い会社は履歴から補う', () => {
+  const st = newGame()
+  setupProduced(st, 4)
+  game.recordAction(st, 'hanbai', { items: [{ qty: 4, unit: 40 }] })
+  calc.doClosingPrep(st)
+  const res = calc.settle(st)!
+  calc.nextPeriod(st)
+  assert.deepEqual([st.prevPQ, st.prevG, st.prevDep, st.prevTax], [res.PQ, res.G, res.dep, res.tax])
+  // 保存値に prev* が無い（この項目を持つ前に保存した）会社を読み込むと、履歴の前の期から補う
+  const payload = game.payloadFromState(st, [res])
+  for (const k of ['prevPQ', 'prevG', 'prevDep', 'prevTax']) delete (payload.opening as Record<string, unknown>)[k]
+  const st2 = calc.newState()
+  game.applyApiState(st2, {
+    company: { ...payload, org: 'O', name: 'X', id: 1, plans: {} },
+    entries: payload.entries,
+    results: [res],
+  } as never)
+  assert.deepEqual([st2.prevPQ, st2.prevG], [res.PQ, res.G])
+})

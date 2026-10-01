@@ -2,7 +2,7 @@
 // 確認画面と同じ6グループ・同じ順序で、値を入力欄にしたもの。
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { normalizeRules, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_MODES, LOAN_MODE_LABELS, type LoanMode, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
 import { ColChip, NotFound } from './RuleView'
 
@@ -37,6 +37,39 @@ function FieldInput({
               }}
               className={`${NUM_BASE} w-20`}
             />
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  if (field.kind === 'loanModes') {
+    // 期ごとの借入枠の決め方。第1期は借入なしなので選ばせない
+    return (
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: SALARY_PERIODS }, (_, i) => (
+          <label key={i} className="block">
+            <span className="block text-ink-400 text-[10px] mb-1 text-center">第{i + 1}期</span>
+            {i === 0 ? (
+              <div className="h-10 px-3 grid place-items-center rounded-lg border border-line bg-canvas text-ink-400 text-xs">借入なし</div>
+            ) : (
+              <select
+                data-testid={`f-loanMode-${i}`}
+                value={rules.loanModes[i]}
+                onChange={(e) => {
+                  const next = [...rules.loanModes]
+                  next[i] = e.target.value as LoanMode
+                  set({ loanModes: next })
+                }}
+                className="h-10 border border-line rounded-lg px-2 bg-white text-sm"
+              >
+                {LOAN_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {LOAN_MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
         ))}
       </div>
@@ -201,7 +234,7 @@ export default function RuleEditor({
     // 進捗タブは今期の計画と比べる画面なので、計画を立て始める期より後でないと意味がない
     if (!Number.isInteger(rules.progressFromPeriod) || rules.progressFromPeriod <= rules.planFromPeriod)
       return '進捗タブを出す期は、経営計画書タブを出す期より後の期にしてください'
-    const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, rules.planHintP, rules.planHintV, ...rules.salaryTable]
+    const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, rules.loanSalesMonths, rules.loanRepayYears, rules.planHintP, rules.planHintV, ...rules.salaryTable]
     if (nums.some((n) => !Number.isFinite(n) || n < 0)) return '数値は0以上で入力してください'
     return ''
   }

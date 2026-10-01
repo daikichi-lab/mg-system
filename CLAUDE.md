@@ -131,6 +131,8 @@ npm run test:calc
   記帳ボタンのヒント文言も同じ理由で **`getTags()`** から取る（`Participant.tsx` の `TAGS` という静的オブジェクトはもう無い）。
 - 差し替えが効くことは `npm run test:rules`、既定値のままなら数値が変わらないことは `npm run test:calc`（golden-master）が担保する。
 - `planFromPeriod`（経営計画書タブを出す期・既定 3）は計算には使わず、参加者アプリのタブ表示だけに効く。
+- **借入枠の決め方は期ごと**（`loanModes`・既定は全期 `equity`＝純資産×倍率）。`sales`（前期の月商×`loanSalesMonths`）・`debt`（前期の経常利益＋減価償却−法人税 ×`loanRepayYears`）・`bank`（3つの最小値）を選べる。
+  計算は `calc.ts` の `loanCriteria()` / `loanCap()`。前期の値は盤面の `prevPQ`・`prevG`・`prevDep`・`prevTax`（`nextPeriod()` で入り、保存は期首の値と同じ `opening`。持たない保存済みの会社は `applyApiState()` が履歴から補う）。
 
 **研修への適用**：数値ルールは研修（`orgs`）へ**コピー**される。参照ではないので、マスタを後から編集・削除しても
 既存の研修の数値は動かない。参加者アプリは `state/useGame.ts` の初期ロードで `/api/org/:code/rules` を取り、

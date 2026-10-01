@@ -9,6 +9,8 @@ import {
   ratios,
   cashflow,
   loanCap,
+  loanCriteria,
+  loanMode,
   loanRoom,
   equipSale,
   lotLabel,
@@ -46,6 +48,7 @@ import { planVisible, planVsActual, progressVisible } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
+import { LOAN_MODE_LABELS } from '../lib/rules'
 import { useToast, Toaster } from './Toast'
 
 // 数値データから生成した図解HTML（ユーザ入力を含まない）を描画
@@ -551,6 +554,7 @@ function OpeningTab({
   const [addCap, setAddCap] = useState(100)
   const eq = equityNow(st)
   const cap = loanCap(st)
+  const criteria = loanCriteria(st) // 借入枠の基準ごとの枠（その期の決め方による）
   const room = loanRoom(st)
   const interest = Math.round(st.openingLoan * 0.05)
   // 期末の元本返済の見込み。期中に借りた分も含む（(期首残高＋今期の借入) × 返済率。期末処理と同じ closingRepay()）
@@ -640,20 +644,55 @@ function OpeningTab({
           </div>
         ) : (
           <>
-            <div className="border-b border-line py-1.5">
-              <span className="text-ink-600">借入金可能枠</span>
-              <div className="flex items-center gap-1 flex-wrap mt-1">
-                純資産 <b className="num">{fmt(eq)}</b> ×
-                <input
-                  data-testid="op-loanmult"
-                  type="number"
-                  min={0}
-                  defaultValue={st.loanMult}
-                  onBlur={(e) => game.setInstr(Number(e.target.value) || 0, st.repayRate)}
-                  className="w-14 h-8 border border-line rounded px-1 text-right num"
-                />
-                倍 ＝ <b className="num text-f-base">{fmt(cap)}</b>
+            {/* 借入枠：その期の決め方（数値ルール loanModes）の基準ごとの枠。銀行審査は一番小さい基準で決まる */}
+            <div className="border-b border-line py-1.5" data-testid="op-loan-criteria">
+              <div className="flex justify-between items-baseline gap-2">
+                <span className="text-ink-600">借入金可能枠</span>
+                <span className="text-[11px] text-ink-400" data-testid="op-loan-mode">
+                  決め方：{LOAN_MODE_LABELS[loanMode(st)]}
+                </span>
               </div>
+              {criteria.map((c) => {
+                const binding = criteria.length > 1 && c.cap === cap
+                return (
+                  <div
+                    key={c.key}
+                    data-testid={`op-loan-${c.key}`}
+                    className={`mt-1 rounded-lg px-2 py-1 ${binding ? 'bg-f-bg' : ''}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-bold text-xs">
+                        {c.label}
+                        {binding && <span className="ml-1.5 text-[10px] text-f-ink">← この基準で枠が決まります</span>}
+                      </span>
+                      <b className="num text-f-base">{fmt(c.cap)}</b>
+                    </div>
+                    {c.key === 'equity' ? (
+                      // 純資産倍率の倍率は講師が会社ごとに設定する（従来どおり）
+                      <div className="flex items-center gap-1 flex-wrap text-xs text-ink-500">
+                        純資産 <b className="num">{fmt(eq)}</b> ×
+                        <input
+                          data-testid="op-loanmult"
+                          type="number"
+                          min={0}
+                          defaultValue={st.loanMult}
+                          onBlur={(e) => game.setInstr(Number(e.target.value) || 0, st.repayRate)}
+                          className="w-14 h-7 border border-line rounded px-1 text-right num"
+                        />
+                        倍
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-ink-500">{c.detail}</div>
+                    )}
+                  </div>
+                )
+              })}
+              {criteria.length > 1 && (
+                <div className="flex justify-between mt-1 px-2 text-xs">
+                  <span className="text-ink-500">借入枠（{criteria.length}つの基準の最小）</span>
+                  <b className="num text-f-base">{fmt(cap)}</b>
+                </div>
+              )}
             </div>
             {kv('現在借入残高', fmt(st.loan))}
             <div className="flex justify-between py-1.5">

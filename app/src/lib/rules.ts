@@ -6,11 +6,31 @@
 // 列（col）と勘定科目の対応・法人税率などは対象外。ここに置くのは
 // 「研修の設計として講師が変えたくなる数値」だけにする。
 
+/** 借入枠の決め方 */
+export type LoanMode = 'equity' | 'sales' | 'debt' | 'bank'
+export const LOAN_MODES: LoanMode[] = ['equity', 'sales', 'debt', 'bank']
+/** 借入枠の決め方の表示名 */
+export const LOAN_MODE_LABELS: Record<LoanMode, string> = {
+  equity: '純資産倍率',
+  sales: '月商倍率',
+  debt: '債務償還年数',
+  bank: '銀行審査（3つの最小）',
+}
+
 export interface Rules {
   /** 期別の1人あたり給料（添字＝期−1）。表にない期は 28 を使う */
   salaryTable: number[]
   /** 借入金利（比率。0.05 ＝ 5%） */
   loanRate: number
+  /**
+   * 借入枠の決め方（期ごと。添字＝期−1）。第1期は借入なしなので使わない（docs/calc-spec.md §9・issue #85）。
+   * equity＝純資産×倍率／sales＝前期の月商×月数／debt＝前期の簡易キャッシュフロー×償還年数／bank＝その3つの最小値
+   */
+  loanModes: LoanMode[]
+  /** 月商倍率の月数：前期の売上 ÷ 12 の何ヶ月分まで借りられるか（借入金月商倍率の目安は 3〜6） */
+  loanSalesMonths: number
+  /** 債務償還年数：前期の（経常利益＋減価償却−法人税）の何年分まで借りられるか（銀行の目安は 10年以内。全5期なので既定 5） */
+  loanRepayYears: number
   /** 家賃（期末・管理費ク） */
   rent: number
   /** 減価償却（機械1台・1期） */
@@ -44,6 +64,9 @@ export interface Rules {
 export const DEFAULT_RULES: Rules = {
   salaryTable: [25, 28, 31, 34, 37],
   loanRate: 0.05,
+  loanModes: ['equity', 'equity', 'equity', 'equity', 'equity'], // 既定は全期 純資産倍率（従来どおり）
+  loanSalesMonths: 6,
+  loanRepayYears: 5,
   rent: 25,
   depPerMachine: 10,
   machinePrice: 100,
@@ -68,16 +91,31 @@ const numList = (v: unknown, fallback: number[]): number[] =>
     ? (v as number[]).slice()
     : fallback.slice()
 
+// 0 以上の数だけを受け付ける（マイナス・文字列は既定に落とす）
+const nonNeg = (v: unknown, fallback: number): number =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback
+
+// 借入枠の決め方：期ごとの配列。知らない値・欠けた期は既定（純資産倍率）で埋め、長さは既定（5期）に揃える
+const loanModeList = (v: unknown, fallback: LoanMode[]): LoanMode[] =>
+  fallback.map((f, i) => {
+    const x = Array.isArray(v) ? v[i] : undefined
+    return typeof x === 'string' && (LOAN_MODES as string[]).includes(x) ? (x as LoanMode) : f
+  })
+
 /**
  * 部分的な指定を既定値で埋めて完全な Rules にする。
  * 保存済みデータに項目が足りない／型が壊れている場合の後方互換もここで吸収する。
  */
 export function normalizeRules(input?: Partial<Rules> | null): Rules {
   const d = DEFAULT_RULES
-  if (!input || typeof input !== 'object') return { ...d, salaryTable: d.salaryTable.slice(), materialPrices: d.materialPrices.slice() }
+  if (!input || typeof input !== 'object')
+    return { ...d, salaryTable: d.salaryTable.slice(), materialPrices: d.materialPrices.slice(), loanModes: d.loanModes.slice() }
   return {
     salaryTable: numList(input.salaryTable, d.salaryTable),
     loanRate: num(input.loanRate, d.loanRate),
+    loanModes: loanModeList(input.loanModes, d.loanModes),
+    loanSalesMonths: nonNeg(input.loanSalesMonths, d.loanSalesMonths),
+    loanRepayYears: nonNeg(input.loanRepayYears, d.loanRepayYears),
     rent: num(input.rent, d.rent),
     depPerMachine: num(input.depPerMachine, d.depPerMachine),
     machinePrice: num(input.machinePrice, d.machinePrice),

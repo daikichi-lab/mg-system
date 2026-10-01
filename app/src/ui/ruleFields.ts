@@ -11,7 +11,7 @@ export type ColRef = number | null
 
 export interface NumField {
   kind: 'num'
-  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap' | 'planFromPeriod' | 'progressFromPeriod' | 'planHintP' | 'planHintV'
+  key: 'rent' | 'depPerMachine' | 'machinePrice' | 'matCap' | 'prodCap' | 'planFromPeriod' | 'loanSalesMonths' | 'loanRepayYears' | 'progressFromPeriod' | 'planHintP' | 'planHintV'
   label: string
   desc: string
   unit?: string
@@ -42,7 +42,16 @@ export interface PricesField {
   desc: string
   col: ColRef
 }
-export type Field = NumField | PctField | SalaryField | PricesField
+/** 借入枠の決め方（期ごとのプルダウン。第1期は借入なしなので選ばせない） */
+export interface LoanModesField {
+  kind: 'loanModes'
+  key: 'loanModes'
+  label: string
+  desc: string
+  col: ColRef
+  colNote?: string
+}
+export type Field = NumField | PctField | SalaryField | PricesField | LoanModesField
 
 export interface Group {
   title: string
@@ -131,7 +140,7 @@ export const GROUPS: Group[] = [
   },
   {
     title: '金融機関',
-    lead: '借入のコスト',
+    lead: '借入のコストと、いくらまで借りられるか',
     fields: [
       {
         kind: 'pct',
@@ -140,6 +149,31 @@ export const GROUPS: Group[] = [
         desc: '借入時と期首に支払金利として計上されます（第1期は借入なし）',
         min: 0,
         col: 8,
+      },
+      {
+        kind: 'loanModes',
+        key: 'loanModes',
+        label: '借入枠の決め方（期ごと）',
+        desc: '純資産倍率＝純資産×倍率（倍率は講師が会社ごとに設定）／月商倍率＝前期の売上÷12×月数／債務償還年数＝前期の（経常利益＋減価償却−法人税）×年数／銀行審査＝その3つのうち一番小さい枠。第1期は借入なし',
+        col: 1,
+      },
+      {
+        kind: 'num',
+        key: 'loanSalesMonths',
+        label: '月商倍率の月数',
+        desc: '前期の月商（売上÷12）の何ヶ月分まで借りられるか。銀行の目安は 3ヶ月が理想・6ヶ月まで許容。月商倍率・銀行審査の期に使います',
+        unit: 'ヶ月',
+        min: 0,
+        col: 1,
+      },
+      {
+        kind: 'num',
+        key: 'loanRepayYears',
+        label: '債務償還年数',
+        desc: '前期の返済原資（経常利益＋減価償却−法人税）の何年分まで借りられるか。銀行の目安は 10年以内（全5期なので既定 5年）。債務償還年数・銀行審査の期に使います',
+        unit: '年',
+        min: 0,
+        col: 1,
       },
     ],
   },

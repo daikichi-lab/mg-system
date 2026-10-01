@@ -35,6 +35,11 @@ const OPENING_KEYS = [
   'openingAds',
   'loanMult',
   'repayRate',
+  // 前期の決算の値（借入枠の月商倍率・債務償還年数に使う）。null のことがある
+  'prevPQ',
+  'prevG',
+  'prevDep',
+  'prevTax',
 ] as const
 
 export function payloadFromState(st: St, history: Result[], plans: Record<string, unknown> = {}) {
@@ -73,6 +78,22 @@ export function applyApiState(st: St, data: ApiState): Result[] {
     if (c.opening && c.opening[k] != null) (st as any)[k] = c.opening[k]
   })
   const results = (data.results || []) as Result[]
+  // 前期の決算の値：保存値が無ければ（この項目を持つ前に保存した会社）、履歴の前の期の決算から補う。
+  // 別の会社の値が残らないよう、まず null に戻す
+  st.prevPQ = st.prevG = st.prevDep = st.prevTax = null
+  for (const k of ['prevPQ', 'prevG', 'prevDep', 'prevTax'] as const) {
+    const v = c.opening?.[k]
+    if (typeof v === 'number' && Number.isFinite(v)) st[k] = v
+  }
+  if (st.prevPQ == null) {
+    const prev = results.find((h) => h.period === st.period - 1)
+    if (prev) {
+      st.prevPQ = prev.PQ
+      st.prevG = prev.G
+      st.prevDep = prev.dep
+      st.prevTax = prev.tax
+    }
+  }
   // 期首の什器・1台ずつ。無い古いデータは過去の決算結果から購入期を復元する（台数・合計簿価と合うときだけ採用。
   // 合わなければ空のままにして、recompute が合計を台数で按分し簿価から購入期を逆算する）
   const lots = c.opening?.openingLots
