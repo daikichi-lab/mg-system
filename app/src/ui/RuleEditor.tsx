@@ -2,7 +2,7 @@
 // 確認画面と同じ6グループ・同じ順序で、値を入力欄にしたもの。
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { normalizeRules, LOAN_MODES, LOAN_MODE_LABELS, type LoanMode, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_BASES, LOAN_BASIS_LABELS, LOAN_COMBINE_LABELS, type LoanCombine, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
 import { ColChip, NotFound } from './RuleView'
 
@@ -43,35 +43,75 @@ function FieldInput({
     )
   }
 
-  if (field.kind === 'loanModes') {
-    // 期ごとの借入枠の決め方。第1期は借入なしなので選ばせない
+  if (field.kind === 'loanPlan') {
+    // 基準ごとに「何期から使うか（なし＝0）」と、月商倍率の月数・償還年数。第1期は借入なしなので第2期から選ぶ
+    const fromOpts = [0, 2, 3, 4, 5]
+    const extra = (k: string) =>
+      k === 'sales' ? (
+        <span className="flex items-center gap-1 text-xs text-ink-500">
+          前期の月商 ×
+          <input
+            data-testid="f-loanSalesMonths"
+            type="number"
+            min={0}
+            value={rules.loanSalesMonths}
+            onChange={(e) => set({ loanSalesMonths: Number(e.target.value) })}
+            className={`${NUM_BASE} w-16 h-9`}
+          />
+          ヶ月
+        </span>
+      ) : k === 'debt' ? (
+        <span className="flex items-center gap-1 text-xs text-ink-500">
+          前期の返済原資 ×
+          <input
+            data-testid="f-loanRepayYears"
+            type="number"
+            min={0}
+            value={rules.loanRepayYears}
+            onChange={(e) => set({ loanRepayYears: Number(e.target.value) })}
+            className={`${NUM_BASE} w-16 h-9`}
+          />
+          年
+        </span>
+      ) : (
+        <span className="text-xs text-ink-500">純資産 × 倍率（倍率は講師が会社ごとに設定）</span>
+      )
     return (
-      <div className="flex flex-wrap gap-2">
-        {Array.from({ length: SALARY_PERIODS }, (_, i) => (
-          <label key={i} className="block">
-            <span className="block text-ink-400 text-[10px] mb-1 text-center">第{i + 1}期</span>
-            {i === 0 ? (
-              <div className="h-10 px-3 grid place-items-center rounded-lg border border-line bg-canvas text-ink-400 text-xs">借入なし</div>
-            ) : (
-              <select
-                data-testid={`f-loanMode-${i}`}
-                value={rules.loanModes[i]}
-                onChange={(e) => {
-                  const next = [...rules.loanModes]
-                  next[i] = e.target.value as LoanMode
-                  set({ loanModes: next })
-                }}
-                className="h-10 border border-line rounded-lg px-2 bg-white text-sm"
-              >
-                {LOAN_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {LOAN_MODE_LABELS[m]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </label>
+      <div className="space-y-2">
+        {LOAN_BASES.map((k) => (
+          <div key={k} className="flex items-center gap-3 flex-wrap rounded-lg border border-line px-3 py-2">
+            <span className="font-bold text-sm w-24 shrink-0">{LOAN_BASIS_LABELS[k]}</span>
+            <select
+              data-testid={`f-loanFrom-${k}`}
+              value={rules.loanFrom[k]}
+              onChange={(e) => set({ loanFrom: { ...rules.loanFrom, [k]: Number(e.target.value) } })}
+              className="h-9 border border-line rounded-lg px-2 bg-white text-sm"
+            >
+              {fromOpts.map((p) => (
+                <option key={p} value={p}>
+                  {p === 0 ? 'なし' : `第${p}期から`}
+                </option>
+              ))}
+            </select>
+            {extra(k)}
+          </div>
         ))}
+        <label className="flex items-center gap-2 flex-wrap text-sm">
+          <span className="text-ink-600">複数の基準が使える期は</span>
+          <select
+            data-testid="f-loanCombine"
+            value={rules.loanCombine}
+            onChange={(e) => set({ loanCombine: e.target.value as LoanCombine })}
+            className="h-9 border border-line rounded-lg px-2 bg-white text-sm"
+          >
+            {(['min', 'max'] as const).map((c) => (
+              <option key={c} value={c}>
+                {LOAN_COMBINE_LABELS[c]}
+              </option>
+            ))}
+          </select>
+          <span className="text-ink-600">を借入枠にする</span>
+        </label>
       </div>
     )
   }

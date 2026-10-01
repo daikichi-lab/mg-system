@@ -2,7 +2,7 @@
 // 編集画面と同じ6グループで並べるが、入力欄ではなく数字として見せる。
 import { useEffect, useRef, useState } from 'react'
 import { api, type ApiRuleset } from '../lib/api'
-import { normalizeRules, LOAN_MODE_LABELS, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_BASES, LOAN_BASIS_LABELS, LOAN_COMBINE_LABELS, type Rules } from '../lib/rules'
 import { GROUPS, COL_NAMES, COL_STYLE, SALARY_PERIODS, type Field } from './ruleFields'
 
 export function ColChip({ col, note }: { col: number | null; note?: string }) {
@@ -38,16 +38,24 @@ function Value({ field, rules }: { field: Field; rules: Rules }) {
       </div>
     )
   }
-  if (field.kind === 'loanModes') {
-    // 期ごとの借入枠の決め方。第1期は借入なし
+  if (field.kind === 'loanPlan') {
+    // 基準ごとの開始期（なし＝使わない）と月数・年数、複数の基準が効く期の採り方
+    const extra = (k: string) =>
+      k === 'sales' ? `前期の月商 × ${rules.loanSalesMonths}ヶ月` : k === 'debt' ? `前期の返済原資 × ${rules.loanRepayYears}年` : '純資産 × 倍率（講師が会社ごとに設定）'
     return (
-      <div className="flex flex-wrap gap-2">
-        {Array.from({ length: SALARY_PERIODS }, (_, i) => (
-          <div key={i} className="rounded-lg border border-line bg-canvas px-3 py-1.5 text-center min-w-[96px]">
-            <div className="text-ink-400 text-[10px] leading-none">第{i + 1}期</div>
-            <div className="font-bold text-sm leading-tight mt-1">{i === 0 ? '借入なし' : LOAN_MODE_LABELS[rules.loanModes[i]]}</div>
+      <div className="space-y-1.5">
+        {LOAN_BASES.map((k) => (
+          <div key={k} className="flex items-center gap-3 flex-wrap rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm">
+            <span className="font-bold w-24 shrink-0">{LOAN_BASIS_LABELS[k]}</span>
+            <span className="font-bold" data-testid={`v-loanFrom-${k}`}>
+              {rules.loanFrom[k] > 0 ? `第${rules.loanFrom[k]}期から` : 'なし'}
+            </span>
+            {rules.loanFrom[k] > 0 && <span className="text-xs text-ink-500">{extra(k)}</span>}
           </div>
         ))}
+        <div className="text-xs text-ink-600">
+          複数の基準が使える期は <b>{LOAN_COMBINE_LABELS[rules.loanCombine]}</b>
+        </div>
       </div>
     )
   }

@@ -523,7 +523,7 @@ test('会社を始めると期末返済率の初期値は 5%（計算エンジ�
   assert.equal(game.DEFAULT_REPAY_RATE, 5)
 })
 
-test('借入枠：期ごとの決め方（純資産倍率／月商倍率／債務償還年数／銀行審査＝最小）', () => {
+test('借入枠：基準ごとの開始期（なし可）と、複数の基準が効く期の最小／最大', () => {
   calc.setRules(null)
   const st = calc.newState()
   st.period = 3
@@ -535,23 +535,30 @@ test('借入枠：期ごとの決め方（純資産倍率／月商倍率／債�
   st.prevDep = 20
   st.prevTax = 24 // 返済原資 76
   calc.recompute(st)
-  // 既定（純資産倍率）：400 × 1
-  assert.equal(calc.loanMode(st), 'equity')
+  // 既定：純資産倍率だけ（400 × 1）
+  assert.deepEqual(calc.loanCriteria(st).map((c) => c.key), ['equity'])
   assert.equal(calc.loanCap(st), 400)
-  // 月商倍率：50 × 6ヶ月 ＝ 300
-  calc.setRules({ loanModes: ['equity', 'equity', 'sales', 'equity', 'equity'] })
-  assert.equal(calc.loanCap(st), 300)
-  // 債務償還年数：76 × 5年 ＝ 380
-  calc.setRules({ loanModes: ['equity', 'equity', 'debt', 'equity', 'equity'] })
-  assert.equal(calc.loanCap(st), 380)
-  // 銀行審査：3つの最小（月商倍率 300）。基準は3つとも出す
-  calc.setRules({ loanModes: ['equity', 'equity', 'bank', 'equity', 'equity'], loanSalesMonths: 3 })
+  // 3つとも第3期から・最小（銀行審査）：純資産 400／月商 50×3 ＝ 150／償還 76×5 ＝ 380 → 150
+  calc.setRules({ loanFrom: { equity: 2, sales: 3, debt: 3 }, loanSalesMonths: 3 })
   assert.deepEqual(calc.loanCriteria(st).map((c) => [c.key, c.cap]), [['equity', 400], ['sales', 150], ['debt', 380]])
   assert.equal(calc.loanCap(st), 150)
-  // 赤字（返済原資がマイナス）なら債務償還年数の枠は 0 → 銀行審査では借りられない
+  // 最大（緩い）なら 400
+  calc.setRules({ loanFrom: { equity: 2, sales: 3, debt: 3 }, loanSalesMonths: 3, loanCombine: 'max' })
+  assert.equal(calc.loanCap(st), 400)
+  // 始まる期の前は効かない：月商倍率が第4期からなら第3期は純資産倍率と償還年数だけ
+  calc.setRules({ loanFrom: { equity: 2, sales: 4, debt: 3 } })
+  assert.deepEqual(calc.loanCriteria(st).map((c) => c.key), ['equity', 'debt'])
+  // 純資産倍率を「なし」：月商倍率だけ（50 × 6 ＝ 300）
+  calc.setRules({ loanFrom: { equity: 0, sales: 2, debt: 0 } })
+  assert.equal(calc.loanCap(st), 300)
+  // 全部「なし」なら借入できない
+  calc.setRules({ loanFrom: { equity: 0, sales: 0, debt: 0 } })
+  assert.equal(calc.loanCap(st), 0)
+  // 赤字（返済原資がマイナス）なら債務償還年数の枠は 0 → 最小では借りられない
+  calc.setRules({ loanFrom: { equity: 2, sales: 2, debt: 2 } })
   st.prevG = -50
   assert.equal(calc.loanCap(st), 0)
-  // 前期の値が無い（補えなかった）ときは純資産倍率だけ
+  // 前期の値が無い（補えなかった）ときは月商倍率・償還年数を使わない
   st.prevPQ = null
   st.prevG = null
   assert.deepEqual(calc.loanCriteria(st).map((c) => c.key), ['equity'])

@@ -10,7 +10,6 @@ import {
   cashflow,
   loanCap,
   loanCriteria,
-  loanMode,
   loanRoom,
   equipSale,
   lotLabel,
@@ -48,7 +47,6 @@ import { planVisible, planVsActual, progressVisible } from '../lib/plan'
 import { savePdf } from '../lib/pdf'
 import { getTags, getForms, A_KEYS, B_KEYS, EVENTS, type Field } from './actions'
 import { useGame } from '../state/useGame'
-import { LOAN_MODE_LABELS } from '../lib/rules'
 import { useToast, Toaster } from './Toast'
 
 // 数値データから生成した図解HTML（ユーザ入力を含まない）を描画
@@ -554,7 +552,8 @@ function OpeningTab({
   const [addCap, setAddCap] = useState(100)
   const eq = equityNow(st)
   const cap = loanCap(st)
-  const criteria = loanCriteria(st) // 借入枠の基準ごとの枠（その期の決め方による）
+  const criteria = loanCriteria(st) // その期に効く借入枠の基準ごとの枠
+  const combineMax = getRules().loanCombine === 'max' // 複数の基準が効く期に一番大きい枠を採るか
   const room = loanRoom(st)
   const interest = Math.round(st.openingLoan * 0.05)
   // 期末の元本返済の見込み。期中に借りた分も含む（(期首残高＋今期の借入) × 返済率。期末処理と同じ closingRepay()）
@@ -644,12 +643,16 @@ function OpeningTab({
           </div>
         ) : (
           <>
-            {/* 借入枠：その期の決め方（数値ルール loanModes）の基準ごとの枠。銀行審査は一番小さい基準で決まる */}
+            {/* 借入枠：その期に効く基準（数値ルール loanFrom）ごとの枠。複数あれば loanCombine で一番小さい／大きい枠を採る */}
             <div className="border-b border-line py-1.5" data-testid="op-loan-criteria">
               <div className="flex justify-between items-baseline gap-2">
                 <span className="text-ink-600">借入金可能枠</span>
                 <span className="text-[11px] text-ink-400" data-testid="op-loan-mode">
-                  決め方：{LOAN_MODE_LABELS[loanMode(st)]}
+                  {criteria.length > 1
+                    ? `${criteria.length}つの基準の${combineMax ? '一番大きい枠' : '一番小さい枠（銀行審査）'}`
+                    : criteria.length === 1
+                      ? `基準：${criteria[0].label}`
+                      : ''}
                 </span>
               </div>
               {criteria.map((c) => {
@@ -687,9 +690,15 @@ function OpeningTab({
                   </div>
                 )
               })}
+              {/* この期に効く基準が無い（全部「使わない」・始まる期の前）ときは借入できない */}
+              {criteria.length === 0 && (
+                <div className="mt-1 rounded-lg bg-canvas px-2 py-1.5 text-xs text-ink-500" data-testid="op-loan-none">
+                  この期は借入できません（借入枠の基準がまだ始まっていません）
+                </div>
+              )}
               {criteria.length > 1 && (
                 <div className="flex justify-between mt-1 px-2 text-xs">
-                  <span className="text-ink-500">借入枠（{criteria.length}つの基準の最小）</span>
+                  <span className="text-ink-500">借入枠（{criteria.length}つの基準の{combineMax ? '最大' : '最小'}）</span>
                   <b className="num text-f-base">{fmt(cap)}</b>
                 </div>
               )}

@@ -6,15 +6,19 @@
 // 列（col）と勘定科目の対応・法人税率などは対象外。ここに置くのは
 // 「研修の設計として講師が変えたくなる数値」だけにする。
 
-/** 借入枠の決め方 */
-export type LoanMode = 'equity' | 'sales' | 'debt' | 'bank'
-export const LOAN_MODES: LoanMode[] = ['equity', 'sales', 'debt', 'bank']
-/** 借入枠の決め方の表示名 */
-export const LOAN_MODE_LABELS: Record<LoanMode, string> = {
+/** 借入枠の基準（純資産倍率・月商倍率・債務償還年数） */
+export type LoanBasis = 'equity' | 'sales' | 'debt'
+export const LOAN_BASES: LoanBasis[] = ['equity', 'sales', 'debt']
+export const LOAN_BASIS_LABELS: Record<LoanBasis, string> = {
   equity: '純資産倍率',
   sales: '月商倍率',
   debt: '債務償還年数',
-  bank: '銀行審査（3つの最小）',
+}
+/** 複数の基準が効く期に、どの枠を採るか（min＝一番小さい＝銀行審査らしく厳しい／max＝一番大きい＝緩い） */
+export type LoanCombine = 'min' | 'max'
+export const LOAN_COMBINE_LABELS: Record<LoanCombine, string> = {
+  min: '一番小さい枠（厳しい・銀行審査）',
+  max: '一番大きい枠（緩い）',
 }
 
 export interface Rules {
@@ -23,10 +27,12 @@ export interface Rules {
   /** 借入金利（比率。0.05 ＝ 5%） */
   loanRate: number
   /**
-   * 借入枠の決め方（期ごと。添字＝期−1）。第1期は借入なしなので使わない（docs/calc-spec.md §9・issue #85）。
-   * equity＝純資産×倍率／sales＝前期の月商×月数／debt＝前期の簡易キャッシュフロー×償還年数／bank＝その3つの最小値
+   * 借入枠の基準ごとに、何期から使うか（0＝使わない）。第1期は借入なしなので 2 以上で効く（docs/calc-spec.md §9・issue #85）。
+   * equity＝純資産×倍率／sales＝前期の月商×月数／debt＝前期の（経常利益＋減価償却−法人税）×償還年数
    */
-  loanModes: LoanMode[]
+  loanFrom: Record<LoanBasis, number>
+  /** 複数の基準が効く期の借入枠：一番小さい枠（min）か一番大きい枠（max）か */
+  loanCombine: LoanCombine
   /** 月商倍率の月数：前期の売上 ÷ 12 の何ヶ月分まで借りられるか（借入金月商倍率の目安は 3〜6） */
   loanSalesMonths: number
   /** 債務償還年数：前期の（経常利益＋減価償却−法人税）の何年分まで借りられるか（銀行の目安は 10年以内。全5期なので既定 5） */
@@ -64,7 +70,8 @@ export interface Rules {
 export const DEFAULT_RULES: Rules = {
   salaryTable: [25, 28, 31, 34, 37],
   loanRate: 0.05,
-  loanModes: ['equity', 'equity', 'equity', 'equity', 'equity'], // 既定は全期 純資産倍率（従来どおり）
+  loanFrom: { equity: 2, sales: 0, debt: 0 }, // 既定は第2期から純資産倍率だけ（従来どおり）
+  loanCombine: 'min',
   loanSalesMonths: 6,
   loanRepayYears: 5,
   rent: 25,
@@ -95,12 +102,15 @@ const numList = (v: unknown, fallback: number[]): number[] =>
 const nonNeg = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback
 
-// 借入枠の決め方：期ごとの配列。知らない値・欠けた期は既定（純資産倍率）で埋め、長さは既定（5期）に揃える
-const loanModeList = (v: unknown, fallback: LoanMode[]): LoanMode[] =>
-  fallback.map((f, i) => {
-    const x = Array.isArray(v) ? v[i] : undefined
-    return typeof x === 'string' && (LOAN_MODES as string[]).includes(x) ? (x as LoanMode) : f
-  })
+// 借入枠の基準ごとの開始期：0（使わない）以上の整数だけを受け付け、欠けた基準・壊れた値は既定で埋める
+const loanFromOf = (v: unknown, fallback: Record<LoanBasis, number>): Record<LoanBasis, number> => {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  const one = (k: LoanBasis) => {
+    const x = o[k]
+    return typeof x === 'number' && Number.isInteger(x) && x >= 0 ? x : fallback[k]
+  }
+  return { equity: one('equity'), sales: one('sales'), debt: one('debt') }
+}
 
 /**
  * 部分的な指定を既定値で埋めて完全な Rules にする。
@@ -109,11 +119,12 @@ const loanModeList = (v: unknown, fallback: LoanMode[]): LoanMode[] =>
 export function normalizeRules(input?: Partial<Rules> | null): Rules {
   const d = DEFAULT_RULES
   if (!input || typeof input !== 'object')
-    return { ...d, salaryTable: d.salaryTable.slice(), materialPrices: d.materialPrices.slice(), loanModes: d.loanModes.slice() }
+    return { ...d, salaryTable: d.salaryTable.slice(), materialPrices: d.materialPrices.slice(), loanFrom: { ...d.loanFrom } }
   return {
     salaryTable: numList(input.salaryTable, d.salaryTable),
     loanRate: num(input.loanRate, d.loanRate),
-    loanModes: loanModeList(input.loanModes, d.loanModes),
+    loanFrom: loanFromOf(input.loanFrom, d.loanFrom),
+    loanCombine: input.loanCombine === 'max' || input.loanCombine === 'min' ? input.loanCombine : d.loanCombine,
     loanSalesMonths: nonNeg(input.loanSalesMonths, d.loanSalesMonths),
     loanRepayYears: nonNeg(input.loanRepayYears, d.loanRepayYears),
     rent: num(input.rent, d.rent),
