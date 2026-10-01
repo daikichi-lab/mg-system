@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { normalizeRules, LOAN_BASES, LOAN_BASIS_LABELS, LOAN_COMBINE_LABELS, type LoanCombine, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
-import { ColChip, NotFound } from './RuleView'
+import { ColChip, LoanFormulaNotes, NotFound } from './RuleView'
 
 // 幅は使う側で指定する。ここに w-28 を入れて呼び出し側で w-20 を足すと、
 // Tailwind の出力順で幅が衝突して意図した幅にならない
@@ -49,7 +49,7 @@ function FieldInput({
     const extra = (k: string) =>
       k === 'sales' ? (
         <span className="flex items-center gap-1 text-xs text-ink-500">
-          前期の月商 ×
+          前期の月商（売上高 ÷ 12）×
           <input
             data-testid="f-loanSalesMonths"
             type="number"
@@ -112,6 +112,7 @@ function FieldInput({
           </select>
           <span className="text-ink-600">を借入枠にする</span>
         </label>
+        <LoanFormulaNotes rules={rules} />
       </div>
     )
   }

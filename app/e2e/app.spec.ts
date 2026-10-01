@@ -902,6 +902,9 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('f-loanFrom-debt').selectOption('2')
     await expect(page.getByTestId('f-loanCombine')).toHaveValue('min')
     await page.getByTestId('f-loanSalesMonths').fill('3')
+    // 計算式の説明（月商 ＝ 前期の売上高 ÷ 12）が出て、設定した月数が反映される
+    await expect(page.getByTestId('loan-formula-notes')).toContainText('前期の売上高 ÷ 12')
+    await expect(page.getByTestId('loan-formula-notes')).toContainText('月商 × 3ヶ月')
     // 経営計画書を出し始める期も講師が決める（既定 3 → 1 にすると第1期から出る）
     await expect(page.getByTestId('f-planFromPeriod')).toHaveValue('3')
     await page.getByTestId('f-planFromPeriod').fill('1')
