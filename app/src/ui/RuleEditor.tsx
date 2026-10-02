@@ -8,7 +8,8 @@ import { ColChip, LoanFormulaNotes, NotFound } from './RuleView'
 
 // 幅は使う側で指定する。ここに w-28 を入れて呼び出し側で w-20 を足すと、
 // Tailwind の出力順で幅が衝突して意図した幅にならない
-const NUM_BASE = 'num h-10 border border-line rounded-lg px-3 text-right bg-white outline-none focus:border-ink/40'
+// 入力欄はグレーの背景にして、白いカードと区別する（issue #87）
+const NUM_BASE = 'num h-10 border border-line rounded-lg px-3 text-right bg-field outline-none focus:border-ink/40'
 
 function FieldInput({
   field,
@@ -193,7 +194,7 @@ function AddPrice({ onAdd }: { onAdd: (v: number) => void }) {
         onChange={(e) => setV(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && commit()}
         placeholder="単価"
-        className="num h-8 w-20 border border-line rounded-lg px-2 text-right bg-white outline-none focus:border-ink/40"
+        className="num h-8 w-20 border border-line rounded-lg px-2 text-right bg-field outline-none focus:border-ink/40"
       />
       <button
         data-testid="price-add"
@@ -356,7 +357,7 @@ export default function RuleEditor({
                 markDirty()
               }}
               placeholder="例：上級編（高金利）"
-              className="w-full h-10 border border-line rounded-lg px-3 text-sm outline-none focus:border-ink/40"
+              className="w-full h-10 border border-line rounded-lg px-3 text-sm bg-field outline-none focus:border-ink/40"
             />
           </label>
           <label className="block">
@@ -369,7 +370,7 @@ export default function RuleEditor({
                 markDirty()
               }}
               placeholder="どんな狙いの設定か"
-              className="w-full h-10 border border-line rounded-lg px-3 text-sm outline-none focus:border-ink/40"
+              className="w-full h-10 border border-line rounded-lg px-3 text-sm bg-field outline-none focus:border-ink/40"
             />
           </label>
         </div>
