@@ -50,6 +50,20 @@ test('normalizeRules：進捗タブを出す期は既定 4、1以上の整数だ
   assert.equal(normalizeRules({ rent: 20 }).progressFromPeriod, 4) // 項目が無い保存済みのルールは既定を補う
 })
 
+test('normalizeRules：借入枠は基準ごとの開始期（既定 純資産倍率だけ第2期から）と最小／最大。壊れた値は既定に落とす', () => {
+  assert.deepEqual(DEFAULT_RULES.loanFrom, { equity: 2, sales: 0, debt: 0 })
+  assert.equal(DEFAULT_RULES.loanCombine, 'min')
+  assert.equal(DEFAULT_RULES.loanSalesMonths, 6)
+  assert.equal(DEFAULT_RULES.loanRepayYears, 5)
+  const r = normalizeRules({ loanFrom: { equity: 0, sales: 3, debt: -1 } as never, loanCombine: 'max', loanSalesMonths: 3, loanRepayYears: -1 })
+  assert.deepEqual(r.loanFrom, { equity: 0, sales: 3, debt: 0 }) // マイナスは既定（0）
+  assert.equal(r.loanCombine, 'max')
+  assert.equal(r.loanSalesMonths, 3)
+  assert.equal(r.loanRepayYears, 5) // マイナスは既定
+  assert.equal(normalizeRules({ loanCombine: 'x' as never }).loanCombine, 'min')
+  assert.deepEqual(normalizeRules({ rent: 20 }).loanFrom, DEFAULT_RULES.loanFrom) // 項目が無い保存済みのルール
+})
+
 test('normalizeRules：配列は複製する（既定値を書き換えない）', () => {
   const a = normalizeRules(null)
   a.materialPrices.push(99)

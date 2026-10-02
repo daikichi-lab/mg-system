@@ -463,8 +463,26 @@ function nextPeriod() {
 const LOAN_RATE = 0.05
 function equityNow(){ return st.openingCapital + colTotals()[0] + st.retained; }  // 純資産 = 期首資本+当期資本(ア)+期首剰余金
 function loanCap(){  return st.period<=1 ? 0 : Math.max(0, Math.round(equityNow() * st.loanMult)); }  // 借入枠。第1期は0
+// ↑ プロトタイプ（mock）の式。現行の calc.ts は下の「借入枠の決め方（期ごと）」で、既定（純資産倍率）なら同じ結果になる
 function loanRoom(excludeAmt=0){ return Math.max(0, loanCap() - (st.loan - excludeAmt)); }  // 今期借入可能額 = 枠 − 残高（編集中の行分は除外）
 ```
+
+### 借入枠の決め方（基準ごとの開始期・issue #85）
+
+数値ルール `loanFrom` で、3つの基準それぞれを **何期から使うか**（0＝使わない）を決める。第1期は常に借入なし。
+その期に効く基準が複数あれば、`loanCombine` で **一番小さい枠（min・銀行審査）** か **一番大きい枠（max）** を借入枠にする。
+効く基準が1つも無い期は借入枠 0（借入できない）。既定は `loanFrom = { equity: 2, sales: 0, debt: 0 }`・`loanCombine = 'min'`（上の式と同じ）。
+
+| 基準 | 枠（借入残高の上限） |
+|---|---|
+| `equity` 純資産倍率 | round(純資産 × 倍率 loanMult)。倍率は講師が会社ごとに設定 |
+| `sales` 月商倍率 | round(前期の売上 PQ ÷ 12 × `loanSalesMonths`（既定 6ヶ月）) |
+| `debt` 債務償還年数 | round(max(0, 前期の経常利益 G ＋ 減価償却 − 法人税) × `loanRepayYears`（既定 5年）) |
+
+- 「前期」の値は直前の決算結果。`nextPeriod()` で期首の値 `prevPQ`・`prevG`・`prevDep`・`prevTax` として持つ（保存は他の期首の値と同じ `opening`）。
+  これらを持たない保存済みの会社は、読み込み時に履歴（period−1 の決算）から補う。補えないときは `sales`・`debt` の基準を使わない
+- 今期借入可能額 ＝ max(0, 借入枠 − 借入残高)（従来どおり）
+- 計算は `calc.ts` の `loanCriteria()`（その期に効く基準ごとの枠）と `loanCap()`（min／max）
 
 - **第1期は借入不可**（`loanCap()=0`、`openModal` でも `period<=1` を弾く L842）。
 - `openModal('kariire')`: `curMaxA = loanRoom(編集中の借入額)`。`curMaxA<=0` ならアラート。

@@ -42,7 +42,19 @@ export interface PricesField {
   desc: string
   col: ColRef
 }
-export type Field = NumField | PctField | SalaryField | PricesField
+/**
+ * 借入枠の決め方：基準（純資産倍率・月商倍率・債務償還年数）ごとの開始期と、月数・年数、
+ * 複数の基準が効く期に一番小さい枠／大きい枠のどちらを採るか、を1つの欄にまとめたもの
+ */
+export interface LoanPlanField {
+  kind: 'loanPlan'
+  key: 'loanFrom'
+  label: string
+  desc: string
+  col: ColRef
+  colNote?: string
+}
+export type Field = NumField | PctField | SalaryField | PricesField | LoanPlanField
 
 export interface Group {
   title: string
@@ -131,7 +143,7 @@ export const GROUPS: Group[] = [
   },
   {
     title: '金融機関',
-    lead: '借入のコスト',
+    lead: '借入のコストと、いくらまで借りられるか',
     fields: [
       {
         kind: 'pct',
@@ -140,6 +152,13 @@ export const GROUPS: Group[] = [
         desc: '借入時と期首に支払金利として計上されます（第1期は借入なし）',
         min: 0,
         col: 8,
+      },
+      {
+        kind: 'loanPlan',
+        key: 'loanFrom',
+        label: '借入枠の決め方',
+        desc: '基準ごとに何期から使うか（なし＝使わない）。複数の基準が使える期は、一番小さい枠（厳しい・銀行審査）か一番大きい枠（緩い）を採ります。全部「なし」なら借入できません。第1期は借入なし',
+        col: 1,
       },
     ],
   },

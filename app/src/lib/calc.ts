@@ -2,7 +2,7 @@
 // 数値は test/golden.json（期待値スナップショット）と厳密一致することを golden-master テスト（test/calc.test.ts）で検証する。
 // （元は単一HTMLのプロトタイプ mock/index.html から移植したもの。mock は 2026-09 に削除済み）
 
-import { normalizeRules, type Rules } from './rules.ts'
+import { normalizeRules, type Rules, type LoanBasis } from './rules.ts'
 
 export type { Rules } from './rules.ts'
 export { DEFAULT_RULES } from './rules.ts'
@@ -53,6 +53,14 @@ export interface St {
   openingLoan: number
   openingDev: number
   openingAds: number
+  /**
+   * 直前の期の決算の値（借入枠の月商倍率・債務償還年数に使う。docs/calc-spec.md §9）。
+   * nextPeriod() で入る。第1期・値を持たない保存済みの会社は null（読み込み時に履歴から補う）
+   */
+  prevPQ: number | null
+  prevG: number | null
+  prevDep: number | null
+  prevTax: number | null
   matQty: number
   matVal: number
   rawCubes: number
@@ -676,6 +684,10 @@ export function newState(): St {
     openingLoan: 0,
     openingDev: 0,
     openingAds: 0,
+    prevPQ: null,
+    prevG: null,
+    prevDep: null,
+    prevTax: null,
     matQty: 0,
     matVal: 0,
     rawCubes: 0,
@@ -797,8 +809,61 @@ export function cashNow(st: St): number {
 export function equityNow(st: St): number {
   return st.openingCapital + colTotals(st)[0] + st.retained
 }
+/** 借入枠の基準1つ（基準ごとの借入残高の上限） */
+export interface LoanCriterion {
+  key: LoanBasis
+  label: string
+  cap: number
+  /** 計算の内訳（例：純資産 400 × 倍率 1） */
+  detail: string
+}
+
+/**
+ * その期に効く借入枠の基準と、基準ごとの枠（docs/calc-spec.md §9・issue #85）。
+ * 数値ルール loanFrom で基準ごとに「何期から使うか（0＝使わない）」を決める。第1期は借入なしなので常に空。
+ * - equity：純資産 × 倍率（講師が会社ごとに設定する loanMult）
+ * - sales：前期の売上 ÷ 12 × loanSalesMonths（借入金月商倍率）
+ * - debt：max(0, 前期の経常利益 ＋ 減価償却 − 法人税) × loanRepayYears（債務償還年数）
+ * sales・debt は前期の決算の値が要る。補えなかった（前期の値が無い）ときは、その基準を使わない
+ */
+export function loanCriteria(st: St): LoanCriterion[] {
+  if (st.period <= 1) return []
+  const R = getRules()
+  const on = (k: LoanBasis) => R.loanFrom[k] > 0 && st.period >= R.loanFrom[k]
+  const list: LoanCriterion[] = []
+  if (on('equity')) {
+    const eq = equityNow(st)
+    list.push({ key: 'equity', label: '純資産倍率', cap: Math.max(0, r(eq * st.loanMult)), detail: `純資産 ${r(eq)} × 倍率 ${st.loanMult}` })
+  }
+  if (on('sales') && st.prevPQ != null) {
+    const monthly = st.prevPQ / 12
+    list.push({
+      key: 'sales',
+      label: '月商倍率',
+      cap: Math.max(0, r(monthly * R.loanSalesMonths)),
+      detail: `前期の月商 ${r(monthly)}（売上 ${r(st.prevPQ)} ÷ 12）× ${R.loanSalesMonths}ヶ月`,
+    })
+  }
+  if (on('debt') && st.prevG != null) {
+    const cf = st.prevG + (st.prevDep || 0) - (st.prevTax || 0)
+    list.push({
+      key: 'debt',
+      label: '債務償還年数',
+      cap: Math.max(0, r(cf * R.loanRepayYears)),
+      detail: `前期の返済原資 ${r(cf)}（経常利益 ${r(st.prevG)} ＋ 減価償却 ${r(st.prevDep || 0)} − 法人税 ${r(st.prevTax || 0)}）× ${R.loanRepayYears}年`,
+    })
+  }
+  return list
+}
+
+/**
+ * 借入枠（借入残高の上限）。その期に効く基準の枠のうち、数値ルール loanCombine が min なら一番小さい枠（銀行審査）、
+ * max なら一番大きい枠。効く基準が無い期（第1期・全部「使わない」）は 0＝借入できない
+ */
 export function loanCap(st: St): number {
-  return st.period <= 1 ? 0 : Math.max(0, r(equityNow(st) * st.loanMult))
+  const caps = loanCriteria(st).map((c) => c.cap)
+  if (!caps.length) return 0
+  return getRules().loanCombine === 'max' ? Math.max(...caps) : Math.min(...caps)
 }
 export function loanRoom(st: St, excl = 0): number {
   return Math.max(0, loanCap(st) - (st.loan - excl))
@@ -1027,6 +1092,11 @@ export function nextPeriod(st: St): void {
   st.openingLoan = res.loanEnd
   st.openingDev = res.dev >= 2 ? 1 : 0
   st.openingAds = res.ads >= 2 ? 1 : 0
+  // 借入枠（月商倍率・債務償還年数）の元にする前期の決算の値
+  st.prevPQ = res.PQ
+  st.prevG = res.G
+  st.prevDep = res.dep
+  st.prevTax = res.tax
   st.period = Math.min(5, st.period + 1)
   st.tx = []
   st.settled = false

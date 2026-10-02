@@ -2,7 +2,7 @@
 // 編集画面と同じ6グループで並べるが、入力欄ではなく数字として見せる。
 import { useEffect, useRef, useState } from 'react'
 import { api, type ApiRuleset } from '../lib/api'
-import { normalizeRules, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_BASES, LOAN_BASIS_LABELS, LOAN_COMBINE_LABELS, type Rules } from '../lib/rules'
 import { GROUPS, COL_NAMES, COL_STYLE, SALARY_PERIODS, type Field } from './ruleFields'
 
 export function ColChip({ col, note }: { col: number | null; note?: string }) {
@@ -25,6 +25,31 @@ export function ColChip({ col, note }: { col: number | null; note?: string }) {
   )
 }
 
+/**
+ * 借入枠の3つの基準の計算式の説明（ルールの作成・編集・確認画面で共通）。
+ * 銀行の指標（借入金月商倍率・債務償還年数）をそのまま逆向きに使い、「その指標が設定値を超えない借入残高」を枠にしている
+ */
+export function LoanFormulaNotes({ rules }: { rules: Rules }) {
+  return (
+    <div className="rounded-lg bg-canvas border border-line px-3 py-2 text-[11px] text-ink-600 space-y-1" data-testid="loan-formula-notes">
+      <div className="font-bold text-ink">計算式</div>
+      <div>
+        <b>月商倍率</b>：借入金月商倍率 ＝ 有利子負債（借入金残高）÷ 月商。
+        <b>月商 ＝ 前期の売上高 ÷ 12</b>（1期を1年とみなす）。借入残高が「月商 × {rules.loanSalesMonths}ヶ月」以下になるまで借りられる
+        （銀行の目安は 3ヶ月が理想・6ヶ月まで許容）
+      </div>
+      <div>
+        <b>債務償還年数</b>：借入金残高 ÷ 返済原資。<b>返済原資 ＝ 前期の経常利益 ＋ 減価償却 − 法人税</b>。
+        借入残高が「返済原資 × {rules.loanRepayYears}年」以下になるまで借りられる（銀行の目安は 10年以内。赤字の期は 0）
+      </div>
+      <div>
+        <b>純資産倍率</b>：借入残高が「純資産 × 倍率」以下になるまで借りられる（倍率は講師が会社ごとに設定）
+      </div>
+      <div className="text-ink-400">いずれも「前期」は直前の期の決算。今期借入可能額 ＝ 借入枠 − 今の借入残高</div>
+    </div>
+  )
+}
+
 function Value({ field, rules }: { field: Field; rules: Rules }) {
   if (field.kind === 'salary') {
     return (
@@ -35,6 +60,28 @@ function Value({ field, rules }: { field: Field; rules: Rules }) {
             <div className="num font-bold text-base leading-tight mt-1">{rules.salaryTable[i] ?? '—'}</div>
           </div>
         ))}
+      </div>
+    )
+  }
+  if (field.kind === 'loanPlan') {
+    // 基準ごとの開始期（なし＝使わない）と月数・年数、複数の基準が効く期の採り方
+    const extra = (k: string) =>
+      k === 'sales' ? `前期の月商（売上高 ÷ 12）× ${rules.loanSalesMonths}ヶ月` : k === 'debt' ? `前期の返済原資 × ${rules.loanRepayYears}年` : '純資産 × 倍率（講師が会社ごとに設定）'
+    return (
+      <div className="space-y-1.5">
+        {LOAN_BASES.map((k) => (
+          <div key={k} className="flex items-center gap-3 flex-wrap rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm">
+            <span className="font-bold w-24 shrink-0">{LOAN_BASIS_LABELS[k]}</span>
+            <span className="font-bold" data-testid={`v-loanFrom-${k}`}>
+              {rules.loanFrom[k] > 0 ? `第${rules.loanFrom[k]}期から` : 'なし'}
+            </span>
+            {rules.loanFrom[k] > 0 && <span className="text-xs text-ink-500">{extra(k)}</span>}
+          </div>
+        ))}
+        <div className="text-xs text-ink-600">
+          複数の基準が使える期は <b>{LOAN_COMBINE_LABELS[rules.loanCombine]}</b>
+        </div>
+        <LoanFormulaNotes rules={rules} />
       </div>
     )
   }

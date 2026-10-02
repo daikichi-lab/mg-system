@@ -2,9 +2,9 @@
 // 確認画面と同じ6グループ・同じ順序で、値を入力欄にしたもの。
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { normalizeRules, type Rules } from '../lib/rules'
+import { normalizeRules, LOAN_BASES, LOAN_BASIS_LABELS, LOAN_COMBINE_LABELS, type LoanCombine, type Rules } from '../lib/rules'
 import { GROUPS, SALARY_PERIODS, type Field } from './ruleFields'
-import { ColChip, NotFound } from './RuleView'
+import { ColChip, LoanFormulaNotes, NotFound } from './RuleView'
 
 // 幅は使う側で指定する。ここに w-28 を入れて呼び出し側で w-20 を足すと、
 // Tailwind の出力順で幅が衝突して意図した幅にならない
@@ -39,6 +39,80 @@ function FieldInput({
             />
           </label>
         ))}
+      </div>
+    )
+  }
+
+  if (field.kind === 'loanPlan') {
+    // 基準ごとに「何期から使うか（なし＝0）」と、月商倍率の月数・償還年数。第1期は借入なしなので第2期から選ぶ
+    const fromOpts = [0, 2, 3, 4, 5]
+    const extra = (k: string) =>
+      k === 'sales' ? (
+        <span className="flex items-center gap-1 text-xs text-ink-500">
+          前期の月商（売上高 ÷ 12）×
+          <input
+            data-testid="f-loanSalesMonths"
+            type="number"
+            min={0}
+            value={rules.loanSalesMonths}
+            onChange={(e) => set({ loanSalesMonths: Number(e.target.value) })}
+            className={`${NUM_BASE} w-16 h-9`}
+          />
+          ヶ月
+        </span>
+      ) : k === 'debt' ? (
+        <span className="flex items-center gap-1 text-xs text-ink-500">
+          前期の返済原資 ×
+          <input
+            data-testid="f-loanRepayYears"
+            type="number"
+            min={0}
+            value={rules.loanRepayYears}
+            onChange={(e) => set({ loanRepayYears: Number(e.target.value) })}
+            className={`${NUM_BASE} w-16 h-9`}
+          />
+          年
+        </span>
+      ) : (
+        <span className="text-xs text-ink-500">純資産 × 倍率（倍率は講師が会社ごとに設定）</span>
+      )
+    return (
+      <div className="space-y-2">
+        {LOAN_BASES.map((k) => (
+          <div key={k} className="flex items-center gap-3 flex-wrap rounded-lg border border-line px-3 py-2">
+            <span className="font-bold text-sm w-24 shrink-0">{LOAN_BASIS_LABELS[k]}</span>
+            <select
+              data-testid={`f-loanFrom-${k}`}
+              value={rules.loanFrom[k]}
+              onChange={(e) => set({ loanFrom: { ...rules.loanFrom, [k]: Number(e.target.value) } })}
+              className="h-9 border border-line rounded-lg px-2 bg-field text-sm"
+            >
+              {fromOpts.map((p) => (
+                <option key={p} value={p}>
+                  {p === 0 ? 'なし' : `第${p}期から`}
+                </option>
+              ))}
+            </select>
+            {extra(k)}
+          </div>
+        ))}
+        <label className="flex items-center gap-2 flex-wrap text-sm">
+          <span className="text-ink-600">複数の基準が使える期は</span>
+          <select
+            data-testid="f-loanCombine"
+            value={rules.loanCombine}
+            onChange={(e) => set({ loanCombine: e.target.value as LoanCombine })}
+            className="h-9 border border-line rounded-lg px-2 bg-field text-sm"
+          >
+            {(['min', 'max'] as const).map((c) => (
+              <option key={c} value={c}>
+                {LOAN_COMBINE_LABELS[c]}
+              </option>
+            ))}
+          </select>
+          <span className="text-ink-600">を借入枠にする</span>
+        </label>
+        <LoanFormulaNotes rules={rules} />
       </div>
     )
   }
@@ -201,7 +275,7 @@ export default function RuleEditor({
     // 進捗タブは今期の計画と比べる画面なので、計画を立て始める期より後でないと意味がない
     if (!Number.isInteger(rules.progressFromPeriod) || rules.progressFromPeriod <= rules.planFromPeriod)
       return '進捗タブを出す期は、経営計画書タブを出す期より後の期にしてください'
-    const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, rules.planHintP, rules.planHintV, ...rules.salaryTable]
+    const nums = [rules.rent, rules.depPerMachine, rules.machinePrice, rules.loanRate, rules.loanSalesMonths, rules.loanRepayYears, rules.planHintP, rules.planHintV, ...rules.salaryTable]
     if (nums.some((n) => !Number.isFinite(n) || n < 0)) return '数値は0以上で入力してください'
     return ''
   }
