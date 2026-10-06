@@ -404,11 +404,12 @@ export default function PlanTab({
             <span className="text-f-ink">2. 固定費（F）を算出</span>,
             <div className="space-y-3">
               {/* 左：現況（入力なし）／右：戦略的投資（入力あり）。合計はその下に置く */}
-              {/* 左右それぞれを枠で囲み、「入力なし」と「入力あり」の区切りを一目で分かるようにする（issue #100） */}
+              {/* 左右それぞれを太い枠＋影で囲み、「入力なし」と「入力あり」の区切りを一目で分かるようにする（issue #100）。
+                  見出し（現況／戦略的投資）には下線を引く。中身が inline-block の塊なので text-decoration では線が出ず、border-b で引く */}
               <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-x-4 gap-y-3">
-              <div className="min-w-0 flex flex-col rounded-xl border border-line p-3">
+              <div className="min-w-0 flex flex-col rounded-xl border-2 border-ink-300 shadow-card p-3">
                 <div className="flex justify-between items-baseline gap-2 mb-1 h-6">
-                  <span className="text-xs font-bold text-ink-600">{phrases('現況　今期必ず発生する費用')}</span>
+                  <span className="text-xs font-bold text-ink-600 inline-block border-b-2 border-ink-600 pb-0.5">{phrases('現況　今期必ず発生する費用')}</span>
                   <span className="hidden sm:inline text-[10px] text-ink-400 whitespace-nowrap">入力なし・自動で計算</span>
                 </div>
                 <div className="overflow-x-auto">
@@ -447,9 +448,9 @@ export default function PlanTab({
               </div>
 
               {/* 右：戦略的投資。実施する数を入力すると、それに伴う固定費が出る */}
-              <div className="min-w-0 flex flex-col rounded-xl border border-line p-3">
+              <div className="min-w-0 flex flex-col rounded-xl border-2 border-ink-300 shadow-card p-3">
                 <div className="flex justify-between items-baseline gap-2 mb-1 h-6">
-                  <span className="text-xs font-bold text-ink-600">{phrases('戦略的投資　今期あらたに実施する投資')}</span>
+                  <span className="text-xs font-bold text-ink-600 inline-block border-b-2 border-ink-600 pb-0.5">{phrases('戦略的投資　今期あらたに実施する投資')}</span>
                   <span className="hidden sm:inline text-[10px] text-ink-400 whitespace-nowrap">実施する数量を入力</span>
                 </div>
                 <div className="overflow-x-auto">
