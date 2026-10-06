@@ -12,6 +12,23 @@ export const BASE = {
   /** 1人あたりの出納帳の行数（第1期は25行、第2期以降は45行）。誰かが使い切ったら、その周回で期を終える */
   rows: [25, 45, 45, 45, 45],
 
+  /**
+   * 期の進め方：'rows'＝行数制（誰かが最終行まで行ったら期末）／'time'＝時間制（1期 periodMin 分。時間が来たらその周回で期末）。
+   * 時間制では、家賃と借上げ賃料を「経過時間 ÷ 1期の時間」で積み立て、自分の手番が来たときに受け取る・払う
+   */
+  pace: 'rows',
+  periodMin: 55,
+  /** 時間制：1手番にかかる時間（分）の範囲と、個人の入札があった手番に足す時間 */
+  turnMin: [1, 3],
+  auctionMin: 1,
+  /** 家具家電を買ったら、その場で未準備の部屋に置く（購入と募集準備を1回にまとめる） */
+  directFurnish: false,
+  /** 物件を借りるのと同じ手番で、その棟の家具家電も買える */
+  leaseFurnish: false,
+  /** 開業準備：第1期の時計を動かす前に、資本金で棟を借りて家具を入れる（1棟を充実／2棟にまんべんなく） */
+  setupOpening: false,
+  /** 開始時に物件を持たない（資本金だけで始め、最初の手番で棟を借りる） */
+  startEmpty: false,
   /** 山札の構成（意思決定・リスク・チャンス）。リスク・チャンスの内訳は cards.mjs */
   deckDecision: 44,
 
@@ -149,10 +166,39 @@ export const TUNED = {
   evict: { indiv: 0.2 },
 }
 
-/** 名前から数値のセットを作る（BASE に差分を重ねる） */
+/**
+ * 時間制の案（2026-10-07 の要望：1期50〜60分・1手番1〜3分・収入は自分の手番に入る・資本金で1棟充実か2棟まんべんなくかを選べる）。
+ * TUNED に重ねる差分。どの値をなぜ変えたかは docs/sublease-sim.md に書く
+ */
+export const TIME = {
+  pace: 'time',
+  // 1期の時間：1人あたりの手番がそろうよう人数に比例（約11分×人数）。1人1期あたり約5.5〜5.7手番
+  periodMin: { 4: 45, 5: 55, 6: 65 },
+  turnMin: [1, 3],
+  auctionMin: 1,
+  // 手番が少ないので、家具は買ったら部屋に置く・借りるときに家具も買える
+  directFurnish: true,
+  leaseFurnish: true,
+  // 資本金500だけで始め、第1期の前の開業準備で棟を借りて家具を入れる（1棟に8セット／2棟に4セットずつ）
+  capital: 500,
+  startEmpty: true,
+  setupOpening: true,
+  startTenants: null,
+  // 手番が少ないぶん、1回の入居契約を大きく：営業1人で1回6室まで・法人枠の基本6室・個人の入居希望者は1人あたり10人
+  leasePerSales: 6,
+  corpBase: 6,
+  indivPool: 10,
+  // 借上げ賃料をさらに1下げ、本社家賃を15に（第3期にぎりぎり黒字）
+  areas: { city: { own: 27 }, suburb: { own: 23 }, rural: { own: 19 } },
+  hq: 15,
+}
+
+/** 名前から数値のセットを作る（BASE に差分を重ねる。time は TUNED の上に TIME を重ねる） */
 export function paramsOf(name = 'base', overrides = {}) {
-  const diff = name === 'tuned' ? TUNED : {}
-  return deepMerge(deepMerge(structuredClone(BASE), diff), overrides)
+  let p = structuredClone(BASE)
+  if (name === 'tuned' || name === 'time') p = deepMerge(p, TUNED)
+  if (name === 'time') p = deepMerge(p, TIME)
+  return deepMerge(p, overrides)
 }
 
 function deepMerge(a, b) {

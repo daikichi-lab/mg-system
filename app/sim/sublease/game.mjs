@@ -10,7 +10,7 @@
 // プレイヤーの判断は bots.mjs。ここは盤面・現金・損益の更新と、手番・期の進行だけを持つ。
 
 import { makeDeck } from './cards.mjs'
-import { decide, preTurn, joinAuction, bidPrice, periodStartChoices } from './bots.mjs'
+import { decide, preTurn, joinAuction, bidPrice, periodStartChoices, openingSetup } from './bots.mjs'
 
 // ---- 乱数（種を固定して同じ結果を再現する） ----
 export function rng(seed) {
@@ -84,6 +84,45 @@ export function quartersLeft(G, p) {
   return 4 - Math.min(3, Math.floor((4 * Math.max(0, p.rows - 1)) / G.rowLimit))
 }
 
+/**
+ * この期の残りの割合（0〜1）。時間制は「経過時間 ÷ 1期の時間」から、行数制は四半期から出す。
+ * 自動プレイヤーの見通し（あと何回契約できるか・期末までの家賃）に使う
+ */
+export function fracLeft(G, p) {
+  if (G.P.pace === 'time') return Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
+  return quartersLeft(G, p) / 4
+}
+
+/**
+ * 時間制：前回から今までの家賃と借上げ賃料を「経過時間 ÷ 1期の時間」で積み立てる（まだ現金にはしない）。
+ * 入居・退去・借上げで部屋が変わる前に必ず呼ぶ（変わる前の状態で、変わるまでの分を数えるため）。
+ * 1期の時間を超えた分（時間が来て周回を終えるまで）は数えない＝1期まるごと入居していれば、ちょうど1期分の家賃
+ */
+export function accrue(G, p) {
+  const P = G.P
+  if (P.pace !== 'time') return
+  const t = Math.min(G.clock, G.periodMin)
+  const dt = t - p.lastT
+  if (dt <= 0) return
+  const f = dt / G.periodMin
+  const occ = occupied(p)
+  p.pend.rent += occRooms(p).reduce((a, r) => a + r.rent, 0) * f
+  p.pend.own += p.bldgs.reduce((a, b) => a + b.own * b.rooms.length, 0) * f
+  p.pl.occRQ += occ * f * 4
+  p.pl.availRQ += allRooms(p).length * f * 4
+  p.lastT = t
+}
+/** 時間制：積み立てた家賃を受け取り、借上げ賃料を払う（自分の手番の頭と期末） */
+function collect(G, p) {
+  if (G.P.pace !== 'time') return
+  accrue(G, p)
+  const rent = p.pend.rent
+  const own = p.pend.own
+  p.pend = { rent: 0, own: 0 }
+  income(p, rent)
+  pay(G, p, own, 'ownerRent')
+}
+
 // ---- 会社 ----
 function newPlayer(P, id, persona, startCard) {
   const p = {
@@ -96,7 +135,7 @@ function newPlayer(P, id, persona, startCard) {
     loan: 0,
     short: 0, // 期末に現金が足りず借りた短期借入（資金ショート）
     taxDue: 0,
-    bldgs: [newBuilding(P, startCard)],
+    bldgs: P.startEmpty ? [] : [newBuilding(P, startCard)],
     wh: 0, // 倉庫の家具家電（部屋に置く前）
     furn: [], // 家具家電の簿価（購入ロットごと：{ n, book }。book は1セットの簿価）
     sales: 1,
@@ -113,6 +152,9 @@ function newPlayer(P, id, persona, startCard) {
     pl: null,
     hist: [],
     shortCount: 0,
+    lastT: 0, // 時間制：最後に家賃を積み立てた時刻（期の頭からの分）
+    pend: { rent: 0, own: 0 }, // 時間制：積み立てたが、まだ受け取っていない家賃・払っていない借上げ賃料
+    opening: null, // 開業時の方針（'focus'＝1棟を充実／'spread'＝2棟にまんべんなく）
   }
   resetPeriod(P, p)
   // 営業中の物件で始める：家具は資本金で買ってある（現金が減り、家具の簿価になる）。入居者のプライスカードを置く
@@ -193,25 +235,43 @@ function income(p, amt) {
 // ---- アクション（ルールA） ----
 export const A = {
   /** 物件を借り上げる：表向きの棟カードから1枚。費用は期末の借上げ賃料 */
-  lease(G, p, idx) {
+  lease(G, p, idx, nFurn = 0) {
     const card = G.market.splice(idx, 1)[0]
     if (!card) return false
     const b = newBuilding(G.P, card)
-    // 按分のときは、借りた四半期から期末までの借上げ賃料を払う（期をまたいだら1期分）
-    b.quarters = quartersLeft(G, p)
-    p.pl.availRQ += b.rooms.length * b.quarters
+    if (G.P.pace === 'time') {
+      // 時間制：借りた時刻から借上げ賃料が積み立たる
+      accrue(G, p)
+    } else {
+      // 按分のときは、借りた四半期から期末までの借上げ賃料を払う（期をまたいだら1期分）
+      b.quarters = quartersLeft(G, p)
+      p.pl.availRQ += b.rooms.length * b.quarters
+    }
     p.bldgs.push(b)
     refillMarket(G)
+    // 借りるのと同じ手番で、その棟の家具家電も買える（leaseFurnish。手番が少ない時間制向け）
+    if (G.P.leaseFurnish && nFurn > 0) A.buyFurn(G, p, Math.min(nFurn, b.rooms.length))
     return true
   },
   /** 家具家電を買う（倉庫の上限まで） */
   buyFurn(G, p, n) {
     const P = G.P
-    n = Math.min(n, P.whCap - p.wh)
+    n = Math.min(n, P.directFurnish ? P.whCap : P.whCap - p.wh)
     if (n <= 0) return false
     pay(G, p, n * P.furnPrice, 'furniture', false)
     p.wh += n
     p.furn.push({ n, book: P.furnPrice })
+    // 買ったその場で未準備の部屋に置く（手番が少ない時間制では、購入と募集準備を1回にまとめる）
+    if (P.directFurnish)
+      while (p.wh > 0) {
+        // 家具の置いてある部屋が少ない棟から1室ずつ置く（2棟ならまんべんなく）
+        const b = p.bldgs
+          .filter((x) => x.rooms.some((r) => r.st === 'none'))
+          .sort((x, y) => x.rooms.filter((r) => r.st !== 'none').length - y.rooms.filter((r) => r.st !== 'none').length)[0]
+        if (!b) break
+        b.rooms.find((r) => r.st === 'none').st = 'vac'
+        p.wh--
+      }
     return true
   },
   /** 募集準備：倉庫の家具を未準備の部屋に置く（管理スタッフ1人1回4室） */
@@ -303,14 +363,17 @@ function fill(G, p, type, n, rentOf, where = () => true) {
   for (const b of p.bldgs) if (!b.blocked && where(b)) for (const r of b.rooms) if (r.st === 'vac') rooms.push({ r, b })
   rooms.sort((x, y) => rentOf(y.b) - rentOf(x.b))
   let got = 0
-  // 按分のときは、残りの四半期分だけ受け取る
+  // 時間制：入居した時刻から家賃が積み立たる（その場では受け取らない）。行数制の按分：残りの四半期分を受け取る
+  accrue(G, p)
   const quarters = quartersLeft(G, p)
   for (const { r, b } of rooms.slice(0, Math.max(0, n))) {
     r.st = 'occ'
     r.type = type
     r.rent = rentOf(b)
-    income(p, Math.round((r.rent * quarters) / 4))
-    p.pl.occRQ += quarters
+    if (P.pace !== 'time') {
+      income(p, Math.round((r.rent * quarters) / 4))
+      p.pl.occRQ += quarters
+    }
     pay(G, p, P.V, 'V', false)
     p.pl.vq += P.V
     p.pl.contracts[type]++
@@ -334,9 +397,11 @@ function auction(G, parent) {
   const bidders = [parent]
   for (const q of G.players)
     if (q !== parent && q.rows < G.rowLimit && !q.flags.noIndiv && vacantOpen(q) > 0 && joinAuction(G, q, parent, seats)) {
-      q.rows++ // 子も1行記入する
+      q.rows++ // 子も1行記入する（時間制では行数は見ない）
       bidders.push(q)
     }
+  // 時間制：入札があった手番は長くなる
+  G.turnExtra += G.P.auctionMin || 0
   const bids = bidders.map((q) => {
     const price = bidPrice(G, q, bidders.length)
     // その額以下の相場の棟には出せない（上限はその棟の相場家賃）
@@ -370,6 +435,11 @@ const pick = (G, arr) => arr[Math.floor(G.rand() * arr.length)]
  * 空いた部屋に次の人を入れたときに同じ期間の家賃が二重に入る）
  */
 function evictRooms(G, p, rooms, restore = true, midPeriod = true) {
+  // 時間制：退去の時刻までの家賃を積み立ててから外す（返金は要らない）
+  if (G.P.pace === 'time') {
+    accrue(G, p)
+    midPeriod = false
+  }
   // いまの四半期の頭で出ていったものとして、いまの四半期から期末までを返す（同じ四半期に次の人を入れても二重にならない）
   const back = midPeriod && G.P.rentMode === 'quarter' ? rooms.reduce((s, r) => s + Math.round((r.rent * quartersLeft(G, p)) / 4), 0) : 0
   if (midPeriod) p.pl.occRQ -= rooms.length * quartersLeft(G, p)
@@ -483,12 +553,15 @@ function periodStart(G, p) {
   const P = G.P
   resetPeriod(P, p)
   p.period = G.period
-  // 継続家賃：入居中の部屋のプライスカードの合計（第1期は営業中の物件で始めたときの入居者）
-  for (const r of allRooms(p)) if (r.st === 'occ') income(p, r.rent)
-  // 期首の入居室（前の期末の退去の後）。入居率は期首と期末の平均で見る（期末だけだと埋めきった直後で高く出る）
   p.occStart = occupied(p)
-  p.pl.availRQ += allRooms(p).length * 4
-  p.pl.occRQ += p.occStart * 4
+  p.lastT = 0
+  p.pend = { rent: 0, own: 0 }
+  if (P.pace !== 'time') {
+    // 継続家賃：入居中の部屋のプライスカードの合計（第1期は営業中の物件で始めたときの入居者）。時間制は手番ごとに積み立てて受け取る
+    for (const r of allRooms(p)) if (r.st === 'occ') income(p, r.rent)
+    p.pl.availRQ += allRooms(p).length * 4
+    p.pl.occRQ += p.occStart * 4
+  }
   if (G.period === 1) return
   if (p.taxDue > 0) {
     p.cash -= p.taxDue
@@ -514,13 +587,16 @@ function periodStart(G, p) {
 /** 1手番：（ルールB）→ カードを1枚引く → 意思決定ならルールAを1つ、リスク・チャンスなら効果 */
 function turn(G, p) {
   if (p.rows >= G.rowLimit) return
+  // 時間制：自分の手番が来たら、前の手番からの家賃を受け取り、借上げ賃料を払う
+  collect(G, p)
   preTurn(G, p) // 借入などのルールB（1行使う）
   if (p.rows >= G.rowLimit) return
   const card = drawCard(G)
   p.rows++
   G.cardLog.push(card.kind)
   if (card.kind === 'decision') decide(G, p)
-  else EVENTS[card.key](G, p)
+  // まだ物件を持っていない会社には、物件にかかるリスク・チャンスは何も起きない
+  else if (p.bldgs.length) EVENTS[card.key](G, p)
   p.turnNo++
   // 施工不備の「次の1周は個人市場に出られない」：自分の手番を1回過ぎたら解除
   if (p.flags.noIndiv && p.flags.noIndivTurns-- <= 0) p.flags.noIndiv = false
@@ -533,8 +609,9 @@ function periodEnd(G, p) {
   const rooms = allRooms(p).length
   const occRents = occRooms(p).map((r) => r.rent)
   const corpN = occRooms(p, 'corp').length
-  // 1. 借上げ賃料：借り上げているすべての部屋（空室・未準備も）
-  pay(G, p, p.bldgs.reduce((s, b) => s + Math.round((b.own * b.rooms.length * (b.quarters ?? 4)) / 4), 0), 'ownerRent')
+  // 1. 借上げ賃料：借り上げているすべての部屋（空室・未準備も）。時間制は期末までの積み立てを精算する
+  if (P.pace === 'time') collect(G, p)
+  else pay(G, p, p.bldgs.reduce((s, b) => s + Math.round((b.own * b.rooms.length * (b.quarters ?? 4)) / 4), 0), 'ownerRent')
   for (const b of p.bldgs) b.quarters = 4
   // 2. 給料・本社家賃
   pay(G, p, (p.sales + p.mgmt) * P.salary[G.period - 1], 'salary')
@@ -642,11 +719,17 @@ export function playGame(P, personas, seed) {
     players: personas.map((ps, i) => newPlayer(P, i, ps, startCard)),
     period: 1,
     rowLimit: P.rows[0],
+    clock: 0, // 時間制：期の頭からの経過時間（分）
+    // 時間制：1期の時間（分）。数値か、人数ごとの表（人数が多いほど1人あたりの手番が減るので長くする）
+    periodMin: typeof P.periodMin === 'number' ? P.periodMin : P.periodMin[personas.length],
+    turnExtra: 0,
     log: [],
     auctions: [],
     cardLog: [],
   }
   refillMarket(G)
+  // 開業の方針は半々（1棟を充実させる／2棟にまんべんなく）。資本金がどちらでも成り立つかを見るため
+  for (const p of G.players) p.opening = G.rand() < 0.5 ? 'focus' : 'spread'
   for (let per = 1; per <= P.periods; per++) {
     G.period = per
     G.rowLimit = P.rows[per - 1]
@@ -655,12 +738,22 @@ export function playGame(P, personas, seed) {
       p.rows = 0
       periodStart(G, p)
     }
-    // 親は期ごとに隣へ回る。誰かが最終行まで行ったら、その周回を終えて期末へ
+    // 開業準備（第1期の時計を動かす前）：資本金で棟を借り、家具を入れる。席順に1人ずつ表向きの棟カードから選ぶ
+    if (per === 1 && P.setupOpening) for (const p of G.players) openingSetup(G, p)
+    // 親は期ごとに隣へ回る。行数制：誰かが最終行まで行ったら、その周回を終えて期末へ。
+    // 時間制：1手番に turnMin 分（一様）かかり、1期の時間が来たら、その周回を終えて期末へ
     const first = (per - 1) % G.players.length
     let guard = 0
+    G.clock = 0
+    if (P.pace === 'time') G.rowLimit = Infinity
     for (;;) {
-      for (let k = 0; k < G.players.length; k++) turn(G, G.players[(first + k) % G.players.length])
-      if (G.players.some((p) => p.rows >= G.rowLimit) || ++guard > 200) break
+      for (let k = 0; k < G.players.length; k++) {
+        G.turnExtra = 0
+        turn(G, G.players[(first + k) % G.players.length])
+        if (P.pace === 'time') G.clock += P.turnMin[0] + G.rand() * (P.turnMin[1] - P.turnMin[0]) + G.turnExtra
+      }
+      if (P.pace === 'time' ? G.clock >= G.periodMin : G.players.some((p) => p.rows >= G.rowLimit)) break
+      if (++guard > 200) break
     }
     for (const p of G.players) periodEnd(G, p)
   }

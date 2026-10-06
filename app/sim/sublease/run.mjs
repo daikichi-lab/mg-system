@@ -44,12 +44,12 @@ function runFor(n) {
     // 席ごとの性格はランダム（同じ卓に同じ性格が並ぶこともある）
     const personas = Array.from({ length: n }, () => PERSONA_KEYS[Math.floor(rand() * PERSONA_KEYS.length)])
     const G = playGame(P, personas, Math.floor(rand() * 2 ** 31))
-    for (const p of G.players) players.push({ persona: p.persona, hist: p.hist, game: g })
+    for (const p of G.players) players.push({ persona: p.persona, opening: p.opening, hist: p.hist, game: g })
     auctions.push(...G.auctions)
     if (!G.bdeck.length) deckOut++
     const eq = G.players.map((p) => p.hist.at(-1).equity)
     const best = Math.max(...eq)
-    gamesOut.push({ spread: best - Math.min(...eq), winner: G.players[eq.indexOf(best)].persona })
+    gamesOut.push({ spread: best - Math.min(...eq), winner: G.players[eq.indexOf(best)].persona, winnerOpening: G.players[eq.indexOf(best)].opening })
   }
   return { n, players, gamesOut, auctions, deckOut }
 }
@@ -114,11 +114,19 @@ function brief(r) {
   const med = (k) => f0(q(players.map((p) => p.hist[k].G), 0.5))
   const h3 = players.map((p) => p.hist[2])
   const win = PERSONA_KEYS.map((k) => `${k.slice(0, 3)}${pct(gamesOut.filter((g) => g.winner === k).length / games)}`).join(' ')
-  return `${n}人 G中央値 ${Array.from({ length: P.periods }, (_, k) => med(k)).join(' / ')} ｜3期 黒字${pct(mean(h3.map((x) => (x.G > 0 ? 1 : 0))))} 入居${pct(
+  // 開業の方針ごと（時間制の資本金の検証用）：第1期の G・最終純資産・1位率
+  const op = ['focus', 'spread']
+    .map((o) => {
+      const ps = players.filter((p) => p.opening === o)
+      return `${o === 'focus' ? '1棟' : '2棟'} 1期${f0(q(ps.map((p) => p.hist[0].G), 0.5))} 最終${f0(q(ps.map((p) => p.hist.at(-1).equity), 0.5))} 1位${pct(gamesOut.filter((g) => g.winnerOpening === o).length / games)}`
+    })
+    .join(' ／ ')
+  const turns = f1(mean(players.map((p) => p.hist[1].turns)))
+  return `${n}人 手番/期${turns} G中央値 ${Array.from({ length: P.periods }, (_, k) => med(k)).join(' / ')} ｜3期 黒字${pct(mean(h3.map((x) => (x.G > 0 ? 1 : 0))))} 入居${pct(
     mean(h3.map((x) => x.occRate)),
   )} 分岐${pct(q(h3.map((x) => x.bepRate).filter((v) => v != null), 0.5))} 棟${f1(mean(h3.map((x) => x.bldgs)))} 家賃${f1(mean(h3.filter((x) => x.occ).map((x) => x.avgRent)))} ｜ショート ${pct(
     mean(players.map((p) => (p.hist.some((h) => h.shortNew) ? 1 : 0))),
-  )}（期別 ${Array.from({ length: P.periods }, (_, k) => pct(mean(players.map((p) => (p.hist[k].shortNew ? 1 : 0))))).join('/')}） 30以上 ${pct(mean(players.map((p) => (p.hist.some((h) => h.shortBig) ? 1 : 0))))} ｜最終純資産${f0(q(players.map((p) => p.hist.at(-1).equity), 0.5))} ｜1位 ${win}`
+  )}（期別 ${Array.from({ length: P.periods }, (_, k) => pct(mean(players.map((p) => (p.hist[k].shortNew ? 1 : 0))))).join('/')}） 30以上 ${pct(mean(players.map((p) => (p.hist.some((h) => h.shortBig) ? 1 : 0))))} ｜最終純資産${f0(q(players.map((p) => p.hist.at(-1).equity), 0.5))} ｜1位 ${win} ｜開業 ${op}`
 }
 
 const results = playerCounts.map(runFor)

@@ -7,7 +7,7 @@
 import {
   A,
   borrow,
-  quartersLeft,
+  fracLeft,
   occupied,
   vacant,
   vacantOpen,
@@ -45,13 +45,23 @@ const ps = (p) => PERSONAS[p.persona]
 /** 期末に払う見込み（借上げ賃料・給料・本社家賃・返済・短期借入） */
 function endCost(G, p, extraOwn = 0) {
   const P = G.P
-  const own = p.bldgs.reduce((s, b) => s + Math.round((b.own * b.rooms.length * (b.quarters ?? 4)) / 4), 0) + extraOwn
+  // 行数制は期末に借上げ賃料をまとめて払う。時間制は手番ごとに払うので、残りの時間の分と未払いの積み立てだけ
+  const own =
+    P.pace === 'time'
+      ? p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * fracLeft(G, p) + p.pend.own + extraOwn
+      : p.bldgs.reduce((s, b) => s + Math.round((b.own * b.rooms.length * (b.quarters ?? 4)) / 4), 0) + extraOwn
   // 期末の退去の原状回復費（入居の3割くらいが退去する見込み）と、イベント用の余裕 10 も見込む
   const restore = Math.ceil(occupied(p) * 0.3) * P.restore
   return own + (p.sales + p.mgmt) * P.salary[G.period - 1] + P.hq + Math.round(p.loan * P.repayRate) + p.short + restore + 10
 }
 /** この期にあと何回くらい入居契約できそうか（残りの行の半分くらいが意思決定で契約に回せる） */
 function contractsLeft(G, p) {
+  const P = G.P
+  if (P.pace === 'time') {
+    // 残り時間 ÷（人数 × 1手番の平均時間）＝ 自分の残りの手番。その6割くらいを契約に回せる
+    const turns = ((G.periodMin - Math.min(G.clock, G.periodMin)) / (G.players.length * ((P.turnMin[0] + P.turnMin[1]) / 2 + 0.3))) | 0
+    return Math.max(0, Math.floor(turns * 0.6))
+  }
   return Math.max(0, Math.floor((G.rowLimit - p.rows) * 0.45))
 }
 /** 期末の現金の見通し：今の現金 − 期末の支払い ＋ 募集中の部屋が埋まる見込みの家賃 */
@@ -59,12 +69,17 @@ function outlook(G, p, extraOwn = 0) {
   const P = G.P
   const vac = vacantOpen(p)
   const canFill = Math.min(vac, contractsLeft(G, p) * leaseCap(P, p))
+  if (!p.bldgs.length) return p.cash - endCost(G, p)
   const avgMkt = p.bldgs.reduce((s, b) => s + mktOf(P, p, b), 0) / p.bldgs.length
   // 借入できない期（第1期）は、期末に足りなくなっても埋められないので、空室が埋まる見込みを半分に見る
   // （アプリでは「期末の支払い見込み」を画面に出す前提。参加者はそれを見て判断できる）
   const opt = loanRoom(P, p) > 0 || p.period >= P.loanFrom ? ps(p).optimism : ps(p).optimism * 0.5
-  return p.cash - endCost(G, p, extraOwn) + canFill * ((avgMkt - 3) * (quartersLeft(G, p) / 4) - P.V) * opt
+  // 時間制：入居中の部屋はこの先も家賃が積み立たる（残りの時間の分）。新しく埋めた部屋は残りの時間の半分くらい
+  const keep = P.pace === 'time' ? occRent(p) * fracLeft(G, p) + p.pend.rent : 0
+  const fillShare = P.pace === 'time' ? fracLeft(G, p) * 0.5 : fracLeft(G, p)
+  return p.cash - endCost(G, p, extraOwn) + keep + canFill * ((avgMkt - 3) * fillShare - P.V) * opt
 }
+const occRent = (p) => p.bldgs.reduce((s, b) => s + b.rooms.reduce((a, r) => a + (r.st === 'occ' ? r.rent : 0), 0), 0)
 const canSpend = (G, p, amt) => p.cash >= amt && outlook(G, p) - amt >= ps(p).buffer
 
 /** 手番の前のルールB：期末の支払いに足りない見込みなら借りる。棟を増やすための借入は性格次第 */
@@ -86,7 +101,7 @@ function wantExpand(G, p) {
   const P = G.P
   const s = ps(p)
   if (p.bldgs.length >= Math.min(s.maxBldg, P.maxBldg) || !G.market.length) return false
-  if (G.rowLimit - p.rows < s.minRows) return false
+  if (G.P.pace === 'time' ? fracLeft(G, p) < s.minRows / 45 : G.rowLimit - p.rows < s.minRows) return false
   if (unprepared(p) > 0) return false
   const occ = occupied(p)
   const vac = vacant(p)
@@ -115,10 +130,30 @@ function bestCard(G) {
   return best
 }
 
+/** 開業で借りるときに一緒に買う家具：1棟を充実なら8セット、2棟にまんべんなくなら4セットずつ（現金の範囲） */
+function openFurn(G, p) {
+  const P = G.P
+  const want = p.opening === 'spread' ? P.roomsPerBldg / 2 : P.roomsPerBldg
+  return Math.max(0, Math.min(want, Math.floor((p.cash - ps(p).buffer / 2) / P.furnPrice)))
+}
+/** 開業準備：1棟を充実（1棟・家具8）か、2棟にまんべんなく（2棟・家具4ずつ） */
+export function openingSetup(G, p) {
+  const n = p.opening === 'spread' ? 2 : 1
+  for (let i = 0; i < n && G.market.length; i++) A.lease(G, p, bestCard(G), openFurn(G, p))
+}
+/** 棟を増やすときに一緒に買う家具（現金の範囲で8セットまで） */
+function expandFurn(G, p) {
+  const P = G.P
+  return Math.max(0, Math.min(P.roomsPerBldg, Math.floor((p.cash - ps(p).buffer) / P.furnPrice)))
+}
+
 /** 意思決定カードを引いたときのルールA（1つ） */
 export function decide(G, p) {
   const P = G.P
   const s = ps(p)
+  // 開業：物件を持っていなければ、まず借りる。2棟にまんべんなく（spread）の方針なら、家具を買う前に2棟目も借りる
+  if (G.market.length && (p.bldgs.length === 0 || (p.opening === 'spread' && G.period === 1 && p.bldgs.length === 1 && p.furn.length === 0)))
+    if (A.lease(G, p, bestCard(G), openFurn(G, p))) return 'open-lease'
   const vac = vacantOpen(p)
   const lc = leaseCap(P, p)
   // 営業が足りず空室が溜まっているなら、先に採用（重い詰まりのときだけ）
@@ -152,11 +187,11 @@ export function decide(G, p) {
     const c = G.market[i]
     const a = P.areas[c.area]
     // 按分のときは、借上げ賃料も家賃も残りの四半期分
-    const qf = quartersLeft(G, p) / 4
+    const qf = fracLeft(G, p)
     const own = (a.own + (c.old ? P.oldDelta : 0)) * P.roomsPerBldg * qf
     const cost = P.furnPrice * P.roomsPerBldg
     const gain = Math.min(P.roomsPerBldg, contractsLeft(G, p) * lc) * ((a.mkt - 3) * qf - P.V) * s.optimism
-    if (p.cash >= cost * 0.5 && outlook(G, p, own) - cost + gain >= s.buffer && A.lease(G, p, i)) return 'lease'
+    if (p.cash >= cost * 0.5 && outlook(G, p, own) - cost + gain >= s.buffer && A.lease(G, p, i, expandFurn(G, p))) return 'lease'
   }
   // 6. 営業を増やす（空室がリーシング能力の2倍以上）
   if (vac >= lc * 2 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + P.salary[G.period - 1]) && A.hire(G, p, 'sales', 1)) return 'hire-sales'
