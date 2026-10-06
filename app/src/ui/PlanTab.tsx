@@ -22,8 +22,9 @@ import {
   capacityCompare,
   cashNeeds,
   rankGap,
-  actionQtyMax,
-  clampQty,
+  clampRowQty,
+  defaultOpt,
+  PLAN_ACTION_OPTS,
   defaultQty,
   EDU_MAX,
   PLAN_ACTION_OPTIONS,
@@ -107,22 +108,23 @@ export default function PlanTab({
   const updateAction = (i: number, patch: Partial<PlanAction>) => {
     if (ro) return
     dirty.current = true
-    setPlan((p) => ({
-      ...p,
-      actions: p.actions.map((a, k) => {
-        if (k !== i) return a
-        const next = { ...a, ...patch }
-        // アクションを選び直したら数量を初期値に戻す。アクションか数量が変わったら金額を出しなおす
-        // （金額そのものを直したときは、その値をそのまま残す）
-        if ('key' in patch) next.qty = defaultQty(next.key)
-        // 1回でできる上限を超えないようにする（記帳と同じ根拠。例：商品開発・教育は1回1枚）
-        if ('key' in patch || 'qty' in patch) {
-          next.qty = clampQty(next.key, next.qty, p, st)
-          next.amount = actionAmount(next.key, next.qty, p)
-        }
-        return next
-      }),
-    }))
+    setPlan((p) => {
+      const next = { ...p.actions[i], ...patch }
+      // アクションを選び直したら数量と補足（採用の製造／販売など）を初期値に戻す。
+      // アクション・補足・数量が変わったら金額を出しなおす（金額そのものを直したときは、その値をそのまま残す）
+      if ('key' in patch) {
+        next.qty = defaultQty(next.key)
+        next.opt = defaultOpt(next.key)
+      }
+      const actions = p.actions.map((a, k) => (k === i ? next : a))
+      if ('key' in patch || 'qty' in patch || 'opt' in patch) {
+        // 入力中の行は、それより前の行をすべて実施した盤面での1回の上限を超えて入れられない（記帳と同じ根拠。issue #102）。
+        // 後ろの行は直さない（上限を超えたら画面で赤くして理由を出す）
+        next.qty = clampRowQty({ ...p, actions }, st, i)
+        next.amount = actionAmount(next.key, next.qty, p)
+      }
+      return { ...p, actions }
+    })
   }
 
   // 1位との差を出すために、同じ研修の他社の決算結果を1回だけ取りに行く
@@ -265,8 +267,8 @@ export default function PlanTab({
       <td className="pl-2 text-right num whitespace-nowrap">{fmt(amount)}</td>
     </tr>
   )
-  // アクションプラン1行の数量の上限と、その説明（入力欄の title に出す）
-  const qtyMax = (i: number) => actionQtyMax(plan.actions[i].key, plan, st)
+  // アクションプラン1行の数量の上限（その行より前の行をすべて実施した盤面で）と、その説明（入力欄の title に出す）
+  const qtyMax = (i: number) => cash.rows[i].max
   const qtyHint = (i: number) => {
     const max = qtyMax(i)
     return max == null ? '1回の上限なし' : `1回の上限 ${max}${PLAN_ACTION_UNITS[plan.actions[i].key] ?? ''}`
@@ -864,8 +866,13 @@ export default function PlanTab({
                     <td className="py-1.5 px-1 text-right num">{fmtA(cash.openingAuto)}</td>
                     <td className="py-1.5 px-1 text-right num">{fmt(cash.openingCash + cash.openingAuto)}</td>
                   </tr>
-                  {cash.rows.map((r, i) => (
-                    <tr key={i} className="border-b border-line/60">
+                  {cash.rows.map((r, i) => {
+                    const bad = r.errors.length > 0
+                    const opts = PLAN_ACTION_OPTS[plan.actions[i].key]
+                    return (
+                    <Fragment key={i}>
+                    {/* 前の行を変えて上限を超えた行は、数字は残したまま赤くして理由を出す（issue #102） */}
+                    <tr className={`${bad ? 'bg-accent-bg' : 'border-b border-line/60'}`} data-testid={`plan-act-row-${i}`}>
                       <td className="hidden sm:table-cell py-1 text-ink-400 text-center num">{i + 1}</td>
                       <td className="py-1 pr-1 min-w-24">
                         <select
@@ -888,6 +895,22 @@ export default function PlanTab({
                             単位が無いアクション（借入・返済）でも入力欄の位置がずれないよう幅を固定する */}
                         {plan.actions[i].key && (
                           <div className="flex items-center justify-end gap-1">
+                            {/* スタッフ採用は製造／販売、配置転換は向きを選ぶ。後ろの行の製造能力・販売能力が変わる */}
+                            {opts && (
+                              <select
+                                data-testid={`plan-act-opt-${i}`}
+                                value={plan.actions[i].opt ?? opts[0].value}
+                                disabled={ro}
+                                onChange={(e) => updateAction(i, { opt: e.target.value })}
+                                className="h-7 border border-line rounded px-1 text-xs bg-white disabled:bg-canvas"
+                              >
+                                {opts.map((o) => (
+                                  <option key={o.value} value={o.value}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <input
                               data-testid={`plan-act-qty-${i}`}
                               type="number"
@@ -917,12 +940,37 @@ export default function PlanTab({
                         {fmtA(r.balance)}
                       </td>
                     </tr>
-                  ))}
+                    {bad && (
+                      <tr className="border-b border-line/60 bg-accent-bg" data-testid={`plan-act-err-${i}`}>
+                        <td className="hidden sm:table-cell" />
+                        <td colSpan={4} className="pb-1.5 pr-1 text-[11px] font-bold text-accent-ink">
+                          {r.errors.join('／')}
+                        </td>
+                      </tr>
+                    )}
+                    {/* 借入の行の下に、記帳と同じく自動で付く借入金利（前払い）を出す。25行の枠は使わない */}
+                    {r.interest > 0 && (
+                      <tr className="border-b border-line/60 bg-canvas" data-testid={`plan-act-interest-${i}`}>
+                        <td className="hidden sm:table-cell" />
+                        <td className="py-1 text-ink-500" colSpan={2}>
+                          借入金利（借入額 × 金利{Math.round(getRules().loanRate * 1000) / 10}%）
+                        </td>
+                        <td className="py-1 px-1 text-right num">{fmtA(-r.interest)}</td>
+                        <td className={`py-1 px-1 text-right num ${r.afterInterest < 0 ? 'text-accent-ink font-bold' : ''}`}>
+                          {fmtA(r.afterInterest)}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
               <p className="mt-2 text-[10px] text-ink-400">
-                数量は1回でできる上限までに収まります。仕入れは材料在庫の上限、製造は製造能力と店舗陳列の上限、販売は販売能力、
-                教育・商品開発は1回1枚、配置転換はスタッフ数、借入は今期借入可能額、返済は借入残高までです。
+                記帳と同じルールで、上の行から順に実施したものとして計算します。数量はその行の時点で1回にできる上限までに収まります
+                （仕入れは材料在庫の空き、製造は製造能力・材料・店舗陳列の空き、販売は販売能力と製品、教育は期に1枚、商品開発は1回1枚、
+                配置転換はスタッフ数、借入は今期借入可能額、返済は借入残高まで）。途中でスタッフ採用・機械購入・広告・教育を入れると、それより後の行の上限が上がります。
+                前の行を変えて上限を超えた行は赤く表示します。借入の行の下には借入金利が自動で入ります。
               </p>
             </div>,
           )}

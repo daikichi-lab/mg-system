@@ -18,6 +18,7 @@ import {
   type Result,
   type St,
 } from './calc.ts'
+import { validate } from './game.ts'
 
 /**
  * アクションプランの1行。1行＝そのアクションを1回行う予定。
@@ -29,6 +30,35 @@ export interface PlanAction {
   key: string
   qty: number
   amount: number
+  /**
+   * アクションの種類の補足（issue #102）。記帳フォームで選ぶものと同じ。
+   * スタッフ採用：'mfg'（製造）／'sales'（販売）、配置転換：'mfg->sales'／'sales->mfg'。それ以外は使わない
+   */
+  opt?: string
+}
+
+/** 補足（opt）を選ぶアクションと、その選択肢。先頭が初期値 */
+export const PLAN_ACTION_OPTS: Record<string, { value: string; label: string }[]> = {
+  saiyo: [
+    { value: 'mfg', label: '製造' },
+    { value: 'sales', label: '販売' },
+  ],
+  haichi: [
+    { value: 'mfg->sales', label: '製造→販売' },
+    { value: 'sales->mfg', label: '販売→製造' },
+  ],
+}
+
+/** アクションを選んだ直後の補足。選択肢の無いアクションは undefined */
+export function defaultOpt(key: string): string | undefined {
+  return PLAN_ACTION_OPTS[key]?.[0].value
+}
+
+/** 保存データの補足を、そのアクションの選択肢に収める（知らない値・欠けは初期値） */
+function optOf(key: string, opt: unknown): string | undefined {
+  const opts = PLAN_ACTION_OPTS[key]
+  if (!opts) return undefined
+  return opts.some((o) => o.value === opt) ? (opt as string) : opts[0].value
 }
 
 /**
@@ -65,14 +95,17 @@ export function defaultQty(key: string): number {
 }
 
 /** 数量を、そのアクションの記帳フォームの入力値に変換する（金額は記帳と同じ式で出すため） */
-function fieldsFor(key: string, qty: number, plan: Plan): Fvals {
+function fieldsFor(key: string, qty: number, plan: Plan, opt?: string): Fvals {
   switch (key) {
     case 'shiire':
       return { qty, unit: plan.v } // 仕入単価は計画の売上原価 V
     case 'hanbai':
       return { qty, unit: plan.p } // 売価は計画の販売単価 P
     case 'saiyo':
-      return { mfg: qty }
+      // 製造・販売のどちらに採用するかで、後ろの行の製造能力・販売能力が変わる
+      return opt === 'sales' ? { sales: qty } : { mfg: qty }
+    case 'haichi':
+      return { n: qty, dir: opt === 'sales->mfg' ? 'sales->mfg' : 'mfg->sales' }
     case 'kariire':
     case 'hensai':
       return { a: qty }
@@ -130,43 +163,94 @@ function planCaps(plan: Plan, st: St) {
   })
 }
 
+/** 期首の盤面（期首の自動行＝法人税納付・支払金利だけを記帳した状態）。元の st は変えない */
+function openingBoard(st: St): St {
+  const s: St = {
+    ...st,
+    tx: st.tx.filter((t) => t.isOpeningTax || t.isOpeningInterest).map((t) => ({ ...t })),
+    settled: false,
+    closingPrep: false,
+  }
+  recompute(s)
+  return s
+}
+
 /**
- * 1回の記帳でできる数量の上限。ルールで決まっているものだけ返し、上限が無ければ null。
+ * 盤面 s で、そのアクションを1回にできる数量の上限。ルールで決まっているものだけ返し、上限が無ければ null。
  * 記帳のバリデーション（lib/game.ts の `validate()`）と同じ根拠にそろえてある。
- * - 仕入れ：材料在庫の上限（matCap）まで
- * - 製造：製造能力と店舗陳列の上限（prodCap）の小さいほう
- * - 販売：販売能力まで
- * - 教育・商品開発：記帳フォームが1回1枚で固定なので 1（教育チップは期を通しても最大1枚）
- * - 配置転換：期首のスタッフ数まで
+ * - 仕入れ：材料在庫の上限（matCap）− いまの材料
+ * - 製造：製造能力・材料・店舗陳列の空き（prodCap − 製品）の一番小さいもの。機械か製造スタッフが居なければ 0
+ * - 販売：販売能力と製品の小さいほう
+ * - 教育：期を通して1枚まで（すでに1枚なら 0）／商品開発：記帳フォームが1回1枚で固定なので 1
+ * - 配置転換：移す元のスタッフ数まで
  * - 借入：今期借入可能額まで／返済：借入残高まで
  */
-export function actionQtyMax(key: string, plan: Plan, st: St): number | null {
+function qtyMaxOn(s: St, key: string, opt?: string): number | null {
   const R = getRules()
+  const c = caps(s)
   switch (key) {
     case 'shiire':
-      return R.matCap
+      return Math.max(0, R.matCap - s.rawCubes)
     case 'seizo':
-      return Math.min(planCaps(plan, st).mfgCap, R.prodCap)
+      if (s.machines <= 0 || s.staffMfg <= 0) return 0
+      return Math.max(0, Math.min(c.mfgCap, s.rawCubes, R.prodCap - s.products))
     case 'hanbai':
-      return planCaps(plan, st).salesCap
+      return Math.max(0, Math.min(c.salesCap, s.products))
     case 'kyoiku':
+      return Math.max(0, EDU_MAX - s.edu)
     case 'kaihatsu':
       return 1
     case 'haichi':
-      return Math.max(st.openingStaffMfg, st.openingStaffSales)
+      return opt === 'sales->mfg' ? s.staffSales : s.staffMfg
     case 'kariire':
-      return loanRoom(st)
+      return loanRoom(s)
     case 'hensai':
-      return st.loan
+      return s.loan
     default:
       return null // 機械購入・スタッフ採用・広告・保険はルール上の上限なし
   }
 }
 
-/** 数量を1回の上限に収める（上限が無ければそのまま） */
-export function clampQty(key: string, qty: number, plan: Plan, st: St): number {
-  const max = actionQtyMax(key, plan, st)
-  const n = Math.max(0, Math.round(qty))
+/** アクションプラン1行の判定結果 */
+export interface PlanActionCheck {
+  /** この行より前の行をすべて実施した盤面で、1回にできる数量の上限（上限が無ければ null） */
+  max: number | null
+  /** 記帳と同じバリデーションで引っかかる理由（空なら記帳できる） */
+  errors: string[]
+  /** 借入の行：記帳と同じく借入と同時に払う金利（借入額 × 金利）。それ以外は 0 */
+  interest: number
+}
+
+/**
+ * アクションプランを上の行から順に「記帳したことにして」盤面を進め、各行を判定する（issue #102）。
+ * 盤面の進め方は記帳と同じ（行を足して `recompute()`）なので、途中の採用・機械購入・広告・教育で後ろの行の上限が上がり、
+ * 仕入れ → 製造 → 販売 の順に在庫が流れる。
+ * - 上限を超えた行も「計画した内容」として盤面に足す（後ろの行は、その行を実施した前提で判定する。
+ *   製造・販売は calc の apply が在庫までしか動かさないので盤面は壊れない）
+ * - 数量 0 の行は何もしない（判定もしない）
+ * - ルールBの「1ターンに1度」は手番の並びで決まるもので、計画の行には手番が無いので見ない
+ */
+export function planActionChecks(plan: Plan, st: St): PlanActionCheck[] {
+  const s = openingBoard(st)
+  return plan.actions.map((a) => {
+    const def = a.key ? ACTIONS[a.key] : undefined
+    if (!def) return { max: null, errors: [], interest: 0 }
+    const max = qtyMaxOn(s, a.key, a.opt)
+    if (a.qty <= 0) return { max, errors: [], interest: 0 }
+    const f = fieldsFor(a.key, a.qty, plan, a.opt)
+    const errors = validate(s, a.key, f)
+    s.tx.push({ id: s.seq++, key: a.key, fvals: f, col: def.col, amount: Math.abs(a.amount || 0), noCash: def.noCash })
+    recompute(s)
+    // 借入金利は recompute が借入行の金額から作る派生行と同じ式（金額 × 金利・四捨五入）
+    const interest = a.key === 'kariire' ? Math.round(Math.max(0, a.amount || 0) * getRules().loanRate) : 0
+    return { max, errors, interest }
+  })
+}
+
+/** i 行目の数量を、その行の時点の上限に収める（上限が無ければそのまま。マイナスは 0） */
+export function clampRowQty(plan: Plan, st: St, i: number): number {
+  const n = Math.max(0, Math.round(plan.actions[i].qty))
+  const max = planActionChecks(plan, st)[i].max
   return max == null ? n : Math.min(n, max)
 }
 
@@ -232,7 +316,9 @@ export function normalizePlan(input: unknown): Plan {
     v: num0(o.v),
     actions: Array.from({ length: PLAN_ROWS }, (_, i) => {
       const a = acts[i] as Record<string, unknown> | undefined
-      return { key: actionKey(a), qty: int0(a?.qty), amount: num0(a?.amount) }
+      const key = actionKey(a)
+      const opt = optOf(key, a?.opt)
+      return { key, qty: int0(a?.qty), amount: num0(a?.amount), ...(opt ? { opt } : {}) }
     }),
   }
 }
@@ -418,12 +504,15 @@ export function planFigures(plan: Plan, st: St): PlanFigures {
   return { F, MQ, M, Q, PQ: Q == null ? null : plan.p * Q, VQ: Q == null ? null : plan.v * Q }
 }
 
-export interface CashPlanRow {
+export interface CashPlanRow extends PlanActionCheck {
   /** 選ばれている記帳アクションのキー（'' ＝未選択） */
   key: string
   qty: number
   amount: number
+  /** この行の入出金までの現金残高（借入金利は含まない） */
   balance: number
+  /** 借入金利まで払った後の現金残高（借入の行のみ意味がある。それ以外は balance と同じ） */
+  afterInterest: number
 }
 export interface CashPlan {
   /** 前期繰越残高（期首の現金） */
@@ -434,7 +523,8 @@ export interface CashPlan {
 }
 
 /**
- * 7. アクションプラン：前期繰越残高 → 期首処理 → 各行の入出金 の順に現金残高を累計する。
+ * 7. アクションプラン：前期繰越残高 → 期首処理 → 各行の入出金（借入の行は借入金利も）の順に現金残高を累計する。
+ * 各行の上限と記帳できない理由は `planActionChecks()` で出す。
  * 期首処理は記帳済みの自動行（法人税納付・支払金利）の金額をそのまま使う。
  * 期末処理（給料・家賃・元本返済）はアクションプランには載せない。
  */
@@ -443,9 +533,13 @@ export function cashPlan(plan: Plan, st: St): CashPlan {
     .filter((t) => t.isOpeningTax || t.isOpeningInterest)
     .reduce((s, t) => s + (t.amount || 0), 0)
   let bal = st.openingCash + openingAuto
-  const rows = plan.actions.map((a) => {
+  const checks = planActionChecks(plan, st)
+  const rows = plan.actions.map((a, i) => {
     bal += a.amount || 0
-    return { key: a.key, qty: a.qty, amount: a.amount || 0, balance: bal }
+    const balance = bal
+    // 借入の行は、記帳と同じく借入金利（前払い）をすぐ払う。画面では借入行の下に金利の行として出す
+    bal -= checks[i].interest
+    return { key: a.key, qty: a.qty, amount: a.amount || 0, balance, afterInterest: bal, ...checks[i] }
   })
   return { openingCash: st.openingCash, openingAuto, rows }
 }

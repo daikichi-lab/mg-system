@@ -14,9 +14,10 @@ import {
   actionAmount,
   capacityCompare,
   cashNeeds,
-  actionQtyMax,
+  planActionChecks,
   rankGap,
-  clampQty,
+  clampRowQty,
+  defaultOpt,
   defaultQty,
   planLocked,
   planVsActual,
@@ -232,45 +233,142 @@ test('数量の初期値：借入・返済は金額なので 0、それ以外は
   assert.equal(defaultQty(''), 0)
 })
 
-test('数量の上限：記帳のバリデーションと同じ根拠（在庫上限・能力・1回1枚・借入枠）', () => {
-  const st = st3() // 製造2・販売2・機械1・借入100
+// アクションプランの行を作る（金額は記帳と同じ式で出す）
+const act = (plan: ReturnType<typeof defaultPlan>, i: number, key: string, qty: number, opt?: string) => {
+  plan.actions[i] = { key, qty, amount: actionAmount(key, qty, plan), ...(opt ? { opt } : {}) }
+}
+const maxOf = (plan: ReturnType<typeof defaultPlan>, st: St, i: number) => planActionChecks(plan, st)[i].max
+
+test('数量の上限：記帳のバリデーションと同じ根拠（在庫の空き・能力・在庫・1回1枚・借入枠）', () => {
+  const st = st3() // 製造2・販売2・機械1・借入100、期首在庫なし
   const plan = { ...defaultPlan(), p: 32, v: 12 }
-  // 仕入れは材料在庫の上限 15、製造は製造能力 min(2, 1台×2)×2 ＝ 4 と店舗陳列 15 の小さいほう、販売は販売能力 2人×2 ＝ 4
-  assert.equal(actionQtyMax('shiire', plan, st), 15)
-  assert.equal(actionQtyMax('seizo', plan, st), 4)
-  assert.equal(actionQtyMax('hanbai', plan, st), 4)
+  const one = (key: string, opt?: string) => {
+    act(plan, 0, key, 0, opt)
+    return maxOf(plan, st, 0)
+  }
+  // 仕入れは材料在庫の上限 15 − 材料 0
+  assert.equal(one('shiire'), 15)
+  // 製造・販売は在庫が無ければ 0（記帳と同じく、材料が無いと製造できない・製品が無いと売れない）
+  assert.equal(one('seizo'), 0)
+  assert.equal(one('hanbai'), 0)
   // 教育・商品開発は1回1枚
-  assert.equal(actionQtyMax('kyoiku', plan, st), 1)
-  assert.equal(actionQtyMax('kaihatsu', plan, st), 1)
-  // 配置転換はスタッフ数まで、返済は借入残高まで
-  assert.equal(actionQtyMax('haichi', plan, st), 2)
-  assert.equal(actionQtyMax('hensai', plan, st), 100)
+  assert.equal(one('kyoiku'), 1)
+  assert.equal(one('kaihatsu'), 1)
+  // 配置転換は移す元のスタッフ数まで、返済は借入残高まで
+  assert.equal(one('haichi', 'mfg->sales'), 2)
+  assert.equal(one('hensai'), 100)
   // 借入は今期借入可能額（純資産×倍率 − 残高）まで
-  assert.equal(actionQtyMax('kariire', plan, st), 0) // 純資産0・倍率0 のテスト盤面では枠なし
+  assert.equal(one('kariire'), 0) // 純資産0・倍率0 のテスト盤面では枠なし
   // 上限が無いもの
-  assert.equal(actionQtyMax('kikai', plan, st), null)
-  assert.equal(actionQtyMax('saiyo', plan, st), null)
-  assert.equal(actionQtyMax('koukoku', plan, st), null)
-  assert.equal(actionQtyMax('hoken', plan, st), null)
+  assert.equal(one('kikai'), null)
+  assert.equal(one('saiyo', 'mfg'), null)
+  assert.equal(one('koukoku'), null)
+  assert.equal(one('hoken'), null)
   reset()
 })
 
-test('数量の上限：機械購入・教育を計画に入れると製造能力が上がり、上限も上がる', () => {
-  const st = st3()
-  const plan = { ...defaultPlan(), machinesNew: 1, edu: 1 }
-  // 製造能力 min(製造2, 機械2台×2)×3(教育あり) ＝ 6
-  assert.equal(actionQtyMax('seizo', plan, st), 6)
+test('上の行から順に盤面を進める：仕入れ → 製造 → 販売 で在庫が流れ、途中の採用・機械・教育で後ろの行の上限が上がる', () => {
+  const st = st3() // 製造2・販売2・機械1 → 製造能力 4・販売能力 4
+  const plan = { ...defaultPlan(), p: 32, v: 12 }
+  act(plan, 0, 'shiire', 10)
+  act(plan, 1, 'seizo', 0)
+  assert.equal(maxOf(plan, st, 1), 4) // 材料 10・製造能力 4
+  act(plan, 1, 'seizo', 4)
+  act(plan, 2, 'hanbai', 0)
+  assert.equal(maxOf(plan, st, 2), 4) // 製品 4・販売能力 4
+  // 販売員を2人採用すると販売能力 8。ただし製品は 4 なので上限は 4 のまま
+  act(plan, 2, 'saiyo', 2, 'sales')
+  act(plan, 3, 'hanbai', 0)
+  assert.equal(maxOf(plan, st, 3), 4)
+  // 機械を1台買い、教育を入れると製造能力 min(2, 2台×2)×3 ＝ 6 → 材料 6 残っているので 6
+  act(plan, 3, 'kikai', 1)
+  act(plan, 4, 'kyoiku', 1)
+  act(plan, 5, 'seizo', 0)
+  assert.equal(maxOf(plan, st, 5), 6)
+  act(plan, 5, 'seizo', 6)
+  // 製品 4＋6 ＝ 10、販売能力 (2＋2)×2 ＝ 8 → 8
+  act(plan, 6, 'hanbai', 0)
+  assert.equal(maxOf(plan, st, 6), 8)
+  // 教育は期に1枚：2枚目の上限は 0
+  act(plan, 7, 'kyoiku', 0)
+  assert.equal(maxOf(plan, st, 7), 0)
+  // 採用を製造に変えると販売能力は 4 に戻る
+  act(plan, 2, 'saiyo', 2, 'mfg')
+  assert.equal(maxOf(plan, st, 6), 4)
   reset()
 })
 
-test('clampQty：上限を超えた数量は上限まで、マイナスは 0 に丸める', () => {
+test('前の行を変えて上限を超えた行は、数字は残したまま記帳と同じ理由が付く', () => {
   const st = st3()
+  const plan = { ...defaultPlan(), p: 32, v: 12 }
+  act(plan, 0, 'shiire', 10)
+  act(plan, 1, 'seizo', 4)
+  act(plan, 2, 'hanbai', 4)
+  assert.deepEqual(
+    planActionChecks(plan, st).map((c) => c.errors.length),
+    Array(PLAN_ROWS).fill(0),
+  )
+  // 仕入れを消すと、製造は材料が足りず、販売は製品が足りない
+  plan.actions[0] = { key: '', qty: 0, amount: 0 }
+  const c = planActionChecks(plan, st)
+  assert.equal(plan.actions[1].qty, 4) // 後ろの行の数字は直さない
+  assert.ok(c[1].errors.some((e) => e.includes('材料が足りません')))
+  assert.ok(c[2].errors.some((e) => e.includes('製品が足りません')))
+  reset()
+})
+
+test('借入の行：記帳と同じく借入額×金利をすぐ払い、現金残高に入る。借入枠は前の借入の分だけ減る', () => {
+  const st = st3()
+  st.openingCapital = 300 // 純資産 300 × 倍率 1 − 借入 100 ＝ 枠 200
+  st.loanMult = 1
   const plan = { ...defaultPlan() }
-  assert.equal(clampQty('kaihatsu', 5, plan, st), 1)
-  assert.equal(clampQty('shiire', 99, plan, st), 15)
-  assert.equal(clampQty('kikai', 99, plan, st), 99) // 上限なしはそのまま
-  assert.equal(clampQty('shiire', -3, plan, st), 0)
+  act(plan, 0, 'kariire', 0)
+  const room = maxOf(plan, st, 0)!
+  assert.equal(room, 200)
+  act(plan, 0, 'kariire', 120)
+  act(plan, 1, 'kariire', 0)
+  assert.equal(maxOf(plan, st, 1), room - 120)
+  const c = cashPlan(plan, st)
+  assert.equal(c.rows[0].interest, Math.round(120 * 0.05))
+  assert.equal(c.rows[0].balance, 252 - 31 + 120)
+  assert.equal(c.rows[0].afterInterest, 252 - 31 + 120 - 6)
+  assert.equal(c.rows[1].balance, 252 - 31 + 120 - 6) // 次の行は金利を払った後から
   reset()
+})
+
+test('clampRowQty：入力中の行は、その行の時点の上限まで。マイナスは 0', () => {
+  const st = st3()
+  const plan = { ...defaultPlan(), p: 32, v: 12 }
+  act(plan, 0, 'kaihatsu', 5)
+  assert.equal(clampRowQty(plan, st, 0), 1)
+  act(plan, 0, 'shiire', 99)
+  assert.equal(clampRowQty(plan, st, 0), 15)
+  act(plan, 1, 'shiire', 99)
+  plan.actions[0] = { key: 'shiire', qty: 10, amount: -120 }
+  assert.equal(clampRowQty(plan, st, 1), 5) // 1行目で 10 仕入れたので空きは 5
+  act(plan, 0, 'kikai', 99)
+  assert.equal(clampRowQty(plan, st, 0), 99) // 上限なしはそのまま
+  plan.actions[0] = { key: 'shiire', qty: -3, amount: 0 }
+  assert.equal(clampRowQty(plan, st, 0), 0)
+  reset()
+})
+
+test('補足（採用の製造／販売・配置転換の向き）：初期値と保存データの読み直し', () => {
+  assert.equal(defaultOpt('saiyo'), 'mfg')
+  assert.equal(defaultOpt('haichi'), 'mfg->sales')
+  assert.equal(defaultOpt('shiire'), undefined)
+  const p = normalizePlan({
+    actions: [
+      { key: 'saiyo', qty: 1, amount: -5, opt: 'sales' },
+      { key: 'saiyo', qty: 1, amount: -5 }, // 補足の無い以前の保存データは製造の採用
+      { key: 'haichi', qty: 1, amount: -5, opt: 'xx' },
+      { key: 'shiire', qty: 1, amount: -12, opt: 'sales' },
+    ],
+  })
+  assert.equal(p.actions[0].opt, 'sales')
+  assert.equal(p.actions[1].opt, 'mfg')
+  assert.equal(p.actions[2].opt, 'mfg->sales')
+  assert.equal(p.actions[3].opt, undefined)
 })
 
 test('normalizePlan：教育の枚数は最大1枚に収める', () => {
