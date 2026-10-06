@@ -180,7 +180,8 @@ function ruleBError(st: St): string | null {
 const rowsOf = (f: Fvals): Fvals[] => (f && f.items && f.items.length ? f.items : [{ qty: f?.qty, unit: f?.unit }])
 
 // 記帳前バリデーション（calc-spec §12）。該当するエラーを全件返す（OK なら空配列）。
-function validate(st: St, key: string, f: Fvals): string[] {
+// 経営計画のアクションプラン（lib/plan.ts の planActionChecks）も同じ判定を使う（issue #102）。
+export function validate(st: St, key: string, f: Fvals): string[] {
   const c = caps(st)
   const errs: string[] = []
   switch (key) {
