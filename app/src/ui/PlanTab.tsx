@@ -199,7 +199,7 @@ export default function PlanTab({
   // 全角スペースで区切った見出し用
   const phrases = (text: string) => chunks(text.split('　'), true)
 
-  // 数値入力（0 以上）。閲覧専用では無効
+  // 数値入力（0 以上）。入力できる欄は背景を黄色（bg-entry）にして自動計算の数字と見分ける（issue #100）。閲覧専用では無効でグレー
   const numIn = (testid: string, value: number, onChange: (v: number) => void, cls = 'w-20', max?: number) => (
     <input
       data-testid={testid}
@@ -209,7 +209,7 @@ export default function PlanTab({
       value={value}
       disabled={ro}
       onChange={(e) => onChange(Number(e.target.value) || 0)}
-      className={`h-9 border border-line rounded px-2 num text-sm text-right bg-white disabled:bg-canvas ${cls}`}
+      className={`h-9 border border-entry-line rounded px-2 num text-sm text-right bg-entry disabled:bg-canvas disabled:border-line ${cls}`}
     />
   )
   const card = (title: ReactNode, body: ReactNode, cls = '') => (
@@ -404,10 +404,12 @@ export default function PlanTab({
             <span className="text-f-ink">2. 固定費（F）を算出</span>,
             <div className="space-y-3">
               {/* 左：現況（入力なし）／右：戦略的投資（入力あり）。合計はその下に置く */}
-              <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-x-6 gap-y-3">
-              <div className="min-w-0 flex flex-col">
+              {/* 左右それぞれを太い枠＋影で囲み、「入力なし」と「入力あり」の区切りを一目で分かるようにする（issue #100）。
+                  見出し（現況／戦略的投資）には下線を引く。中身が inline-block の塊なので text-decoration では線が出ず、border-b で引く */}
+              <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-x-4 gap-y-3">
+              <div className="min-w-0 flex flex-col rounded-xl border-2 border-ink-300 shadow-card p-3">
                 <div className="flex justify-between items-baseline gap-2 mb-1 h-6">
-                  <span className="text-xs font-bold text-ink-600">{phrases('現況　今期必ず発生する費用')}</span>
+                  <span className="text-xs font-bold text-ink-600 inline-block border-b-2 border-ink-600 pb-0.5">{phrases('現況　今期必ず発生する費用')}</span>
                   <span className="hidden sm:inline text-[10px] text-ink-400 whitespace-nowrap">入力なし・自動で計算</span>
                 </div>
                 <div className="overflow-x-auto">
@@ -446,9 +448,9 @@ export default function PlanTab({
               </div>
 
               {/* 右：戦略的投資。実施する数を入力すると、それに伴う固定費が出る */}
-              <div className="min-w-0 flex flex-col">
+              <div className="min-w-0 flex flex-col rounded-xl border-2 border-ink-300 shadow-card p-3">
                 <div className="flex justify-between items-baseline gap-2 mb-1 h-6">
-                  <span className="text-xs font-bold text-ink-600">{phrases('戦略的投資　今期あらたに実施する投資')}</span>
+                  <span className="text-xs font-bold text-ink-600 inline-block border-b-2 border-ink-600 pb-0.5">{phrases('戦略的投資　今期あらたに実施する投資')}</span>
                   <span className="hidden sm:inline text-[10px] text-ink-400 whitespace-nowrap">実施する数量を入力</span>
                 </div>
                 <div className="overflow-x-auto">
@@ -871,7 +873,7 @@ export default function PlanTab({
                           value={plan.actions[i].key}
                           disabled={ro}
                           onChange={(e) => updateAction(i, { key: e.target.value })}
-                          className="h-7 w-full border border-line rounded px-2 text-xs bg-white disabled:bg-canvas"
+                          className="h-7 w-full border border-entry-line rounded px-2 text-xs bg-entry disabled:bg-canvas disabled:border-line"
                         >
                           <option value="">（未選択）</option>
                           {PLAN_ACTION_OPTIONS.map((o) => (
@@ -895,7 +897,7 @@ export default function PlanTab({
                               value={plan.actions[i].qty}
                               disabled={ro}
                               onChange={(e) => updateAction(i, { qty: Number(e.target.value) || 0 })}
-                              className="h-7 w-12 sm:w-16 border border-line rounded px-1 sm:px-2 num text-xs text-right bg-white disabled:bg-canvas"
+                              className="h-7 w-12 sm:w-16 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                             />
                             <span className="w-4 text-ink-400">{PLAN_ACTION_UNITS[plan.actions[i].key] ?? ''}</span>
                           </div>
@@ -908,7 +910,7 @@ export default function PlanTab({
                           value={plan.actions[i].amount}
                           disabled={ro}
                           onChange={(e) => updateAction(i, { amount: Number(e.target.value) || 0 })}
-                          className="h-7 w-[4.25rem] sm:w-24 border border-line rounded px-1 sm:px-2 num text-xs text-right bg-white disabled:bg-canvas"
+                          className="h-7 w-[4.25rem] sm:w-24 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                         />
                       </td>
                       <td className={`py-1 px-1 text-right num ${r.balance < 0 ? 'text-accent-ink font-bold' : ''}`}>
