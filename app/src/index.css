@@ -9,6 +9,10 @@
   --color-line: #e4e7ec;
   --color-canvas: #f6f7f9;
   --color-field: #edeff2; /* 入力欄の背景（canvas より一段濃いグレー。白いカードと区別する） */
+  /* 経営計画タブの入力欄の背景（issue #100）。自動計算の数字と見分けられるよう黄色にする。
+     G（経常利益）の黄 --color-g-bg とは混ざらないよう、より明るく彩度の高い黄にしている */
+  --color-entry: #fff6c2;
+  --color-entry-line: #e8d27a;
 
   --color-accent: #c8322b;
   --color-accent-ink: #a02620;
