@@ -57,9 +57,18 @@ function newBldg(P, c) {
 const occ = (p, t, area) => p.bldgs.flatMap((b) => (area && b.area !== area ? [] : b.rooms.filter((r) => r.st === 'occ' && (!t || r.type === t))))
 const vac = (p, area) => p.bldgs.reduce((s, b) => s + (area && b.area !== area ? 0 : b.rooms.filter((r) => r.st === 'vac').length), 0)
 const unfurn = (p) => p.bldgs.reduce((s, b) => s + b.rooms.filter((r) => r.st === 'none').length, 0)
-const leaseCap = (P, p) => p.sales * P.leasePerSales
-const indivCap = (P, p) => leaseCap(P, p) + Math.min(p.ads, p.sales * P.adPerSales) * P.adRooms
-const mgmtCap = (P, p) => p.mgmt * P.mgmtRooms + p.locks * P.lockRooms
+/** そのエリアで使える営業スタッフ（salesByArea のときは配属した人数、そうでなければ会社全体） */
+const salesIn = (P, p, area) => (P.salesByArea && area ? p.salesBy[area] || 0 : p.sales)
+const leaseCap = (P, p, area) => salesIn(P, p, area) * P.leasePerSales
+// 広告は、そのエリアに営業スタッフがいる入札にだけ効く
+const indivCap = (P, p, area) => (leaseCap(P, p, area) ? leaseCap(P, p, area) + Math.min(p.ads, p.sales * P.adPerSales) * P.adRooms : 0)
+/** 管理能力：mgmtByArea のときはエリアごと（そのエリアの管理スタッフ×12＋そのエリアのスマートロック×6）、そうでなければ会社全体 */
+const mgmtCap = (P, p, area) =>
+  P.mgmtByArea && area ? (p.mgmtBy[area] || 0) * P.mgmtRooms + (p.lockBy[area] || 0) * P.lockRooms : p.mgmt * P.mgmtRooms + p.locks * P.lockRooms
+/** 管理能力の残り（エリアごと or 会社全体） */
+const mgmtRoom = (P, p, area) => (P.mgmtByArea ? mgmtCap(P, p, area) - occ(p, null, area).length : mgmtCap(P, p) - occ(p).length)
+/** 営業所の家賃：スタッフのいるエリアの数 × officeRent（officeByArea でなければ本社家賃 hq） */
+const officeCost = (P, p) => (P.officeByArea ? ['city', 'suburb', 'rural'].filter((a) => (p.salesBy[a] || 0) + (p.mgmtBy[a] || 0) > 0).length * P.officeRent : P.hq)
 const mktOf = (P, p, b) => b.mkt - (p.flags.competitor && b.area === 'city' ? 3 : 0)
 const equity = (p) => p.capital + p.retained
 const loanRoom = (P, p) => (p.period < P.loanFrom ? 0 : Math.max(0, Math.round(equity(p) * P.loanMult) - p.loan))
@@ -170,7 +179,9 @@ function auction(G, parent, area, type, seats) {
     const price = bidders.length === 1 ? cap : Math.max(P.priceFloor[type], Math.min(cap, cap - s.bidDisc - pressure - corpExtra - Math.max(0, bidders.length - 2) - Math.floor(G.rand() * 3)))
     // 営業チップ1枚ごとに2低くコールしたものとして比べる（製造業MGと同じ）
     const eff = price - q.salesChips * P.salesChipBid
-    const offer = Math.min(type === 'indiv' ? indivCap(P, q) : leaseCap(P, q), vac(q, area))
+    // 管理能力を超えて入居させられない（mgmtHardCap）：取れる室数は 管理能力 − 今の入居室数 まで
+    const room = P.mgmtHardCap ? Math.max(0, mgmtRoom(P, q, area)) : Infinity
+    const offer = Math.min(type === 'indiv' ? indivCap(P, q, area) : leaseCap(P, q, area), vac(q, area), room)
     return { q, price, eff, offer, tie: G.rand() }
   })
   bids.sort((x, y) => x.eff - y.eff || Number(y.q === parent) - Number(x.q === parent) || x.tie - y.tie)
@@ -184,7 +195,13 @@ function auction(G, parent, area, type, seats) {
     const got = fill(G, bd.q, area, type, n, () => Math.max(1, bd.price - cut))
     left -= got
     G.market[area][type] -= got
-    if (type === 'stud' && got > 0 && P.studBonus) fill(G, bd.q, area, 'stud', P.studBonus, () => bd.price) // ストッカーから＋1人
+    // 集計用：借りた棟が8割埋まった手番を記録
+    for (const b of bd.q.bldgs) if (b.leasedAt && !b.filledAt && b.rooms.filter((r) => r.st === 'occ').length >= Math.ceil(b.rooms.length * 0.8)) b.filledAt = { period: G.period, turn: bd.q.turnNo, clock: G.clock }
+    if (type === 'stud' && got > 0 && P.studBonus) {
+      // ストッカーから＋2人（管理能力の範囲まで）
+      const extra = P.mgmtHardCap ? Math.min(P.studBonus, Math.max(0, mgmtRoom(P, bd.q, area))) : P.studBonus
+      fill(G, bd.q, area, 'stud', extra, () => bd.price)
+    }
   }
   G.auctions.push({ type, area, n: bidders.length, seats, parent: parent.persona, parentPrice: bids.find((b) => b.q === parent).price, parentWon: bids.find((b) => b.q === parent).eff <= Math.min(...bids.map((b) => b.eff)) })
   return true
@@ -238,7 +255,7 @@ const EV = {
     if (r) pay(G, p, r.rent, 'arrears')
   },
   noise(G, p) {
-    if (occ(p).length > mgmtCap(G.P, p)) evict(G, p, occ(p, 'indiv').slice(0, 1), 'indiv')
+    for (const a of G.P.mgmtByArea ? ['city', 'suburb', 'rural'] : [null]) if (mgmtRoom(G.P, p, a) < 0) return evict(G, p, occ(p, 'indiv', a).slice(0, 1), 'indiv')
   },
   competitor(G, p) {
     p.flags.competitor = true
@@ -286,7 +303,7 @@ const EV = {
 function endCost(G, p) {
   const P = G.P
   const left = Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
-  return p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * left + p.pend.own + (p.sales + p.mgmt) * P.salary[G.period - 1] + P.hq + Math.round(p.loan * P.repayRate) + p.short + 15
+  return p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * left + p.pend.own + (p.sales + p.mgmt) * P.salary[G.period - 1] + officeCost(P, p) + Math.round(p.loan * P.repayRate) + p.short + 15
 }
 function outlook(G, p) {
   const left = Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
@@ -331,8 +348,12 @@ function lease(G, p, i, nf) {
   const c = G.market.cards.splice(i, 1)[0]
   if (G.bdeck.length) G.market.cards.push(G.bdeck.pop())
   accrue(G, p)
-  p.bldgs.push(newBldg(G.P, c))
+  const nb = newBldg(G.P, c)
+  // 集計用：借りた期と、その時点の自分の手番の回数（埋まるまでの手番を数える）
+  nb.leasedAt = { period: G.period, turn: p.turnNo, clock: G.clock }
+  p.bldgs.push(nb)
   if (nf > 0) buyFurn(G, p, nf)
+  staffNewArea(G, p, c.area)
 }
 function buyFurn(G, p, n) {
   const P = G.P
@@ -360,7 +381,7 @@ function pickContract(G, p) {
       if (t === 'stud' && (p.turnNo >= P.studTurns || G.noStud)) return
       if (t === 'indiv' && p.flags.noIndiv) return
       const avail = G.market[a][t]
-      const n = Math.min(t === 'indiv' ? indivCap(P, p) : leaseCap(P, p), v, avail)
+      const n = Math.min(t === 'indiv' ? indivCap(P, p, a) : leaseCap(P, p, a), v, avail)
       if (n <= 0) return
       const score = n * 10 - rank * 6
       if (!best || score > best.score) best = { a, t, n, score }
@@ -372,8 +393,19 @@ function decide(G, p) {
   const P = G.P
   const s = ps(p)
   const v = vac(p)
+  // 営業がいちばん足りないエリアで、空室がその営業能力の何倍あるか
+  const na = P.salesByArea ? neediestArea(G, p) : null
+  const lcA = Math.max(1, leaseCap(P, p, na))
+  const vA = P.salesByArea ? vac(p, na) : v
+  const salesRoom = P.salesByArea ? salesIn(P, p, na) < P.staffMax : p.sales < P.staffMax
   const lc = leaseCap(P, p)
-  if (v >= lc * 3 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
+  // 管理能力がいちばん足りないエリア（空室があって、管理の残りが1室以下）
+  const ma = mgmtNeedArea(G, p)
+  if (P.mgmtHardCap && ma && vac(p, ma) > 0 && mgmtRoom(P, p, ma) <= 1) {
+    if (s.lock && p.locks < P.lockMax && canSpend(G, p, P.lockPrice)) return buyLock(G, p, ma)
+    if (p.mgmt < P.staffMax * 3 && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'mgmt', ma)
+  }
+  if (vA >= lcA * 3 && salesRoom && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > 0) {
     const c = pickContract(G, p)
     if (c) return auction(G, p, c.a, c.t, c.n)
@@ -382,9 +414,9 @@ function decide(G, p) {
     const n = Math.min(unfurn(p), P.furnMax, Math.floor((p.cash - s.buffer / 2) / P.furnPrice))
     if (n > 0 && buyFurn(G, p, n)) return
   }
-  if (occ(p).length + vac(p) > mgmtCap(P, p) - 2) {
-    if (s.lock && p.locks < P.lockMax && canSpend(G, p, P.lockPrice)) return buy(G, p, 'locks', P.lockPrice, 'lock')
-    if (p.mgmt < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'mgmt')
+  if (ma && occ(p, null, P.mgmtByArea ? ma : null).length + vac(p, P.mgmtByArea ? ma : null) > mgmtCap(P, p, P.mgmtByArea ? ma : null) - 2) {
+    if (s.lock && p.locks < P.lockMax && canSpend(G, p, P.lockPrice)) return buyLock(G, p, ma)
+    if (p.mgmt < P.staffMax * (P.mgmtByArea ? 3 : 1) && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'mgmt', ma)
   }
   if (wantExpand(G, p)) {
     const i = G.market.cards.map((c, k) => [cardScore(G, c), k]).sort((x, y) => y[0] - x[0])[0][1]
@@ -393,7 +425,7 @@ function decide(G, p) {
     const left = (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin
     if (p.cash >= 50 && outlook(G, p) - own * left - 96 + own * left * 1.3 >= s.buffer) return lease(G, p, i, Math.min(roomsOf(P, c.area), Math.floor((p.cash - s.buffer) / P.furnPrice)))
   }
-  if (v >= lc * 2 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
+  if (vA >= lcA * 2 && salesRoom && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > lc && p.ads < p.sales * P.adPerSales && canSpend(G, p, P.adPrice)) return buy(G, p, 'ads', P.adPrice, 'ads')
   if (p.salesChips < Math.min(s.salesChips, P.salesChipMax) && canSpend(G, p, P.salesChipPrice)) return buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')
   if (s.reno) {
@@ -407,9 +439,61 @@ function decide(G, p) {
     }
   }
 }
-function hire(G, p, kind) {
-  pay(G, p, G.P.hireCost, 'hire')
+function hire(G, p, kind, area) {
+  const P = G.P
+  pay(G, p, P.hireCost, 'hire')
   p[kind]++
+  if (kind === 'sales' && P.salesByArea) {
+    // 配属先：指定がなければ、空室に対して営業がいちばん足りないエリア
+    const a = area || neediestArea(G, p)
+    p.salesBy[a] = (p.salesBy[a] || 0) + 1
+  }
+  if (kind === 'mgmt' && P.mgmtByArea) {
+    const a = area || mgmtNeedArea(G, p) || 'suburb'
+    p.mgmtBy[a] = (p.mgmtBy[a] || 0) + 1
+  }
+}
+/** 管理がいちばん足りないエリア：（入居＋空室）− 管理能力 が大きいエリア */
+function mgmtNeedArea(G, p) {
+  const P = G.P
+  const areas = [...new Set(p.bldgs.map((b) => b.area))]
+  if (!P.mgmtByArea) return areas[0] || 'suburb'
+  return areas.sort((x, y) => occ(p, null, y).length + vac(p, y) - mgmtCap(P, p, y) - (occ(p, null, x).length + vac(p, x) - mgmtCap(P, p, x)))[0]
+}
+/** スマートロック：mgmtByArea のときは付けたエリアだけに効く */
+function buyLock(G, p, area) {
+  pay(G, p, G.P.lockPrice, 'lock')
+  p.locks++
+  if (G.P.mgmtByArea) p.lockBy[area] = (p.lockBy[area] || 0) + 1
+}
+/** 空室 ÷（営業＋1）がいちばん大きいエリア（棟のあるエリアの中から） */
+function neediestArea(G, p) {
+  const areas = [...new Set(p.bldgs.map((b) => b.area))]
+  return areas.sort((x, y) => vac(p, y) / (salesIn(G.P, p, y) + 1) - vac(p, x) / (salesIn(G.P, p, x) + 1))[0] || 'suburb'
+}
+/** 営業がいないエリアに棟を借りたとき：採用できれば採用、できなければ営業の多いエリアから配置転換（ルールB・1人5） */
+function staffNewArea(G, p, area) {
+  const P = G.P
+  // 管理スタッフもエリア配属なら、そのエリアに管理がいなければ採用（できなければ管理の多いエリアから配置転換）
+  if (P.mgmtByArea && !(p.mgmtBy[area] > 0)) {
+    if (canSpend(G, p, P.hireCost + 30)) hire(G, p, 'mgmt', area)
+    else {
+      const from = Object.keys(p.mgmtBy).sort((x, y) => p.mgmtBy[y] - p.mgmtBy[x])[0]
+      if (from && p.mgmtBy[from] >= 2) {
+        pay(G, p, P.transferCost, 'transfer')
+        p.mgmtBy[from]--
+        p.mgmtBy[area] = (p.mgmtBy[area] || 0) + 1
+      }
+    }
+  }
+  if (!P.salesByArea || salesIn(P, p, area) > 0) return
+  if (p.sales < P.staffMax * 3 && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales', area)
+  const from = Object.keys(p.salesBy).sort((x, y) => p.salesBy[y] - p.salesBy[x])[0]
+  if (from && p.salesBy[from] >= 2) {
+    pay(G, p, P.transferCost, 'transfer')
+    p.salesBy[from]--
+    p.salesBy[area] = (p.salesBy[area] || 0) + 1
+  }
 }
 function buy(G, p, k, price, fk) {
   pay(G, p, price, fk)
@@ -503,7 +587,7 @@ function periodEnd(G, p) {
   const occEnd = occ(p).length
   const corpN = occ(p, 'corp').length
   pay(G, p, (p.sales + p.mgmt) * P.salary[G.period - 1], 'salary')
-  pay(G, p, P.hq, 'hq')
+  pay(G, p, officeCost(P, p), 'hq')
   const rep = Math.round(p.loan * P.repayRate)
   if (rep) {
     p.cash -= rep
@@ -511,13 +595,15 @@ function periodEnd(G, p) {
     if (p.cash < 0) cover(G, p, 'repay')
   }
   // 管理能力を超えた分：学生 → 個人 → 法人 の順に退去し、クレーム費用
-  let over = occ(p).length - mgmtCap(P, p)
-  if (over > 0) {
-    pay(G, p, over * P.claimCost, 'claim')
-    for (const t of ['stud', 'indiv', 'corp']) {
-      const out = occ(p, t).slice(0, over)
-      evict(G, p, out, t)
-      over -= out.length
+  for (const a of P.mgmtByArea ? ['city', 'suburb', 'rural'] : [null]) {
+    let over = -mgmtRoom(P, p, a)
+    if (over > 0) {
+      pay(G, p, over * P.claimCost, 'claim')
+      for (const t of ['stud', 'indiv', 'corp']) {
+        const out = occ(p, t, a).slice(0, over)
+        evict(G, p, out, t)
+        over -= out.length
+      }
     }
   }
   // 個人：会社ごとにサイコロ1回、出た目の数（または半分）が退去。退去した個人は、そのエリアの市場に戻る
@@ -593,7 +679,7 @@ export function playGame(P, personas, seed) {
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
       cash: P.capital, capital: P.capital, retained: 0, loan: 0, short: 0, taxDue: 0,
-      sales: 1, mgmt: 1, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
+      sales: 1, salesBy: { suburb: 1, city: 0, rural: 0 }, mgmt: 1, mgmtBy: { suburb: 1, city: 0, rural: 0 }, lockBy: {}, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
     })),
     log: [],
     auctions: [],
