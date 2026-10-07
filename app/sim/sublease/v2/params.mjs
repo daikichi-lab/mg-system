@@ -68,6 +68,8 @@ export const V2 = {
   indivReturn: true,
   /** 法人の人駒を何倍にするか（法人が強すぎるときに減らす） */
   corpSupplyMult: 1,
+  /** 学生の人駒を何倍にするか */
+  studSupplyMult: 1,
 
   /** 学生：各期の自分の手番の2回目まで。入札に勝つとストッカーから＋1人（空室があれば営業能力を超えてもよい） */
   studTurns: 2,

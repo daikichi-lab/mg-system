@@ -407,7 +407,7 @@ function refillMarket(G) {
   const P = G.P
   const n = G.players.length
   for (const a of AREAS) {
-    for (const t of TYPES) G.market[a][t] = Math.round(P.supply[a][t] * n * (t === 'corp' ? P.corpSupplyMult : 1))
+    for (const t of TYPES) G.market[a][t] = Math.round(P.supply[a][t] * n * (t === 'corp' ? P.corpSupplyMult : t === 'stud' ? P.studSupplyMult : 1))
     G.market[a].indiv += G.returned[a]
     G.returned[a] = 0
   }
