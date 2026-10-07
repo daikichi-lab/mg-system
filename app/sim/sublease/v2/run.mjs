@@ -40,6 +40,6 @@ for (const n of counts) {
     `${n}人 G中央値 ${[0, 1, 2, 3, 4].map(med).join(' / ')} ｜3期 黒字${pct(mean(h3.map((x) => (x.G > 0 ? 1 : 0))))} 入居${pct(allOcc(2))} 分岐${pct(q(h3.map((x) => x.bepRate).filter((v) => v != null), 0.5))} 棟${mean(h3.map((x) => x.bldgs)).toFixed(1)} ` +
       `｜3期末の法人比率${pct(mean(h3.map((x) => x.corpShare)))} 5期末${pct(mean(H.map((p) => p.hist[4].corpShare)))} ｜3期の入居契約 法人${mean(c3.map((c) => c.corp)).toFixed(1)}・個人${mean(c3.map((c) => c.indiv)).toFixed(1)}・学生${mean(c3.map((c) => c.stud)).toFixed(1)} ` +
       `｜法人解約 ${(cancelled / games).toFixed(1)}室/ゲーム ｜ショート30以上 ${pct(mean(H.map((p) => (p.hist.some((h) => h.shortBig) ? 1 : 0))))} ｜最終純資産${f0(q(H.map((p) => p.hist.at(-1).equity), 0.5))} ` +
-      `｜1位 ${PERSONA_KEYS.map((k) => k.slice(0, 3) + pct((wins[k] || 0) / games)).join(' ')} ｜方針 1棟${pct(winOpen.focus / games)} 増やす${pct(winOpen.spread / games)}`,
+      `｜1位 ${PERSONA_KEYS.map((k) => k.slice(0, 3) + pct((wins[k] || 0) / games)).join(' ')} ｜3期の棟 都市${mean(H.map((p) => p.hist[2].areas.city)).toFixed(1)}・郊外${mean(H.map((p) => p.hist[2].areas.suburb)).toFixed(1)}・地方${mean(H.map((p) => p.hist[2].areas.rural)).toFixed(1)}`,
   )
 }

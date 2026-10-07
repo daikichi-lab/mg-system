@@ -266,8 +266,8 @@ function preTurn(G, p) {
 function wantExpand(G, p) {
   const P = G.P
   const s = ps(p)
-  const cap = P.tutorial && p.opening === 'focus' ? Math.min(2, s.maxBldg) : s.maxBldg
-  if (p.bldgs.length >= Math.min(cap, P.maxBldg) || !G.market.cards.length || unfurn(p) > 0) return false
+  // 棟の上限は性格どおり（「1棟を育てる」方針の2棟までの縛りは外した：2026-10-07）
+  if (p.bldgs.length >= Math.min(s.maxBldg, P.maxBldg) || !G.market.cards.length || unfurn(p) > 0) return false
   const left = (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin
   if (left < 0.25) return false
   const o = occ(p).length
@@ -327,11 +327,6 @@ function decide(G, p) {
   const s = ps(p)
   const v = vac(p)
   const lc = leaseCap(P, p)
-  // 開業の方針（第2期の最初）：棟を増やす方針なら2棟目を借りる
-  if (P.tutorial && G.period === 2 && p.opening === 'spread' && p.bldgs.length === 1 && G.market.cards.length) {
-    const i = G.market.cards.map((c, k) => [cardScore(G, c), k]).sort((x, y) => y[0] - x[0])[0][1]
-    return lease(G, p, i, Math.min(8, Math.floor((p.cash - 10) / P.furnPrice)))
-  }
   if (v >= lc * 3 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > 0) {
     const c = pickContract(G, p)
@@ -355,7 +350,7 @@ function decide(G, p) {
   if (v >= lc * 2 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > lc && p.ads < p.sales * P.adPerSales && canSpend(G, p, P.adPrice)) return buy(G, p, 'ads', P.adPrice, 'ads')
   if (p.corpChips < s.corpChips && canSpend(G, p, P.corpChipPrice)) return buy(G, p, 'corpChips', P.corpChipPrice, 'corpChip')
-  if (s.reno || (P.tutorial && p.opening === 'focus')) {
+  if (s.reno) {
     const b = p.bldgs.find((x) => !x.reno)
     if (b && canSpend(G, p, P.renoPrice)) {
       pay(G, p, P.renoPrice, 'reno')
@@ -506,6 +501,7 @@ function periodEnd(G, p) {
     occRate: p.pl.availRQ ? p.pl.occRQ / p.pl.availRQ : 0,
     bepRate: p.pl.availRQ && m > 0 ? F / m / p.pl.availRQ : null,
     bldgs: p.bldgs.length,
+    areas: { city: p.bldgs.filter((b) => b.area === 'city').length, suburb: p.bldgs.filter((b) => b.area === 'suburb').length, rural: p.bldgs.filter((b) => b.area === 'rural').length },
     occEnd,
     corpShare: occEnd ? corpN / occEnd : 0,
     contracts: { ...p.pl.contracts },
