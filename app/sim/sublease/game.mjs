@@ -497,6 +497,20 @@ const EVENTS = {
   },
   /** 大口法人の解約：法人の入居者を2室まで外す */
   corpCancel(G, p) {
+    if (G.P.corpCancel === 'topBuilding') {
+      // 法人の入居者がいちばん多い棟の法人を全員解約する。同数なら先に借りた棟（p.bldgs の並び＝借りた順で最初の棟）
+      let top = null
+      let most = 0
+      for (const b of p.bldgs) {
+        const n = b.rooms.filter((r) => r.st === 'occ' && r.type === 'corp').length
+        if (n > most) {
+          most = n
+          top = b
+        }
+      }
+      if (top) evictRooms(G, p, top.rooms.filter((r) => r.st === 'occ' && r.type === 'corp'))
+      return
+    }
     const corp = occRooms(p, 'corp')
     // 'third'：法人に偏った会社ほど痛い（法人の入居者の3分の1・切り上げ）
     const n = G.P.corpCancel === 'third' ? Math.ceil(corp.length / 3) : 2
