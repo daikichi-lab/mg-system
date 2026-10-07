@@ -205,7 +205,7 @@ const EV = {
     evict(G, p, out, 'corp') // 原状回復は法人が負担（0）
     G.cancelled += out.length
   },
-  pandemic(G, p) {
+  pandemic(G) {
     for (const a of AREAS) G.market[a].stud = 0
   },
   lawsuit(G, p) {
