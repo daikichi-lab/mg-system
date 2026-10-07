@@ -335,7 +335,9 @@ export const A = {
     const P = G.P
     const quota = opt.free ?? P.corpBase + p.corpChips * P.corpPerChip + (p.flags.corpBonus || 0) - p.corpUsed
     const n = Math.min(leaseCap(P, p), Math.max(0, quota))
-    const got = fill(G, p, 'corp', n, (b) => mktOf(P, p, b) - P.corpDisc, opt.where)
+    if (n <= 0 || vacantOpen(p, opt.where) <= 0) return false
+    const cut = corpCut(G, p, opt.die)
+    const got = fill(G, p, 'corp', n, (b) => mktOf(P, p, b) - P.corpDisc - cut, opt.where)
     if (!opt.free) p.corpUsed += got
     return got > 0
   },
@@ -352,6 +354,21 @@ export const A = {
   indiv(G, p) {
     return auction(G, p)
   },
+}
+
+/**
+ * 法人の単価交渉：サイコロの目で家賃をいくら下げるか（corpDice）。die を渡すとその目を使う（第1期の台本は講師が振った目を全員で使う）。
+ * 下げ幅は営業スタッフ・法人営業チップで抑えられる（mitigate）。0 未満にはならない
+ */
+export function corpCut(G, p, die) {
+  const P = G.P
+  if (!P.corpDice) return 0
+  const d = die ?? 1 + Math.floor(G.rand() * 6)
+  let cut = d >= P.corpDice.from ? d - P.corpDice.from + 1 : 0
+  if (P.corpDice.mitigate === 'sales') cut -= Math.floor(p.sales / 2)
+  if (P.corpDice.mitigate === 'chips') cut -= p.corpChips
+  G.corpCuts.push(Math.max(0, cut))
+  return Math.max(0, cut)
 }
 
 /**
@@ -480,7 +497,10 @@ const EVENTS = {
   },
   /** 大口法人の解約：法人の入居者を2室まで外す */
   corpCancel(G, p) {
-    evictRooms(G, p, occRooms(p, 'corp').slice(0, 2))
+    const corp = occRooms(p, 'corp')
+    // 'third'：法人に偏った会社ほど痛い（法人の入居者の3分の1・切り上げ）
+    const n = G.P.corpCancel === 'third' ? Math.ceil(corp.length / 3) : 2
+    evictRooms(G, p, corp.slice(0, n))
   },
   /** 感染症：この期は学生市場が閉じ、法人枠 −2 */
   pandemic(G, p) {
@@ -604,7 +624,9 @@ function runTutorial(G) {
       if (d.furniture) A.buyFurn(G, p, d.furniture)
       if (d.contract) {
         const c = d.contract
-        const rentOf = (b) => (c.type === 'corp' ? mktOf(P, p, b) - P.corpDisc : c.type === 'stud' ? mktOf(P, p, b) - P.studDisc : c.price)
+        // 法人は台本のサイコロの目（講師が振った目を全員で使う）で単価交渉
+        const cut = c.type === 'corp' ? corpCut(G, p, c.die) : 0
+        const rentOf = (b) => (c.type === 'corp' ? mktOf(P, p, b) - P.corpDisc - cut : c.type === 'stud' ? mktOf(P, p, b) - P.studDisc : c.price)
         const got = fill(G, p, c.type, c.n, rentOf)
         if (c.type === 'corp') p.corpUsed += got
         if (c.type === 'stud') p.studUsed += got
@@ -764,6 +786,7 @@ export function playGame(P, personas, seed) {
     auctions: [],
     cardLog: [],
     tutorialLog: [],
+    corpCuts: [], // 法人の単価交渉で下がった額（集計用）
   }
   refillMarket(G)
   // 開業の方針は半々（1棟を充実させる／2棟にまんべんなく）。資本金がどちらでも成り立つかを見るため

@@ -90,6 +90,14 @@ export const BASE = {
   corpDisc: 2,
   studDisc: 5,
   priceFloor: 30,
+  /** 大口法人の解約：'two'＝法人の入居者を2室まで外す（設計案）／'third'＝法人の入居者の3分の1（切り上げ）が退去 */
+  corpCancel: 'two',
+  /**
+   * 法人の単価交渉（サイコロ）：null なら無し。{ from: 4 } なら入居契約のたびにサイコロを振り、from 以上の目で
+   * （目 − from ＋ 1）だけ家賃が下がる（4→1・5→2・6→3）。mitigate で下げ幅を抑える：
+   * 'none'＝抑えない／'sales'＝営業スタッフ2人ごとに −1／'chips'＝法人営業チップ1枚ごとに −1
+   */
+  corpDice: null,
   /** 法人枠：1期の基本の室数 ＋ 法人営業チップ1枚あたりの室数（チップは3枚まで） */
   corpBase: 2,
   corpPerChip: 2,
@@ -206,6 +214,11 @@ export const TUTORIAL_PLAN = {
   capital: 400,
   // 第1期で棟を増やさない分、第2期に1棟目と2棟目が同時に立ち上がる。借上げ賃料をさらに下げて第3期にぎりぎり黒字
   areas: { city: { own: 24 }, suburb: { own: 20 }, rural: { own: 16 } },
+  // 法人：大口の解約は法人の入居者の3分の1（偏るほど痛い）。単価交渉はサイコロ（4・5・6で1・2・3下がる。
+  // 営業スタッフ2人ごとに下げ幅−1）。基本の値引きを相場−2 → −1 にして、サイコロ込みの平均を以前と同じくらいにする
+  corpCancel: 'third',
+  corpDisc: 1,
+  corpDice: { from: 4, mitigate: 'sales' },
 }
 
 /** 名前から数値のセットを作る（BASE に差分を重ねる。time は TUNED の上に TIME を重ねる） */

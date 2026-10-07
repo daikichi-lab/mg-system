@@ -39,6 +39,7 @@ function runFor(n) {
   const players = [] // { persona, hist, game, shortCount }
   const gamesOut = []
   const auctions = []
+  const cuts = []
   let deckOut = 0
   for (let g = 0; g < games; g++) {
     // 席ごとの性格はランダム（同じ卓に同じ性格が並ぶこともある）
@@ -46,12 +47,13 @@ function runFor(n) {
     const G = playGame(P, personas, Math.floor(rand() * 2 ** 31))
     for (const p of G.players) players.push({ persona: p.persona, opening: p.opening, hist: p.hist, game: g })
     auctions.push(...G.auctions)
+    cuts.push(...G.corpCuts)
     if (!G.bdeck.length) deckOut++
     const eq = G.players.map((p) => p.hist.at(-1).equity)
     const best = Math.max(...eq)
     gamesOut.push({ spread: best - Math.min(...eq), winner: G.players[eq.indexOf(best)].persona, winnerOpening: G.players[eq.indexOf(best)].opening })
   }
-  return { n, players, gamesOut, auctions, deckOut }
+  return { n, players, gamesOut, auctions, deckOut, cuts }
 }
 
 function report(r) {
@@ -122,11 +124,13 @@ function brief(r) {
     })
     .join(' ／ ')
   const turns = f1(mean(players.map((p) => p.hist[1].turns)))
+  const corp3 = pct(mean(players.map((p) => p.hist[2].corpShare)))
+  const cut = r.cuts.length ? ` 法人値引き平均${f1(mean(r.cuts))}` : ''
   return `${n}人 手番/期${turns} G中央値 ${Array.from({ length: P.periods }, (_, k) => med(k)).join(' / ')} ｜3期 黒字${pct(mean(h3.map((x) => (x.G > 0 ? 1 : 0))))} 入居${pct(
     mean(h3.map((x) => x.occRate)),
   )} 分岐${pct(q(h3.map((x) => x.bepRate).filter((v) => v != null), 0.5))} 棟${f1(mean(h3.map((x) => x.bldgs)))} 家賃${f1(mean(h3.filter((x) => x.occ).map((x) => x.avgRent)))} ｜ショート ${pct(
     mean(players.map((p) => (p.hist.some((h) => h.shortNew) ? 1 : 0))),
-  )}（期別 ${Array.from({ length: P.periods }, (_, k) => pct(mean(players.map((p) => (p.hist[k].shortNew ? 1 : 0))))).join('/')}） 30以上 ${pct(mean(players.map((p) => (p.hist.some((h) => h.shortBig) ? 1 : 0))))} ｜最終純資産${f0(q(players.map((p) => p.hist.at(-1).equity), 0.5))} ｜1位 ${win} ｜開業 ${op}`
+  )}（期別 ${Array.from({ length: P.periods }, (_, k) => pct(mean(players.map((p) => (p.hist[k].shortNew ? 1 : 0))))).join('/')}） 30以上 ${pct(mean(players.map((p) => (p.hist.some((h) => h.shortBig) ? 1 : 0))))} ｜最終純資産${f0(q(players.map((p) => p.hist.at(-1).equity), 0.5))} ｜3期法人比率${corp3}${cut} ｜1位 ${win} ｜開業 ${op}`
 }
 
 const results = playerCounts.map(runFor)
