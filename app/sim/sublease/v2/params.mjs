@@ -14,7 +14,8 @@ export const V2 = {
   turnMin: [1, 3],
   auctionMin: 1,
 
-  areas: { city: { n: 6, own: 25, mkt: 50 }, suburb: { n: 10, own: 21, mkt: 45 }, rural: { n: 8, own: 17, mkt: 40 } },
+  // 借上げ賃料は v1 の本命から −3（2026-10-07：個人の退去が多い v2 で第3期にぎりぎり黒字）
+  areas: { city: { n: 6, own: 22, mkt: 50 }, suburb: { n: 10, own: 18, mkt: 45 }, rural: { n: 8, own: 14, mkt: 40 } },
   oldN: 4,
   oldDelta: -4,
   faceUp: 3,
@@ -51,7 +52,7 @@ export const V2 = {
   claimCost: 5,
 
   /** 入札の上限（その棟の相場からの差）と下限 */
-  bidCap: { indiv: 0, corp: 0, stud: -5 },
+  bidCap: { indiv: 0, corp: 0, stud: 0 }, // どの種類も相場まで（入札で決まるので種類ごとの差は付けない：2026-10-07）
   priceFloor: { indiv: 30, corp: 30, stud: 25 },
   /** 法人営業チップ：法人の入札で、1枚ごとに1安いものとして比べる（法人との関係の深さ） */
   corpChipBid: 1,
@@ -67,19 +68,19 @@ export const V2 = {
   },
   indivReturn: true,
   /** 法人の人駒を何倍にするか（法人が強すぎるときに減らす） */
-  corpSupplyMult: 1,
+  corpSupplyMult: 3, // 法人特化も成り立つように3倍（2026-10-07）
   /** 学生の人駒を何倍にするか */
   studSupplyMult: 1,
 
-  /** 学生：各期の自分の手番の2回目まで。入札に勝つとストッカーから＋1人（空室があれば営業能力を超えてもよい） */
-  studTurns: 2,
-  studBonus: 1,
+  /** 学生：各期の自分の手番の4回目まで（春）。入札に勝つとストッカーから＋2人（空室があれば営業能力を超えてもよい） */
+  studTurns: 4, // 春＝各期の自分の手番の4回目まで（2026-10-07）
+  studBonus: 2, // 入札に勝つとストッカーから＋2人（2026-10-07）
 
   /** 期末の退去：個人は会社ごとにサイコロ1回、出た目の数（'full'）か半分（'half'）。学生は半分（切り上げ） */
   indivEvict: 'full',
   /** 法人：期末の退去なし。法人解約のカード（枚数）で退去：'topBuilding'＝法人がいちばん多い棟の法人全部／'half'＝法人の入居者の半分（切り上げ） */
   corpCancelCards: 3,
-  corpCancel: 'topBuilding',
+  corpCancel: 'half', // 法人の入居者の半分（切り上げ）が解約（2026-10-07）
   /** 法人の入札に勝ったあとサイコロを振り、出た目の分だけ家賃が下がる（法人営業チップ1枚ごとに1抑える） */
   corpDice: false,
 
