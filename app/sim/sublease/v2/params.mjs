@@ -18,11 +18,12 @@ export const V2 = {
    * これを渡すと、1期の時間（periodTotalMin 分）÷（人数 × 手番）を1手番の平均時間にし（±50%でばらつく）、入札の分の時間は足さない。
    * null なら turnMin（1〜3分）と人数ごとの periodMin を使う
    */
-  turnsPerPeriod: null,
+  turnsPerPeriod: { 2: 15, default: 24 },
   periodTotalMin: 45,
 
   // 借上げ賃料は v1 の本命から −3（2026-10-07：個人の退去が多い v2 で第3期にぎりぎり黒字）
-  areas: { city: { n: 6, own: 22, mkt: 50 }, suburb: { n: 10, own: 18, mkt: 45 }, rural: { n: 8, own: 14, mkt: 40 } },
+  // 本番の手番の数（第2期15・第3期以降24）に合わせて 都市27・郊外23・地方19（2026-10-07）
+  areas: { city: { n: 6, own: 27, mkt: 50 }, suburb: { n: 10, own: 23, mkt: 45 }, rural: { n: 8, own: 19, mkt: 40 } },
   oldN: 4,
   oldDelta: -4,
   faceUp: 3,
@@ -41,7 +42,7 @@ export const V2 = {
   hireMax: 3,
   staffMax: 6,
   hq: 10,
-  leasePerSales: 6,
+  leasePerSales: 2, // 営業1人で1回2室（製造業MGの販売能力と同じ：2026-10-07）
   mgmtRooms: 12,
   lockRooms: 6,
   lockMax: 4,
@@ -55,7 +56,7 @@ export const V2 = {
   salesChipMax: Infinity,
   salesChipBid: 2,
   // リノベ（2026-10-07）：棟に付け、その棟の入居者から入る家賃が1室につき＋2（入居中の部屋にも効く）
-  renoPrice: 30,
+  renoPrice: 60, // 家賃＋2 の回収が早すぎたので 30 → 60（2026-10-07）
   renoRent: 2,
   lockPrice: 20,
   insPrice: 5,
@@ -81,9 +82,9 @@ export const V2 = {
    * 学生は入札に勝つとストッカーから＋2人が加わるので年々増える（2026-10-07）。stockInit は最初に置く数の倍率（supply × 人数 × この数）
    */
   supplyMode: 'stock', // 2026-10-07 決定：ためておく市場
-  stockInit: 2,
+  stockInit: 1,
   /** 法人は毎期少しずつ市場に出てくる（2026-10-07）：期首に supply.corp × 人数 × この数 を足す（第3期以降。第2期は最初に置く分がある） */
-  corpInflow: 0,
+  corpInflow: 2,
   /** 法人の人駒を何倍にするか（法人が強すぎるときに減らす） */
   corpSupplyMult: 3, // 法人特化も成り立つように3倍（2026-10-07）
   /** 学生の人駒を何倍にするか */
@@ -96,7 +97,7 @@ export const V2 = {
   /** 期末の退去：個人は会社ごとにサイコロ1回、出た目の数（'full'）か半分（'half'）。学生は半分（切り上げ） */
   indivEvict: 'full',
   /** 法人：期末の退去なし。法人解約のカード（枚数）で退去：'topBuilding'＝法人がいちばん多い棟の法人全部／'half'＝法人の入居者の半分（切り上げ） */
-  corpCancelCards: 3,
+  corpCancelCards: 1, // 手番が多くカードもよく引くので1枚（2026-10-07）
   corpCancel: 'half', // 法人の入居者の半分（切り上げ）が解約（2026-10-07）
   /** 法人の入札に勝ったあとサイコロを振り、出た目の分だけ家賃が下がる（法人営業チップ1枚ごとに1抑える） */
   corpDice: false,

@@ -161,7 +161,8 @@ function auction(G, parent, area, type, seats) {
     const total = occ(q).length + vac(q)
     const pressure = total ? Math.round((vac(q) / total) * 4) : 0
     const corpExtra = type === 'corp' ? 2 : 0 // 法人は一度入れば出ていかないので、少し安くしてでも取りにいく
-    const price = Math.max(P.priceFloor[type], Math.min(cap, cap - s.bidDisc - pressure - corpExtra - Math.max(0, bidders.length - 2) - Math.floor(G.rand() * 3)))
+    // 参加する会社は入札の前に名乗り出るので、自分しかいなければ相場いっぱいで出す。相手がいるときだけ値引きする（2026-10-07）
+    const price = bidders.length === 1 ? cap : Math.max(P.priceFloor[type], Math.min(cap, cap - s.bidDisc - pressure - corpExtra - Math.max(0, bidders.length - 2) - Math.floor(G.rand() * 3)))
     // 営業チップ1枚ごとに2低くコールしたものとして比べる（製造業MGと同じ）
     const eff = price - q.salesChips * P.salesChipBid
     const offer = Math.min(type === 'indiv' ? indivCap(P, q) : leaseCap(P, q), vac(q, area))
@@ -180,7 +181,7 @@ function auction(G, parent, area, type, seats) {
     G.market[area][type] -= got
     if (type === 'stud' && got > 0 && P.studBonus) fill(G, bd.q, area, 'stud', P.studBonus, () => bd.price) // ストッカーから＋1人
   }
-  G.auctions.push({ type, area, n: bidders.length, seats })
+  G.auctions.push({ type, area, n: bidders.length, seats, parent: parent.persona, parentPrice: bids.find((b) => b.q === parent).price, parentWon: bids.find((b) => b.q === parent).eff <= Math.min(...bids.map((b) => b.eff)) })
   return true
 }
 
