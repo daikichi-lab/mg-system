@@ -136,6 +136,9 @@ function fill(G, p, area, type, n, rentOf) {
 }
 function evict(G, p, rooms, type) {
   accrue(G, p)
+  // ためておく市場では、退去した人はその棟のエリアの市場に戻る（次の期首に並ぶ）
+  if (G.P.supplyMode === 'stock')
+    for (const b of p.bldgs) for (const r of b.rooms) if (rooms.includes(r)) G.back[b.area][type] = (G.back[b.area][type] || 0) + 1
   for (const r of rooms) Object.assign(r, { st: 'vac', type: null, rent: 0 })
   pay(G, p, rooms.length * G.P.restore[type], 'restore')
 }
@@ -211,8 +214,9 @@ const EV = {
     evict(G, p, out, 'corp') // 原状回復は法人が負担（0）
     G.cancelled += out.length
   },
+  // 感染症：この期は学生の入居契約ができない（人駒は市場に残る）
   pandemic(G) {
-    for (const a of AREAS) G.market[a].stud = 0
+    G.noStud = true
   },
   lawsuit(G, p) {
     pay(G, p, G.P.lawsuitCost, 'lawsuit')
@@ -317,7 +321,7 @@ function pickContract(G, p) {
     const v = vac(p, a)
     if (!v) continue
     s.prefer.forEach((t, rank) => {
-      if (t === 'stud' && p.turnNo >= P.studTurns) return
+      if (t === 'stud' && (p.turnNo >= P.studTurns || G.noStud)) return
       if (t === 'indiv' && p.flags.noIndiv) return
       const avail = G.market[a][t]
       const n = Math.min(t === 'indiv' ? indivCap(P, p) : leaseCap(P, p), v, avail)
@@ -406,6 +410,19 @@ function runTutorial(G) {
 function refillMarket(G) {
   const P = G.P
   const n = G.players.length
+  if (P.supplyMode === 'stock') {
+    // ためておく市場：最初の1回（第2期の期首。第1期は台本なので市場を使わない）だけ置き、あとは戻りとカードでだけ増減する
+    if (G.period === (P.tutorial ? 2 : 1))
+      for (const a of AREAS) for (const t of TYPES) G.market[a][t] += Math.round(P.supply[a][t] * n * P.stockInit * (t === 'corp' ? P.corpSupplyMult : t === 'stud' ? P.studSupplyMult : 1))
+    for (const a of AREAS) {
+      for (const t of TYPES) G.market[a][t] = (G.market[a][t] || 0) + (G.back[a][t] || 0)
+      G.back[a] = { corp: 0, indiv: 0, stud: 0 }
+      G.returned[a] = 0
+    }
+    while (G.market.cards.length < P.faceUp && G.bdeck.length) G.market.cards.push(G.bdeck.pop())
+    G.marketLog.push({ period: G.period, ...Object.fromEntries(TYPES.map((t) => [t, AREAS.reduce((s, a) => s + G.market[a][t], 0)])) })
+    return
+  }
   for (const a of AREAS) {
     for (const t of TYPES) G.market[a][t] = Math.round(P.supply[a][t] * n * (t === 'corp' ? P.corpSupplyMult : t === 'stud' ? P.studSupplyMult : 1))
     G.market[a].indiv += G.returned[a]
@@ -530,6 +547,7 @@ export function playGame(P, personas, seed) {
     deck: shuffle(makeDeck(P), rand),
     market: { cards: [], city: {}, suburb: {}, rural: {} },
     returned: { city: 0, suburb: 0, rural: 0 },
+    back: { city: { corp: 0, indiv: 0, stud: 0 }, suburb: { corp: 0, indiv: 0, stud: 0 }, rural: { corp: 0, indiv: 0, stud: 0 } },
     periodMin: P.periodMin[personas.length],
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
@@ -549,6 +567,7 @@ export function playGame(P, personas, seed) {
       periodStart(G, p)
     }
     refillMarket(G)
+    G.noStud = false
     G.clock = 0
     if (per === 1 && P.tutorial) {
       runTutorial(G)
