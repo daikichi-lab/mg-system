@@ -13,6 +13,13 @@ export const V2 = {
   periodMin: { 4: 45, 5: 55, 6: 70 },
   turnMin: [1, 3],
   auctionMin: 1,
+  /**
+   * 1人が1期に打つ手番の目安（本番のMGの記帳データ 2026-10：第1期 中央値11・第2期 15・第3期 24）。
+   * これを渡すと、1期の時間（periodTotalMin 分）÷（人数 × 手番）を1手番の平均時間にし（±50%でばらつく）、入札の分の時間は足さない。
+   * null なら turnMin（1〜3分）と人数ごとの periodMin を使う
+   */
+  turnsPerPeriod: null,
+  periodTotalMin: 45,
 
   // 借上げ賃料は v1 の本命から −3（2026-10-07：個人の退去が多い v2 で第3期にぎりぎり黒字）
   areas: { city: { n: 6, own: 22, mkt: 50 }, suburb: { n: 10, own: 18, mkt: 45 }, rural: { n: 8, own: 14, mkt: 40 } },

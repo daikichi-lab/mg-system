@@ -558,7 +558,7 @@ export function playGame(P, personas, seed) {
     market: { cards: [], city: {}, suburb: {}, rural: {} },
     returned: { city: 0, suburb: 0, rural: 0 },
     back: { city: { corp: 0, indiv: 0, stud: 0 }, suburb: { corp: 0, indiv: 0, stud: 0 }, rural: { corp: 0, indiv: 0, stud: 0 } },
-    periodMin: P.periodMin[personas.length],
+    periodMin: P.turnsPerPeriod ? P.periodTotalMin : P.periodMin[personas.length],
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
       cash: P.capital, capital: P.capital, retained: 0, loan: 0, short: 0, taxDue: 0,
@@ -587,7 +587,11 @@ export function playGame(P, personas, seed) {
         for (let k = 0; k < G.players.length; k++) {
           const before = G.auctions.length
           turn(G, G.players[(first + k) % G.players.length])
-          G.clock += P.turnMin[0] + G.rand() * (P.turnMin[1] - P.turnMin[0]) + (G.auctions.length > before ? P.auctionMin : 0)
+          if (P.turnsPerPeriod) {
+            // 本番のMGの手番の数に合わせる：1手番の平均 ＝ 1期の時間 ÷（人数 × 手番の目安）。±50%でばらつく
+            const t = P.turnsPerPeriod[per] ?? P.turnsPerPeriod.default
+            G.clock += (G.periodMin / (G.players.length * t)) * (0.5 + G.rand())
+          } else G.clock += P.turnMin[0] + G.rand() * (P.turnMin[1] - P.turnMin[0]) + (G.auctions.length > before ? P.auctionMin : 0)
         }
         if (G.clock >= G.periodMin) break
       }
