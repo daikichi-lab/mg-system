@@ -412,6 +412,8 @@ function refillMarket(G) {
     G.returned[a] = 0
   }
   while (G.market.cards.length < P.faceUp && G.bdeck.length) G.market.cards.push(G.bdeck.pop())
+  // 集計用：期首に市場に並んだ人駒（エリアの合計・種類ごと）
+  G.marketLog.push({ period: G.period, ...Object.fromEntries(TYPES.map((t) => [t, AREAS.reduce((s, a) => s + G.market[a][t], 0)])) })
 }
 function periodStart(G, p) {
   const P = G.P
@@ -538,6 +540,7 @@ export function playGame(P, personas, seed) {
     auctions: [],
     cancelled: 0,
     clock: 0,
+    marketLog: [],
   }
   for (let per = 1; per <= P.periods; per++) {
     G.period = per
