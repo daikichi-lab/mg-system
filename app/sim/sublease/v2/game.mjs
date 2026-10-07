@@ -306,16 +306,17 @@ const EV = {
   competitor(G, p) {
     p.flags.competitor = true
   },
+  // 人駒を増やすカードの人数は G.P.eventAdd（カードごとの人数）で決める（2026-10-08：はじめからあふれさせないため数値ルールにした）
   rush(G) {
-    G.market.city.indiv += 3
-    G.market.suburb.indiv += 3
+    G.market.city.indiv += G.P.eventAdd.rush
+    G.market.suburb.indiv += G.P.eventAdd.rush
   },
   foreign(G, p) {
     const a = p.bldgs.length ? p.bldgs[0].area : 'suburb'
-    G.market[a].corp += 3
+    G.market[a].corp += G.P.eventAdd.foreign
   },
   factory(G) {
-    G.market.rural.corp += 4
+    G.market.rural.corp += G.P.eventAdd.factory
   },
   // ---- 市場の人の移動・追加（卓の全員に効く・2026-10-07）。移る元の市場にいる人数までしか動かさない ----
   /** 地方創生：都市の市場の個人3人が地方へ移り、地方に法人＋2 */
@@ -323,7 +324,7 @@ const EV = {
     const n = Math.min(3, G.market.city.indiv)
     G.market.city.indiv -= n
     G.market.rural.indiv += n
-    G.market.rural.corp += 2
+    G.market.rural.corp += G.P.eventAdd.regional
   },
   /** リモートワーク需要の拡大：都市の市場の個人3人が、郊外に2人・地方に1人移る */
   remote(G) {
@@ -334,11 +335,11 @@ const EV = {
   },
   /** 大学の新設：郊外に学生＋4 */
   university(G) {
-    G.market.suburb.stud += 4
+    G.market.suburb.stud += G.P.eventAdd.university
   },
   /** 都心の再開発：都市に個人＋4 */
   redevelop(G) {
-    G.market.city.indiv += 4
+    G.market.city.indiv += G.P.eventAdd.redevelop
   },
   pricing(G, p) {
     for (const b of p.bldgs) if (b.reno) for (const r of b.rooms) if (r.st === 'occ') r.rent += 2
@@ -401,6 +402,14 @@ function lease(G, p, i, nf) {
   p.bldgs.push(nb)
   if (nf > 0) buyFurn(G, p, nf)
   staffNewArea(G, p, c.area)
+}
+/** 物件を探す（ルールA）：表向きの棟カードを山札に戻して混ぜ、表向きを faceUp 枚にそろえ直す */
+function searchCards(G, p) {
+  G.bdeck.push(...G.market.cards)
+  G.market.cards = []
+  shuffle(G.bdeck, G.rand)
+  while (G.market.cards.length < G.P.faceUp && G.bdeck.length) G.market.cards.push(G.bdeck.pop())
+  note(G, p, `物件を探す：表向きを入れ替え（${G.market.cards.map((c) => ({ city: '都市', suburb: '郊外', rural: '地方' })[c.area]).join('・')}）`)
 }
 function buyFurn(G, p, n) {
   const P = G.P
@@ -756,8 +765,24 @@ function decideSmart(G, p) {
       const newArea = !areasHeld.includes(c.area)
       const staff = newArea ? (2 * sal + P.officeRent) * H + 2 * P.hireCost : 0
       const v = rooms * ((f * rent - own) * L * 0.6 + (ff * rent - own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff
-      add(v * s.leaseW, rooms * P.furnPrice + (newArea ? 2 * P.hireCost : 0), () => lease(G, p, i, rooms), `lease ${c.area}`)
+      add(v * s.leaseW, rooms * P.furnPrice + (newArea ? 2 * P.hireCost : 0), () => lease(G, p, i, P.leaseWithFurn ? rooms : 0), `lease ${c.area}`)
     })
+
+  // 物件を探す：表向きの棟カードを全部山札に戻して混ぜ、6枚引き直す（2026-10-08）。
+  // 広げたいのに表向きに得な棟がないとき、立地ごとの「あれば借りたい棟」の価値との差の半分を見込む
+  if (p.bldgs.length < Math.min(s.maxBldg, P.maxBldg) && uf === 0 && leasedNow < s.leasePerPeriod && G.bdeck.length) {
+    const val = (area) => {
+      const rooms = roomsOf(P, area)
+      const f = expectFill(G, p, area, rooms)
+      const ff = expectFill(G, p, area, rooms, true)
+      const rent = rentEst(G, p, area, 'indiv', P.areas[area].mkt)
+      const staff = !areasHeld.includes(area) ? (2 * sal + P.officeRent) * H + 2 * P.hireCost : 0
+      return (rooms * ((f * rent - P.areas[area].own) * L * 0.6 + (ff * rent - P.areas[area].own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff) * s.leaseW
+    }
+    const bestUp = Math.max(0, ...G.market.cards.map((c) => val(c.area)))
+    const bestAny = Math.max(...AREAS.map(val))
+    if (bestAny > bestUp) add((bestAny - bestUp) * 0.5, 0, () => searchCards(G, p), 'search')
+  }
 
   // 得な順に、お金が足りる手を打つ（足りなければ借入できる範囲まで見る）
   cands.sort((x, y) => y.v - x.v)
@@ -820,7 +845,18 @@ function refillMarket(G) {
   const n = G.players.length
   if (P.supplyMode === 'stock') {
     // ためておく市場：最初の1回（第2期の期首。第1期は台本なので市場を使わない）だけ置き、あとは戻りとカードでだけ増減する
-    if (G.period === (P.tutorial ? 2 : 1))
+    const first = P.tutorial ? 2 : 1
+    if (P.initPer) {
+      // 期ごとに少しずつ出す（initPer・inflowPer）。端数は G.carry に持ち越す
+      const per = G.period === first ? P.initPer : G.period > first ? P.inflowPer : null
+      if (per)
+        for (const a of AREAS)
+          for (const t of TYPES) {
+            const x = per[a][t] * n + (G.carry[a + t] || 0)
+            G.market[a][t] += Math.floor(x)
+            G.carry[a + t] = x - Math.floor(x)
+          }
+    } else if (G.period === first)
       for (const a of AREAS) for (const t of TYPES) G.market[a][t] += Math.round(P.supply[a][t] * n * P.stockInit * (t === 'corp' ? P.corpSupplyMult : t === 'stud' ? P.studSupplyMult : 1))
     // 法人は毎期少しずつ出てくる（最初に置いた期の次から）
     else if (G.period > (P.tutorial ? 2 : 1) && P.corpInflow) for (const a of AREAS) G.market[a].corp += Math.round(P.supply[a].corp * n * P.corpInflow)
@@ -912,7 +948,12 @@ function periodEnd(G, p) {
   evict(G, p, indiv, 'indiv')
   // 学生：半分（切り上げ）が卒業
   const stud = occ(p, 'stud')
-  evict(G, p, stud.slice(0, Math.ceil(stud.length / 2)), 'stud')
+  const grads = stud.slice(0, Math.ceil(stud.length / 2))
+  // studGradLeave：卒業した学生は市場に戻らず街を出る（新しい学生は inflowPer で毎期入ってくる。2026-10-08 案）
+  const gradBy = {}
+  for (const b of p.bldgs) for (const r of b.rooms) if (grads.includes(r)) gradBy[b.area] = (gradBy[b.area] || 0) + 1
+  evict(G, p, grads, 'stud')
+  if (P.studGradLeave) for (const [a, k] of Object.entries(gradBy)) G.back[a].stud = Math.max(0, (G.back[a].stud || 0) - k)
   // 法人：期末の退去なし
   p.ads = Math.max(0, p.ads - 1)
   // 営業チップ：2枚以上あれば1枚だけ次の期に残る（製造業MGの商品開発チップと同じ）
@@ -968,6 +1009,7 @@ export function playGame(P, personas, seed) {
     bdeck: makeBdeck(P, rand),
     deck: shuffle(makeDeck(P), rand),
     market: { cards: [], city: {}, suburb: {}, rural: {} },
+    carry: {},
     returned: { city: 0, suburb: 0, rural: 0 },
     back: { city: { corp: 0, indiv: 0, stud: 0 }, suburb: { corp: 0, indiv: 0, stud: 0 }, rural: { corp: 0, indiv: 0, stud: 0 } },
     periodMin: P.turnsPerPeriod ? P.periodTotalMin : P.periodMin[personas.length],
