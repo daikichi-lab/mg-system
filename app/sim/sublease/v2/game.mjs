@@ -75,6 +75,15 @@ const loanRoom = (P, p) => (p.period < P.loanFrom ? 0 : Math.max(0, Math.round(e
 const furnBook = (p) => p.furn.reduce((s, l) => s + l.n * l.book, 0)
 const ps = (p) => PERSONAS[p.persona]
 
+// ---- 記帳の記録（P.trace のときだけ。1手番ずつの記帳を見るため：2026-10-08） ----
+/** お金の出入りを記録する。v は入金＋・出金− */
+function tr(G, p, k, v, note) {
+  if (!G.trace) return
+  G.trace.push({ period: G.period, ctx: G.ctx, p: p.id, k, v, note, cash: p.cash })
+}
+/** お金の動かない出来事（入居・退去・カード・借りた棟など）を記録する */
+const note = (G, p, text) => tr(G, p, 'note', 0, text)
+
 // ---- お金 ----
 function addF(p, k, v) {
   p.pl.F[k] = (p.pl.F[k] || 0) + v
@@ -83,6 +92,7 @@ function pay(G, p, v, k, cost = true) {
   if (v <= 0) return
   p.cash -= v
   if (cost) addF(p, k, v)
+  tr(G, p, k, -v)
   if (p.cash < 0) cover(G, p, k)
 }
 function cover(G, p, why) {
@@ -95,6 +105,7 @@ function cover(G, p, why) {
     p.short += s + i
     p.cash = 0
     addF(p, 'shortInterest', i)
+    tr(G, p, 'short', s, `短期借入${Math.round(s)}（金利${i}は残高に計上）`)
     G.log.push({ t: 'short', p: p.id, period: G.period, amt: s, why })
   }
 }
@@ -102,9 +113,11 @@ function borrow(G, p, a) {
   if (a <= 0) return
   p.loan += a
   p.cash += a
+  tr(G, p, 'loan', a)
   const i = Math.round(a * G.P.loanRate)
   p.cash -= i
   addF(p, 'interest', i)
+  tr(G, p, 'interest', -i)
 }
 function accrue(G, p) {
   const t = Math.min(G.clock, G.periodMin)
@@ -121,6 +134,7 @@ function collect(G, p) {
   accrue(G, p)
   p.cash += p.pend.rent
   p.pl.rev += p.pend.rent
+  if (p.pend.rent > 0) tr(G, p, 'rent', p.pend.rent)
   pay(G, p, p.pend.own, 'ownerRent')
   p.pend = { rent: 0, own: 0 }
 }
@@ -140,6 +154,7 @@ function fill(G, p, area, type, n, rentOf) {
     got++
   }
   if (got) {
+    note(G, p, `入居 ${{ corp: '法人', indiv: '個人', stud: '学生' }[type]}${got}室（${area === 'city' ? '都市' : area === 'suburb' ? '郊外' : '地方'}・家賃${cand[0] ? rentOf(cand[0].b) : ''}）`)
     pay(G, p, got * P.V[type], 'V', false)
     p.pl.vq += got * P.V[type]
     p.pl.contracts[type] += got
@@ -154,6 +169,7 @@ function evict(G, p, rooms, type) {
       for (const r of b.rooms)
         // 個人は indivReturnRate の割合だけ市場に戻る（残りはゲームから去る）
         if (rooms.includes(r) && (type !== 'indiv' || G.rand() < G.P.indivReturnRate)) G.back[b.area][type] = (G.back[b.area][type] || 0) + 1
+  if (rooms.length) note(G, p, `退去 ${{ corp: '法人', indiv: '個人', stud: '学生' }[type]}${rooms.length}室`)
   for (const r of rooms) Object.assign(r, { st: 'vac', type: null, rent: 0 })
   pay(G, p, rooms.length * G.P.restore[type], 'restore')
 }
@@ -185,6 +201,12 @@ function auction(G, parent, area, type, seats) {
     return { q, price, eff, offer, tie: G.rand() }
   })
   bids.sort((x, y) => x.eff - y.eff || Number(y.q === parent) - Number(x.q === parent) || x.tie - y.tie)
+  if (G.trace) {
+    const nm = { corp: '法人', indiv: '個人', stud: '学生' }[type]
+    const an = { city: '都市', suburb: '郊外', rural: '地方' }[area]
+    const txt = `入札 ${an}・${nm}${seats}室（親 ${parent.id + 1}社）：` + bids.map((b) => `${b.q.id + 1}社 ${b.price}${b.q.salesChips ? `(チップ${b.q.salesChips})` : ''}`).join(' ／ ') + `・市場の人駒 ${G.market[area][type]}`
+    for (const b of bids) note(G, b.q, txt)
+  }
   let left = Math.min(seats, G.market[area][type])
   for (const bd of bids) {
     if (left <= 0) break
@@ -246,7 +268,10 @@ const EV = {
     pay(G, p, G.P.lawsuitCost, 'lawsuit')
   },
   leak(G, p) {
-    if (p.ins > 0) return void p.ins--
+    if (p.ins > 0) {
+      note(G, p, '保険で補償（保険チップを1枚返す）')
+      return void p.ins--
+    }
     const b = p.bldgs[Math.floor(G.rand() * p.bldgs.length)]
     pay(G, p, G.P.repairCost * (b.old ? 2 : 1), 'repair')
   },
@@ -349,6 +374,7 @@ function lease(G, p, i, nf) {
   if (G.bdeck.length) G.market.cards.push(G.bdeck.pop())
   accrue(G, p)
   const nb = newBldg(G.P, c)
+  note(G, p, `物件を借り上げる：${{ city: '都市', suburb: '郊外', rural: '地方' }[c.area]}${c.old ? '（築古）' : ''}・${nb.rooms.length}室・借上げ賃料${nb.own}／室・相場${nb.mkt}`)
   // 集計用：借りた期と、その時点の自分の手番の回数（埋まるまでの手番を数える）
   nb.leasedAt = { period: G.period, turn: p.turnNo, clock: G.clock }
   p.bldgs.push(nb)
@@ -431,6 +457,7 @@ function decide(G, p) {
   if (s.reno) {
     const b = [...p.bldgs].filter((x) => !x.reno).sort((x, y) => occ({ bldgs: [y] }).length - occ({ bldgs: [x] }).length)[0]
     if (b && canSpend(G, p, P.renoPrice)) {
+      note(G, p, `リノベ（${{ city: '都市', suburb: '郊外', rural: '地方' }[b.area]}の棟）`)
       pay(G, p, P.renoPrice, 'reno')
       accrue(G, p)
       b.reno = true
@@ -443,6 +470,7 @@ function hire(G, p, kind, area) {
   const P = G.P
   pay(G, p, P.hireCost, 'hire')
   p[kind]++
+  note(G, p, `${kind === 'sales' ? '営業' : '管理'}スタッフを採用`)
   if (kind === 'sales' && P.salesByArea) {
     // 配属先：指定がなければ、空室に対して営業がいちばん足りないエリア
     const a = area || neediestArea(G, p)
@@ -563,19 +591,24 @@ function periodStart(G, p) {
   p.lastT = 0
   p.pend = { rent: 0, own: 0 }
   if (G.period === 1) return
+  G.ctx = { who: null, phase: 'start' }
   if (p.taxDue) {
     p.cash -= p.taxDue
+    tr(G, p, 'tax', -p.taxDue)
     p.taxDue = 0
     if (p.cash < 0) cover(G, p, 'tax')
   }
   if (p.loan) pay(G, p, Math.round(p.loan * P.loanRate), 'interest')
   if (p.short) pay(G, p, Math.round(p.short * P.shortRate), 'shortInterest')
 }
+const CARD = { decision: '意思決定', defect: '施工不備の発覚', corpCancel: '法人の解約', pandemic: '感染症の流行', lawsuit: 'オーナー訴訟', leak: '漏水・設備故障', arrears: '家賃の滞納', noise: '入居者トラブル（騒音）', competitor: '近くに競合物件', rush: '3月の繁忙期', foreign: '外国人材の受け入れ増', factory: '工場の新設', pricing: 'プライシングの成功', regional: '地方創生', remote: 'リモートワーク需要の拡大', university: '大学の新設', redevelop: '都心の再開発' }
 function turn(G, p) {
+  G.ctx = { who: p.id, turn: p.turnNo + 1, clock: G.clock }
   collect(G, p)
   preTurn(G, p)
   if (!G.deck.length) G.deck = shuffle(makeDeck(G.P), G.rand)
   const c = G.deck.pop()
+  note(G, p, `カード：${c.kind === 'decision' ? '' : c.kind === 'risk' ? 'リスク　' : 'チャンス　'}${CARD[c.key]}`)
   if (c.kind === 'decision') decide(G, p)
   else if (p.bldgs.length) EV[c.key](G, p)
   p.turnNo++
@@ -583,6 +616,7 @@ function turn(G, p) {
 }
 function periodEnd(G, p) {
   const P = G.P
+  G.ctx = { who: null, phase: 'end' }
   collect(G, p)
   const occEnd = occ(p).length
   const corpN = occ(p, 'corp').length
@@ -591,6 +625,7 @@ function periodEnd(G, p) {
   const rep = Math.round(p.loan * P.repayRate)
   if (rep) {
     p.cash -= rep
+    tr(G, p, 'repay', -rep)
     p.loan -= rep
     if (p.cash < 0) cover(G, p, 'repay')
   }
@@ -686,6 +721,8 @@ export function playGame(P, personas, seed) {
     cancelled: 0,
     clock: 0,
     marketLog: [],
+    trace: P.trace ? [] : null,
+    ctx: null,
   }
   for (let per = 1; per <= P.periods; per++) {
     G.period = per
