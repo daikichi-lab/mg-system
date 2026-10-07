@@ -503,6 +503,8 @@ function periodEnd(G, p) {
   evict(G, p, stud.slice(0, Math.ceil(stud.length / 2)), 'stud')
   // 法人：期末の退去なし
   p.ads = Math.max(0, p.ads - 1)
+  // 営業チップ：2枚以上あれば1枚だけ次の期に残る（製造業MGの商品開発チップと同じ）
+  p.salesChips = p.salesChips >= 2 ? 1 : 0
   let dep = 0
   for (const l of p.furn) {
     const x = Math.min(P.furnDep, l.book)

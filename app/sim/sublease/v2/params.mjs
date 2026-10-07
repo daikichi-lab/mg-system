@@ -43,8 +43,9 @@ export const V2 = {
   adPerSales: 2,
   adRooms: 2,
   // 営業チップ（2026-10-07：法人営業チップから変更）：製造業MGと同じく、入札で1枚につき2低くコールしたものとして比べる。どの種類の入札にも効く
+  // 上限なし。期末に2枚以上あれば1枚だけ次の期に残る（製造業MGの商品開発チップと同じ：2026-10-07）
   salesChipPrice: 20,
-  salesChipMax: 3,
+  salesChipMax: Infinity,
   salesChipBid: 2,
   // リノベ（2026-10-07）：棟に付け、その棟の入居者から入る家賃が1室につき＋2（入居中の部屋にも効く）
   renoPrice: 30,
