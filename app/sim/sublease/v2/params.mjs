@@ -23,12 +23,15 @@ export const V2 = {
 
   // 借上げ賃料は v1 の本命から −3（2026-10-07：個人の退去が多い v2 で第3期にぎりぎり黒字）
   // 本番の手番の数（第2期15・第3期以降24）に合わせて 都市27・郊外23・地方19（2026-10-07）
-  areas: { city: { n: 6, own: 27, mkt: 50 }, suburb: { n: 10, own: 23, mkt: 45 }, rural: { n: 8, own: 19, mkt: 40 } },
+  // 2026-10-07：立地ごとの部屋数・市場の人の移動カードに合わせて 都市25・郊外21・地方17
+  areas: { city: { n: 6, own: 25, mkt: 50 }, suburb: { n: 10, own: 21, mkt: 45 }, rural: { n: 8, own: 17, mkt: 40 } },
   oldN: 4,
   oldDelta: -4,
   faceUp: 3,
   maxBldg: 6,
   rooms: 8,
+  /** 立地ごとの部屋数（都市は狭く、地方は広い）。null なら全部 rooms（8室）。第1期に全員が借りる郊外の棟は8室のまま */
+  roomsByArea: { city: 6, suburb: 8, rural: 10 }, // 都市は狭く、地方は広い（2026-10-07）
 
   furnPrice: 12,
   furnDep: 3,
@@ -70,10 +73,11 @@ export const V2 = {
    * 市場の人駒：1期あたり「人数 × この数」をエリア・種類ごとに置く（期首に置き直す。売れ残りは市場から去る）。
    * 前の期に退去した個人は、そのエリアの市場に戻る（indivReturn）
    */
+  // 都市は個人が多め・郊外は学生が多め・地方は法人が多め（2026-10-07。法人は corpSupplyMult 倍）
   supply: {
-    city: { corp: 0.3, indiv: 3, stud: 1.5 },
-    suburb: { corp: 1, indiv: 4, stud: 2 },
-    rural: { corp: 0.7, indiv: 2, stud: 0.5 },
+    city: { corp: 0.2, indiv: 4, stud: 1 },
+    suburb: { corp: 0.5, indiv: 2.5, stud: 3 },
+    rural: { corp: 1, indiv: 1.5, stud: 0.5 },
   },
   indivReturn: true,
   /**
@@ -82,9 +86,11 @@ export const V2 = {
    * 学生は入札に勝つとストッカーから＋2人が加わるので年々増える（2026-10-07）。stockInit は最初に置く数の倍率（supply × 人数 × この数）
    */
   supplyMode: 'stock', // 2026-10-07 決定：ためておく市場
-  stockInit: 1,
+  stockInit: 0.8,
   /** 法人は毎期少しずつ市場に出てくる（2026-10-07）：期首に supply.corp × 人数 × この数 を足す（第3期以降。第2期は最初に置く分がある） */
   corpInflow: 2,
+  /** 退去した個人のうち、そのエリアの市場に戻る割合（残りは他社の物件や持ち家へ移り、ゲームから去る） */
+  indivReturnRate: 1,
   /** 法人の人駒を何倍にするか（法人が強すぎるときに減らす） */
   corpSupplyMult: 3, // 法人特化も成り立つように3倍（2026-10-07）
   /** 学生の人駒を何倍にするか */
@@ -111,6 +117,8 @@ export const V2 = {
   minTax: 5,
 
   deckDecision: 44,
+  /** 市場の人の移動・追加のカード（地方創生・リモートワーク・大学の新設・都心の再開発）を山札に入れる */
+  moveCards: true,
   defectCost: 30,
   lawsuitCost: 20,
   repairCost: 10,

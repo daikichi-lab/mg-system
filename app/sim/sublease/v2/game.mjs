@@ -34,7 +34,7 @@ function makeDeck(P) {
   const d = []
   for (let i = 0; i < P.deckDecision; i++) d.push({ kind: 'decision', key: 'decision' })
   const risk = [['defect', 1], ['corpCancel', P.corpCancelCards], ['pandemic', 1], ['lawsuit', 1], ['leak', 2], ['arrears', 1], ['noise', 1], ['competitor', 1]]
-  const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1]]
+  const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', 1], ['redevelop', 1]] : [])]
   for (const [k, n] of risk) for (let i = 0; i < n; i++) d.push({ kind: 'risk', key: k })
   for (const [k, n] of chance) for (let i = 0; i < n; i++) d.push({ kind: 'chance', key: k })
   return d
@@ -45,10 +45,12 @@ function makeBdeck(P, rand) {
   for (let i = 0; i < P.oldN; i++) d.push({ area: AREAS[Math.floor(rand() * 3)], old: true })
   return shuffle(d, rand)
 }
+/** 立地ごとの部屋数（roomsByArea があればそれ、なければ8室） */
+const roomsOf = (P, area) => (P.roomsByArea && P.roomsByArea[area]) || P.rooms
 function newBldg(P, c) {
   const a = P.areas[c.area]
   const d = c.old ? P.oldDelta : 0
-  return { area: c.area, old: c.old, own: a.own + d, mkt: a.mkt + d, reno: false, rooms: Array.from({ length: P.rooms }, () => ({ st: 'none', type: null, rent: 0 })) }
+  return { area: c.area, old: c.old, own: a.own + d, mkt: a.mkt + d, reno: false, rooms: Array.from({ length: roomsOf(P, c.area) }, () => ({ st: 'none', type: null, rent: 0 })) }
 }
 
 // ---- 集計 ----
@@ -103,7 +105,7 @@ function accrue(G, p) {
   p.pend.rent += occ(p).reduce((s, r) => s + r.rent, 0) * f
   p.pend.own += p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * f
   p.pl.occRQ += occ(p).length * f
-  p.pl.availRQ += p.bldgs.length * G.P.rooms * f
+  p.pl.availRQ += p.bldgs.reduce((s, b) => s + b.rooms.length, 0) * f
   p.lastT = t
 }
 function collect(G, p) {
@@ -139,7 +141,10 @@ function evict(G, p, rooms, type) {
   accrue(G, p)
   // ためておく市場では、退去した人はその棟のエリアの市場に戻る（次の期首に並ぶ）
   if (G.P.supplyMode === 'stock')
-    for (const b of p.bldgs) for (const r of b.rooms) if (rooms.includes(r)) G.back[b.area][type] = (G.back[b.area][type] || 0) + 1
+    for (const b of p.bldgs)
+      for (const r of b.rooms)
+        // 個人は indivReturnRate の割合だけ市場に戻る（残りはゲームから去る）
+        if (rooms.includes(r) && (type !== 'indiv' || G.rand() < G.P.indivReturnRate)) G.back[b.area][type] = (G.back[b.area][type] || 0) + 1
   for (const r of rooms) Object.assign(r, { st: 'vac', type: null, rent: 0 })
   pay(G, p, rooms.length * G.P.restore[type], 'restore')
 }
@@ -248,6 +253,29 @@ const EV = {
   },
   factory(G) {
     G.market.rural.corp += 4
+  },
+  // ---- 市場の人の移動・追加（卓の全員に効く・2026-10-07）。移る元の市場にいる人数までしか動かさない ----
+  /** 地方創生：都市の市場の個人3人が地方へ移り、地方に法人＋2 */
+  regional(G) {
+    const n = Math.min(3, G.market.city.indiv)
+    G.market.city.indiv -= n
+    G.market.rural.indiv += n
+    G.market.rural.corp += 2
+  },
+  /** リモートワーク需要の拡大：都市の市場の個人3人が、郊外に2人・地方に1人移る */
+  remote(G) {
+    const n = Math.min(3, G.market.city.indiv)
+    G.market.city.indiv -= n
+    G.market.suburb.indiv += Math.min(2, n)
+    G.market.rural.indiv += Math.max(0, n - 2)
+  },
+  /** 大学の新設：郊外に学生＋4 */
+  university(G) {
+    G.market.suburb.stud += 4
+  },
+  /** 都心の再開発：都市に個人＋4 */
+  redevelop(G) {
+    G.market.city.indiv += 4
   },
   pricing(G, p) {
     for (const b of p.bldgs) if (b.reno) for (const r of b.rooms) if (r.st === 'occ') r.rent += 2
@@ -361,9 +389,9 @@ function decide(G, p) {
   if (wantExpand(G, p)) {
     const i = G.market.cards.map((c, k) => [cardScore(G, c), k]).sort((x, y) => y[0] - x[0])[0][1]
     const c = G.market.cards[i]
-    const own = (P.areas[c.area].own + (c.old ? P.oldDelta : 0)) * P.rooms
+    const own = (P.areas[c.area].own + (c.old ? P.oldDelta : 0)) * roomsOf(P, c.area)
     const left = (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin
-    if (p.cash >= 50 && outlook(G, p) - own * left - 96 + own * left * 1.3 >= s.buffer) return lease(G, p, i, Math.min(8, Math.floor((p.cash - s.buffer) / P.furnPrice)))
+    if (p.cash >= 50 && outlook(G, p) - own * left - 96 + own * left * 1.3 >= s.buffer) return lease(G, p, i, Math.min(roomsOf(P, c.area), Math.floor((p.cash - s.buffer) / P.furnPrice)))
   }
   if (v >= lc * 2 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > lc && p.ads < p.sales * P.adPerSales && canSpend(G, p, P.adPrice)) return buy(G, p, 'ads', P.adPrice, 'ads')
