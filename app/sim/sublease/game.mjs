@@ -699,10 +699,10 @@ function periodEnd(G, p) {
     p.loan -= rep
     if (p.cash < 0) cover(G, p)
   }
-  // 4. 管理能力を超えた分は、個人（いなければ法人・学生）から退去し、1室ごとにクレーム費用
+  // 4. 管理能力を超えた分は退去し、1室ごとにクレーム費用。出ていく順は期末の退去のサイコロと同じ（学生 → 個人 → 法人）
   const over = occupied(p) - mgmtCap(P, p)
   if (over > 0) {
-    const order = [...occRooms(p, 'indiv'), ...occRooms(p, 'stud'), ...occRooms(p, 'corp')].slice(0, over)
+    const order = [...occRooms(p, 'stud'), ...occRooms(p, 'indiv'), ...occRooms(p, 'corp')].slice(0, over)
     evictRooms(G, p, order, false, false)
     pay(G, p, over * P.claimCost, 'claim')
   }
