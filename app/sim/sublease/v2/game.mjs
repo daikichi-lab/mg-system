@@ -422,6 +422,8 @@ function refillMarket(G) {
     // ためておく市場：最初の1回（第2期の期首。第1期は台本なので市場を使わない）だけ置き、あとは戻りとカードでだけ増減する
     if (G.period === (P.tutorial ? 2 : 1))
       for (const a of AREAS) for (const t of TYPES) G.market[a][t] += Math.round(P.supply[a][t] * n * P.stockInit * (t === 'corp' ? P.corpSupplyMult : t === 'stud' ? P.studSupplyMult : 1))
+    // 法人は毎期少しずつ出てくる（最初に置いた期の次から）
+    else if (G.period > (P.tutorial ? 2 : 1) && P.corpInflow) for (const a of AREAS) G.market[a].corp += Math.round(P.supply[a].corp * n * P.corpInflow)
     for (const a of AREAS) {
       for (const t of TYPES) G.market[a][t] = (G.market[a][t] || 0) + (G.back[a][t] || 0)
       G.back[a] = { corp: 0, indiv: 0, stud: 0 }
