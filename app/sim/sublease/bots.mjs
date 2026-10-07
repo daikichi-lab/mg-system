@@ -100,7 +100,9 @@ export function preTurn(G, p) {
 function wantExpand(G, p) {
   const P = G.P
   const s = ps(p)
-  if (p.bldgs.length >= Math.min(s.maxBldg, P.maxBldg) || !G.market.length) return false
+  // 1棟を育てる方針（focus）は2棟まで。説明の期があるときだけ（方針は第2期に決める）
+  const cap = P.tutorial && p.opening === 'focus' ? Math.min(2, s.maxBldg) : s.maxBldg
+  if (p.bldgs.length >= Math.min(cap, P.maxBldg) || !G.market.length) return false
   if (G.P.pace === 'time' ? fracLeft(G, p) < s.minRows / 45 : G.rowLimit - p.rows < s.minRows) return false
   if (unprepared(p) > 0) return false
   const occ = occupied(p)
@@ -152,7 +154,9 @@ export function decide(G, p) {
   const P = G.P
   const s = ps(p)
   // 開業：物件を持っていなければ、まず借りる。2棟にまんべんなく（spread）の方針なら、家具を買う前に2棟目も借りる
-  if (G.market.length && (p.bldgs.length === 0 || (p.opening === 'spread' && G.period === 1 && p.bldgs.length === 1 && p.furn.length === 0)))
+  // 第1期が説明の期（tutorial）なら、方針を決めるのは第2期の最初の意思決定
+  const openPeriod = P.tutorial ? 2 : 1
+  if (G.market.length && (p.bldgs.length === 0 || (p.opening === 'spread' && G.period === openPeriod && p.bldgs.length === 1 && (P.tutorial || p.furn.length === 0))))
     if (A.lease(G, p, bestCard(G), openFurn(G, p))) return 'open-lease'
   const vac = vacantOpen(p)
   const lc = leaseCap(P, p)
@@ -199,8 +203,8 @@ export function decide(G, p) {
   if (vac > lc && p.ads < p.sales * P.adPerSales && canSpend(G, p, P.adPrice) && A.ads(G, p, 1)) return 'ads'
   // 8. 法人営業チップ
   if (p.corpChips < s.corpChips && canSpend(G, p, P.corpChipPrice) && A.corpChip(G, p)) return 'corpChip'
-  // 9. リノベ（入居の多い棟から）
-  if (s.reno) {
+  // 9. リノベ（入居の多い棟から）。1棟を育てる方針は性格によらずリノベする
+  if (s.reno || (P.tutorial && p.opening === 'focus')) {
     const b = p.bldgs.filter((x) => !x.reno).sort((x, y) => y.rooms.filter((r) => r.st === 'occ').length - x.rooms.filter((r) => r.st === 'occ').length)[0]
     if (b && canSpend(G, p, P.renoPrice) && A.reno(G, p, b)) return 'reno'
   }

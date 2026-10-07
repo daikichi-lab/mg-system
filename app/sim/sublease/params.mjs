@@ -27,6 +27,8 @@ export const BASE = {
   leaseFurnish: false,
   /** 開業準備：第1期の時計を動かす前に、資本金で棟を借りて家具を入れる（1棟を充実／2棟にまんべんなく） */
   setupOpening: false,
+  /** 第1期をルール説明の期にする（tutorial.mjs の台本どおり全員が同じ動き。第2期から自由に遊ぶ） */
+  tutorial: false,
   /** 開始時に物件を持たない（資本金だけで始め、最初の手番で棟を借りる） */
   startEmpty: false,
   /** 山札の構成（意思決定・リスク・チャンス）。リスク・チャンスの内訳は cards.mjs */
@@ -193,11 +195,25 @@ export const TIME = {
   hq: 15,
 }
 
+/**
+ * 第1期をルール説明の期にした案（2026-10-07 の要望）。TIME に重ねる差分。
+ * 第1期は台本で全員同じ盤面に、第2期から「1棟を育てる／棟を増やして幅広く」を選ぶ
+ */
+export const TUTORIAL_PLAN = {
+  tutorial: true,
+  setupOpening: false,
+  // 第1期は全員1棟なので、開業の資金は少なくてよい。400 だと第2期の方針（1棟を育てる／棟を増やす）が半々で勝つ
+  capital: 400,
+  // 第1期で棟を増やさない分、第2期に1棟目と2棟目が同時に立ち上がる。借上げ賃料をさらに下げて第3期にぎりぎり黒字
+  areas: { city: { own: 24 }, suburb: { own: 20 }, rural: { own: 16 } },
+}
+
 /** 名前から数値のセットを作る（BASE に差分を重ねる。time は TUNED の上に TIME を重ねる） */
 export function paramsOf(name = 'base', overrides = {}) {
   let p = structuredClone(BASE)
-  if (name === 'tuned' || name === 'time') p = deepMerge(p, TUNED)
-  if (name === 'time') p = deepMerge(p, TIME)
+  if (name === 'tuned' || name === 'time' || name === 'tutorial') p = deepMerge(p, TUNED)
+  if (name === 'time' || name === 'tutorial') p = deepMerge(p, TIME)
+  if (name === 'tutorial') p = deepMerge(p, TUTORIAL_PLAN)
   return deepMerge(p, overrides)
 }
 

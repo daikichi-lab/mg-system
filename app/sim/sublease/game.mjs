@@ -10,6 +10,7 @@
 // プレイヤーの判断は bots.mjs。ここは盤面・現金・損益の更新と、手番・期の進行だけを持つ。
 
 import { makeDeck } from './cards.mjs'
+import { TUTORIAL } from './tutorial.mjs'
 import { decide, preTurn, joinAuction, bidPrice, periodStartChoices, openingSetup } from './bots.mjs'
 
 // ---- 乱数（種を固定して同じ結果を再現する） ----
@@ -584,6 +585,42 @@ function periodStart(G, p) {
     }
 }
 
+/**
+ * 第1期（ルール説明の期）を台本どおりに進める。全員が同じ手番を同じ順に行うので、期末には全員の盤面が同じになる。
+ * 家賃・借上げ賃料は台本の at（第1期のどこまで進んだか）で積み立て、各手番の頭に受け取る・払う
+ */
+function runTutorial(G) {
+  const P = G.P
+  for (const step of TUTORIAL) {
+    if (step.kind === 'closing') break
+    G.clock = step.at * G.periodMin
+    for (const p of G.players) {
+      collect(G, p)
+      const d = step.do
+      if (d.lease) {
+        accrue(G, p)
+        p.bldgs.push(newBuilding(P, { area: d.lease.area, old: false }))
+      }
+      if (d.furniture) A.buyFurn(G, p, d.furniture)
+      if (d.contract) {
+        const c = d.contract
+        const rentOf = (b) => (c.type === 'corp' ? mktOf(P, p, b) - P.corpDisc : c.type === 'stud' ? mktOf(P, p, b) - P.studDisc : c.price)
+        const got = fill(G, p, c.type, c.n, rentOf)
+        if (c.type === 'corp') p.corpUsed += got
+        if (c.type === 'stud') p.studUsed += got
+      }
+      if (d.event) EVENTS[d.event](G, p)
+      if (d.insurance) A.insurance(G, p)
+      if (d.hire) A.hire(G, p, d.hire.kind, d.hire.n)
+      if (step.kind === 'decision' || step.kind === 'risk' || step.kind === 'chance') p.turnNo++
+    }
+    // 台本の手番ごとの記録（説明資料用）：1社目の現金・この手番までの売上と費用
+    const p0 = G.players[0]
+    G.tutorialLog.push({ title: step.title, at: step.at, cash: p0.cash, rev: p0.pl.rev, own: p0.pl.F.ownerRent || 0, occ: occupied(p0), vac: vacant(p0) })
+  }
+  G.clock = G.periodMin
+}
+
 /** 1手番：（ルールB）→ カードを1枚引く → 意思決定ならルールAを1つ、リスク・チャンスなら効果 */
 function turn(G, p) {
   if (p.rows >= G.rowLimit) return
@@ -726,6 +763,7 @@ export function playGame(P, personas, seed) {
     log: [],
     auctions: [],
     cardLog: [],
+    tutorialLog: [],
   }
   refillMarket(G)
   // 開業の方針は半々（1棟を充実させる／2棟にまんべんなく）。資本金がどちらでも成り立つかを見るため
@@ -746,6 +784,11 @@ export function playGame(P, personas, seed) {
     let guard = 0
     G.clock = 0
     if (P.pace === 'time') G.rowLimit = Infinity
+    if (per === 1 && P.tutorial) {
+      runTutorial(G)
+      for (const p of G.players) periodEnd(G, p)
+      continue
+    }
     for (;;) {
       for (let k = 0; k < G.players.length; k++) {
         G.turnExtra = 0
