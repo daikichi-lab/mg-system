@@ -73,7 +73,8 @@ const mktOf = (P, p, b) => b.mkt - (p.flags.competitor && b.area === 'city' ? 3 
 const equity = (p) => p.capital + p.retained
 const loanRoom = (P, p) => (p.period < P.loanFrom ? 0 : Math.max(0, Math.round(equity(p) * P.loanMult) - p.loan))
 const furnBook = (p) => p.furn.reduce((s, l) => s + l.n * l.book, 0)
-const ps = (p) => PERSONAS[p.persona]
+// smart のときは会社ごとの戦い方（p.strat）、そうでなければ性格（PERSONAS）
+const ps = (p) => p.strat || PERSONAS[p.persona]
 
 // ---- 記帳の記録（P.trace のときだけ。1手番ずつの記帳を見るため：2026-10-08） ----
 /** お金の出入りを記録する。v は入金＋・出金− */
@@ -183,7 +184,13 @@ function auction(G, parent, area, type, seats) {
   const P = G.P
   const bidders = [parent]
   // 子は、そのエリアに空室があり、その種類を取りにいく性格なら参加する
-  for (const q of G.players) if (q !== parent && vac(q, area) > 0 && ps(q).prefer.includes(type) && !(type === 'indiv' && q.flags.noIndiv) && G.rand() < 0.9) bidders.push(q)
+  for (const q of G.players) {
+    if (q === parent || vac(q, area) <= 0 || (type === 'indiv' && q.flags.noIndiv)) continue
+    // smart：入れられる室数があり、1室の価値がプラスなら参加する
+    if (q.strat) {
+      if (seatsOf(G, q, area, type) > 0 && roomValue(G, q, area, type) > 0 && G.rand() < 0.95) bidders.push(q)
+    } else if (ps(q).prefer.includes(type) && G.rand() < 0.9) bidders.push(q)
+  }
   const bids = bidders.map((q) => {
     const open = q.bldgs.filter((b) => b.area === area && b.rooms.some((r) => r.st === 'vac'))
     const cap = Math.max(...open.map((b) => mktOf(P, q, b))) + P.bidCap[type]
@@ -192,7 +199,9 @@ function auction(G, parent, area, type, seats) {
     const pressure = total ? Math.round((vac(q) / total) * 4) : 0
     const corpExtra = type === 'corp' ? 2 : 0 // 法人は一度入れば出ていかないので、少し安くしてでも取りにいく
     // 参加する会社は入札の前に名乗り出るので、自分しかいなければ相場いっぱいで出す。相手がいるときだけ値引きする（2026-10-07）
-    const price = bidders.length === 1 ? cap : Math.max(P.priceFloor[type], Math.min(cap, cap - s.bidDisc - pressure - corpExtra - Math.max(0, bidders.length - 2) - Math.floor(G.rand() * 3)))
+    // smart：基本の値引き ＋ そのエリアで負けが続いた分（adapt）。勝つと戻す
+    const disc = q.strat ? s.disc + (q.adapt[area] || 0) + Math.floor(G.rand() * 2) : s.bidDisc + pressure + corpExtra + Math.max(0, bidders.length - 2) + Math.floor(G.rand() * 3)
+    const price = bidders.length === 1 ? cap : Math.max(P.priceFloor[type], Math.min(cap, cap - disc))
     // 営業チップ1枚ごとに2低くコールしたものとして比べる（製造業MGと同じ）
     const eff = price - q.salesChips * P.salesChipBid
     // 管理能力を超えて入居させられない（mgmtHardCap）：取れる室数は 管理能力 − 今の入居室数 まで
@@ -215,6 +224,7 @@ function auction(G, parent, area, type, seats) {
     let cut = 0
     if (type === 'corp' && P.corpDice) cut = Math.max(0, 1 + Math.floor(G.rand() * 6) - bd.q.salesChips)
     const got = fill(G, bd.q, area, type, n, () => Math.max(1, bd.price - cut))
+    if (got > 0) bd.won = true
     left -= got
     G.market[area][type] -= got
     // 集計用：借りた棟が8割埋まった手番を記録
@@ -225,6 +235,17 @@ function auction(G, parent, area, type, seats) {
       fill(G, bd.q, area, 'stud', extra, () => bd.price)
     }
   }
+  // 勝ち負けを覚える（smart の勝率の見込みと値引きの調整に使う）
+  if (bidders.length > 1)
+    for (const bd of bids) {
+      const q = bd.q
+      if (!q.strat) continue
+      const won = q.pl.contracts && q.bldgs.some((b) => b.area === area) && bd.won
+      const st = (q.bidStat[area] ||= { w: 0, n: 0 })
+      st.n++
+      if (won) st.w++
+      q.adapt[area] = Math.max(0, Math.min(6, (q.adapt[area] || 0) + (won ? -1 : 1)))
+    }
   G.auctions.push({ type, area, n: bidders.length, seats, parent: parent.persona, parentPrice: bids.find((b) => b.q === parent).price, parentWon: bids.find((b) => b.q === parent).eff <= Math.min(...bids.map((b) => b.eff)) })
   return true
 }
@@ -528,6 +549,244 @@ function buy(G, p, k, price, fk) {
   p[k]++
 }
 
+// ---- 自動プレイヤー（smart：2026-10-08 作り直し） ----
+// 決め打ちの順番ではなく、意思決定カードを引くたびに「打てる手」をすべて並べ、
+// 「この期の残り＋この先（最大1.5期）でいくら得か − 費用」がいちばん大きい手を選ぶ。
+// 戦略の癖（値引きの幅・棟の上限・営業チップや広告やリノベの好み など）は会社ごとにランダムに決め（sampleStrategy）、
+// どんな戦い方が勝つかを数値ルールの評価に使う。
+
+/** 戦い方を会社ごとにランダムに決める。style は集計用のラベル（絞る／広げる × 高く貸す／安く貸す） */
+function sampleStrategy(rand) {
+  const u = (a, b) => a + (b - a) * rand()
+  const s = {
+    disc: Math.floor(u(0, 7)), // 相手がいる入札で相場から引く基本の額（0〜6）
+    maxBldg: 2 + Math.floor(u(0, 5)), // 棟の上限（2〜6）
+    leasePerPeriod: 1 + Math.floor(u(0, 2)), // 1期に借りる棟の数の上限（1〜2）
+    buffer: Math.round(u(0, 60)), // 手元に残しておきたい現金の余裕
+    chipW: u(0.5, 1.5), // 営業チップの好み
+    adW: u(0.5, 1.5), // 広告の好み
+    renoW: u(0, 1.5), // リノベの好み
+    hireW: u(0.6, 1.4), // 採用の好み
+    leaseW: u(0.6, 1.4), // 棟を借りる好み
+    typeW: { corp: u(0.7, 1.3), indiv: u(0.7, 1.3), stud: u(0.7, 1.3) }, // 入居者の種類の好み
+    ins: rand() < 0.4, // 保険に入るか
+    borrow: rand() < 0.75, // 借入して投資するか
+    lock: rand() < 0.5, // 管理が足りないときスマートロックを使うか
+    noise: u(0.05, 0.25), // 判断のゆらぎ（人のばらつき）
+  }
+  s.style = (s.maxBldg >= 5 ? 'wide' : 'narrow') + (s.disc >= 3 ? 'Low' : 'High')
+  // 旧ロジックと共用する項目（canSpend・自動の採用など）
+  s.prefer = TYPES
+  s.salesChips = 0
+  s.expandOcc = 0
+  return s
+}
+export const STYLE_KEYS = ['narrowHigh', 'narrowLow', 'wideHigh', 'wideLow']
+
+/** この期の残り（0〜1）と、この先の期の重み（最終期は0。最大1.5期） */
+function horizon(G) {
+  const L = Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
+  const fut = Math.min(1.5, G.P.periods - G.period) * 0.8
+  return { L, fut }
+}
+/** 1期にとどまる割合の目安（法人は解約カードだけ・個人はサイコロ平均3.5室・学生は半分が卒業） */
+function stayOf(p, t) {
+  if (t === 'corp') return 0.9
+  if (t === 'stud') return 0.45
+  return Math.max(0.2, 1 - 3.5 / Math.max(4, occ(p, 'indiv').length + 2))
+}
+/** そのエリアで入札するときの家賃の見込み（相手がいれば値引き分を引く） */
+function rentEst(G, p, area, t, mkt) {
+  const s = ps(p)
+  const rivals = G.players.filter((q) => q !== p && vac(q, area) > 0).length
+  return Math.max(G.P.priceFloor[t], mkt - (rivals ? s.disc + (p.adapt?.[area] || 0) : 0))
+}
+const ownOf = (P, area) => P.areas[area].own
+const mktArea = (p, area, P) => {
+  const bs = p.bldgs.filter((b) => b.area === area)
+  return bs.length ? Math.max(...bs.map((b) => mktOf(P, p, b))) : P.areas[area].mkt
+}
+/** 1室を入れたときの価値：粗利 ×（この期の残り ＋ この先 × とどまる割合）− 入居費用 */
+function roomValue(G, p, area, t) {
+  const P = G.P
+  const { L, fut } = horizon(G)
+  const m = rentEst(G, p, area, t, mktArea(p, area, P)) - ownOf(P, area)
+  // 空室でも借上げ賃料は払っているので、埋めた価値は家賃そのもの（粗利ではなく家賃）で見る
+  const rent = m + ownOf(P, area)
+  return rent * (L + fut * stayOf(p, t)) - P.V[t] - P.restore[t] * (1 - stayOf(p, t)) * (fut > 0 ? 1 : 0)
+}
+/** 入札に勝つ見込み：相手がいなければほぼ勝つ。これまでの勝ち負け・営業チップの差で動かす */
+function pWin(G, p, area) {
+  const rivals = G.players.filter((q) => q !== p && vac(q, area) > 0)
+  if (!rivals.length) return 0.95
+  const st = p.bidStat?.[area] || { w: 0, n: 0 }
+  const base = (st.w + 1) / (st.n + 2)
+  const chipGap = p.salesChips - rivals.reduce((s, q) => s + q.salesChips, 0) / rivals.length
+  return Math.min(0.95, Math.max(0.05, base + 0.12 * chipGap))
+}
+/** そのエリア・種類の入札で入れられる室数（営業能力・空室・管理能力・市場の人駒） */
+function seatsOf(G, p, area, t) {
+  const P = G.P
+  const cap = t === 'indiv' ? indivCap(P, p, area) : leaseCap(P, p, area)
+  return Math.max(0, Math.min(cap, vac(p, area), P.mgmtHardCap ? mgmtRoom(P, p, area) : Infinity, G.market[area][t]))
+}
+/** そのエリアで埋めたい室数（空室のうち、管理能力と市場の人駒の範囲） */
+function fillable(G, p, area) {
+  const P = G.P
+  const supply = TYPES.reduce((s, t) => s + G.market[area][t], 0)
+  return Math.max(0, Math.min(vac(p, area), P.mgmtHardCap ? mgmtRoom(P, p, area) : Infinity, supply))
+}
+/** この期に残っている自分の意思決定の回数の目安 */
+function decisionsLeft(G, p) {
+  const t = G.P.turnsPerPeriod ? G.P.turnsPerPeriod[G.period] ?? G.P.turnsPerPeriod.default : 6
+  return Math.max(0, (t - p.turnNo) * 0.68)
+}
+/** 営業能力 cap のとき、埋めたい室数を埋めきるまでに空いている「室×期」の目安（入札の勝率と残りの回数から） */
+function idleRooms(G, p, area, cap) {
+  const f = fillable(G, p, area)
+  if (!f) return 0
+  if (cap <= 0) return f
+  const need = Math.ceil(f / cap) / pWin(G, p, area)
+  const left = Math.max(1, decisionsLeft(G, p))
+  return f * Math.min(1, need / (2 * left))
+}
+/** 新しく借りる棟の、期の平均の入居率の見込み（そのエリアの人駒と、他社の空室から） */
+function expectFill(G, p, area, rooms, future = false) {
+  // そのエリアの人駒を、そこに棟を持つ会社（自分を含めて＋1）で分けたときの取り分。他社の空室が多いほど減る。
+  // future のときは、次の期首に増える法人と、退去して戻ってくる人（個人の約3割・学生の半分）も数える
+  const P = G.P
+  let supply = TYPES.reduce((s, t) => s + G.market[area][t], 0)
+  if (future) {
+    supply += Math.round(P.supply[area].corp * G.players.length * P.corpInflow)
+    for (const q of G.players) supply += occ(q, 'indiv', area).length * 0.3 + occ(q, 'stud', area).length * 0.5
+  }
+  const holders = G.players.filter((q) => q !== p && q.bldgs.some((b) => b.area === area)).length + 1
+  // 他社の空室・家具なしの部屋は、同じ人駒を取り合う相手として全部数える
+  const rivalVac = G.players.reduce((s, q) => s + (q === p ? 0 : vac(q, area) + q.bldgs.filter((b) => b.area === area).reduce((x, b) => x + b.rooms.filter((r) => r.st === 'none').length, 0)), 0)
+  return Math.min(0.95, Math.max(0.1, (supply - rivalVac) / holders / rooms))
+}
+
+/** 打てる手を並べて、いちばん得な手を打つ */
+function decideSmart(G, p) {
+  const P = G.P
+  const s = ps(p)
+  const { L, fut } = horizon(G)
+  const sal = P.salary[G.period - 1]
+  const H = L + fut
+  const cands = []
+  const add = (v, cost, run, label) => cands.push({ v: v * (1 + s.noise * (G.rand() * 2 - 1)), cost, run, label })
+  const areasHeld = [...new Set(p.bldgs.map((b) => b.area))]
+
+  // 入札：エリア × 種類
+  for (const a of areasHeld)
+    for (const t of TYPES) {
+      if (t === 'stud' && (p.turnNo >= P.studTurns || G.noStud)) continue
+      if (t === 'indiv' && p.flags.noIndiv) continue
+      const n = seatsOf(G, p, a, t)
+      if (n <= 0) continue
+      const bonus = t === 'stud' ? Math.min(P.studBonus, vac(p, a) - n, (P.mgmtHardCap ? mgmtRoom(P, p, a) : 99) - n) : 0
+      add((n + Math.max(0, bonus)) * pWin(G, p, a) * roomValue(G, p, a, t) * s.typeW[t], 0, () => auction(G, p, a, t, n), `bid ${a} ${t}`)
+    }
+  // 家具：家具なしの部屋に置く（置かないと募集できない）
+  const uf = unfurn(p)
+  if (uf > 0) {
+    const n = Math.min(uf, P.furnMax)
+    const a = p.bldgs.find((b) => b.rooms.some((r) => r.st === 'none')).area
+    add(n * (expectFill(G, p, a, n) * roomValue(G, p, a, 'indiv') - P.furnDep * H), n * P.furnPrice, () => buyFurn(G, p, n), 'furn')
+  }
+  // 営業の採用：そのエリアの空室を早く埋められる分
+  for (const a of areasHeld) {
+    if (salesIn(P, p, a) >= P.staffMax) continue
+    const cap = leaseCap(P, p, a)
+    const gain = idleRooms(G, p, a, cap) - idleRooms(G, p, a, cap + P.leasePerSales)
+    const rent = rentEst(G, p, a, 'indiv', mktArea(p, a, P))
+    add((gain * rent * L * 2 + fut * Math.min(2, fillable(G, p, a)) * 4) * s.hireW - sal * (L + fut) - P.hireCost, P.hireCost, () => hire(G, p, 'sales', a), `hire sales ${a}`)
+  }
+  // 管理の採用・スマートロック：管理能力が足りずに入れられない部屋がある分
+  for (const a of areasHeld) {
+    const blocked = Math.max(0, occ(p, null, a).length + vac(p, a) - mgmtCap(P, p, a))
+    if (!blocked) continue
+    const rent = rentEst(G, p, a, 'indiv', mktArea(p, a, P))
+    if ((p.mgmtBy[a] || 0) < P.staffMax) add(Math.min(blocked, P.mgmtRooms) * rent * H * 0.6 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'mgmt', a), `hire mgmt ${a}`)
+    if (s.lock && p.locks < P.lockMax) add(Math.min(blocked, P.lockRooms) * rent * H * 0.6 - P.lockPrice, P.lockPrice, () => buyLock(G, p, a), `lock ${a}`)
+  }
+  // 営業チップ：この期の残りの、相手のいる入札で勝ちやすくなる分。2枚以上あれば1枚は次の期へ残る
+  {
+    let gain = 0
+    for (const a of areasHeld) {
+      if (!G.players.some((q) => q !== p && vac(q, a) > 0)) continue
+      const rooms = Math.min(fillable(G, p, a), Math.ceil(decisionsLeft(G, p)) * Math.max(1, leaseCap(P, p, a)))
+      gain += rooms * Math.min(0.95 - pWin(G, p, a), 0.15) * roomValue(G, p, a, 'indiv')
+    }
+    const keep = p.salesChips >= 1 && fut > 0 ? 0.5 * P.salesChipPrice : 0 // 2枚目からは1枚が次の期に残る
+    if (gain > 0) add(gain * s.chipW + keep - P.salesChipPrice, P.salesChipPrice, () => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip'), 'chip')
+  }
+  // 広告：個人の入札で＋2室（期末に1枚返す）
+  if (p.ads < p.sales * P.adPerSales)
+    for (const a of areasHeld) {
+      if (!salesIn(P, p, a) || G.market[a].indiv <= leaseCap(P, p, a)) continue
+      const extra = Math.min(P.adRooms, fillable(G, p, a) - indivCap(P, p, a))
+      if (extra > 0) add(extra * pWin(G, p, a) * roomValue(G, p, a, 'indiv') * 0.7 * s.adW - P.adPrice, P.adPrice, () => buy(G, p, 'ads', P.adPrice, 'ads'), 'ads')
+    }
+  // リノベ：入居中の部屋の家賃が＋2（この先ずっと）
+  for (const b of p.bldgs) {
+    if (b.reno) continue
+    const o = b.rooms.filter((r) => r.st === 'occ').length
+    const left = L + (P.periods - G.period) * 0.85
+    add((o + vac(p, b.area) * 0.3) * P.renoRent * left * s.renoW - P.renoPrice, P.renoPrice, () => {
+      note(G, p, `リノベ（${{ city: '都市', suburb: '郊外', rural: '地方' }[b.area]}の棟）`)
+      pay(G, p, P.renoPrice, 'reno')
+      accrue(G, p)
+      b.reno = true
+      for (const r of b.rooms) if (r.st === 'occ') r.rent += P.renoRent
+    }, 'reno')
+    break // 1手番で比べるのは入居の多い棟1つで十分
+  }
+  // 物件の借り上げ：表向きのカードごと
+  const leasedNow = p.bldgs.filter((b) => b.leasedAt && b.leasedAt.period === G.period).length
+  if (p.bldgs.length < Math.min(s.maxBldg, P.maxBldg) && uf === 0 && leasedNow < s.leasePerPeriod)
+    G.market.cards.forEach((c, i) => {
+      const rooms = roomsOf(P, c.area)
+      const own = P.areas[c.area].own + (c.old ? P.oldDelta : 0)
+      const mkt = P.areas[c.area].mkt + (c.old ? P.oldDelta : 0)
+      // この期の残りは今の人駒から、この先は次の期首の増加と退去の戻りも入れて見込む
+      const f = expectFill(G, p, c.area, rooms)
+      const ff = expectFill(G, p, c.area, rooms, true)
+      const rent = rentEst(G, p, c.area, 'indiv', mkt)
+      const newArea = !areasHeld.includes(c.area)
+      const staff = newArea ? (2 * sal + P.officeRent) * H + 2 * P.hireCost : 0
+      const v = rooms * ((f * rent - own) * L * 0.6 + (ff * rent - own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff
+      add(v * s.leaseW, rooms * P.furnPrice + (newArea ? 2 * P.hireCost : 0), () => lease(G, p, i, rooms), `lease ${c.area}`)
+    })
+
+  // 得な順に、お金が足りる手を打つ（足りなければ借入できる範囲まで見る）
+  cands.sort((x, y) => y.v - x.v)
+  // 調べもの用（P.debug）：その手番で比べた手の上位4つを残す
+  if (G.debugPicks) G.debugPicks.push({ period: G.period, turn: p.turnNo, cash: Math.round(p.cash), vac: vac(p), occ: occ(p).length, bl: p.bldgs.length, top: cands.slice(0, 4).map((c) => `${c.label}:${Math.round(c.v)}`) })
+  for (const c of cands) {
+    if (c.v <= 0) break
+    const room = s.borrow ? loanRoom(P, p) : 0
+    if (c.cost > 0 && !(p.cash + room >= c.cost && outlook(G, p) + room - c.cost >= s.buffer)) continue
+    if (c.cost > p.cash) borrow(G, p, Math.min(room, Math.ceil((c.cost - p.cash + 10) / 10) * 10))
+    G.lastPick = c.label
+    return c.run()
+  }
+  G.lastPick = 'none'
+}
+/** ルールB（smart）：保険・資金繰りの借入 */
+function preTurnSmart(G, p) {
+  const P = G.P
+  const s = ps(p)
+  if (s.ins && p.ins < 1 && p.bldgs.length && canSpend(G, p, P.insPrice)) {
+    pay(G, p, P.insPrice, 'insurance')
+    p.ins++
+    return
+  }
+  const room = loanRoom(P, p)
+  const o = outlook(G, p)
+  if (room > 0 && o < 0) borrow(G, p, Math.min(room, Math.ceil((-o + 10) / 10) * 10))
+}
+
 // ---- 第1期の台本（全員同じ。2026-10-07 の v2 版） ----
 function runTutorial(G) {
   const P = G.P
@@ -605,11 +864,12 @@ const CARD = { decision: '意思決定', defect: '施工不備の発覚', corpCa
 function turn(G, p) {
   G.ctx = { who: p.id, turn: p.turnNo + 1, clock: G.clock }
   collect(G, p)
-  preTurn(G, p)
+  if (p.strat) preTurnSmart(G, p)
+  else preTurn(G, p)
   if (!G.deck.length) G.deck = shuffle(makeDeck(G.P), G.rand)
   const c = G.deck.pop()
   note(G, p, `カード：${c.kind === 'decision' ? '' : c.kind === 'risk' ? 'リスク　' : 'チャンス　'}${CARD[c.key]}`)
-  if (c.kind === 'decision') decide(G, p)
+  if (c.kind === 'decision') (p.strat ? decideSmart : decide)(G, p)
   else if (p.bldgs.length) EV[c.key](G, p)
   p.turnNo++
   if (p.flags.noIndiv && p.flags.noIndiv++ > 1) p.flags.noIndiv = 0
@@ -722,8 +982,17 @@ export function playGame(P, personas, seed) {
     clock: 0,
     marketLog: [],
     trace: P.trace ? [] : null,
+    debugPicks: P.debug ? [] : null,
     ctx: null,
   }
+  // smart：会社ごとに戦い方をランダムに決め、persona は集計用のラベル（STYLE_KEYS）にする
+  if (P.bot === 'smart')
+    for (const p of G.players) {
+      p.strat = sampleStrategy(rand)
+      p.persona = p.strat.style
+      p.bidStat = {}
+      p.adapt = {}
+    }
   for (let per = 1; per <= P.periods; per++) {
     G.period = per
     for (const p of G.players) {

@@ -136,6 +136,8 @@ export const V2 = {
   lawsuitCost: 20,
   repairCost: 10,
 
+  /** 自動プレイヤー：'smart'＝打てる手を毎回比べる・戦い方は会社ごとにランダム（2026-10-08）／'persona'＝4つの性格の決め打ち（それまでの方式） */
+  bot: 'smart',
   /** 第1期の台本（tutorial） */
   tutorial: true,
 }
