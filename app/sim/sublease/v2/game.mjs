@@ -817,14 +817,20 @@ function preTurnSmart(G, p) {
 function runTutorial(G) {
   const P = G.P
   const steps = [
-    [0.05, (p) => { accrue(G, p); p.bldgs.push(newBldg(P, { area: 'suburb', old: false })); buyFurn(G, p, 8) }],
-    [0.12, (p) => { fill(G, p, 'suburb', 'stud', 2, () => 40); fill(G, p, 'suburb', 'stud', P.studBonus, () => 40) }],
-    [0.2, (p) => { fill(G, p, 'suburb', 'corp', 2, () => 44 - (P.corpDice ? 2 : 0)) }],
+    // 借りる手番と家具を置く手番を分ける（leaseWithFurn=false）ときは、手番1で借り、手番2で家具を置く（2026-10-08）
+    ...(P.leaseWithFurn
+      ? [[0.05, (p) => { accrue(G, p); p.bldgs.push(newBldg(P, { area: 'suburb', old: false })); buyFurn(G, p, 8) }]]
+      : [
+          [0.05, (p) => { accrue(G, p); p.bldgs.push(newBldg(P, { area: 'suburb', old: false })) }],
+          [0.1, (p) => buyFurn(G, p, 8)],
+        ]),
+    [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => 40); fill(G, p, 'suburb', 'stud', P.studBonus, () => 40) }],
+    [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => 44 - (P.corpDice ? 2 : 0)) }],
     [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => 43) }],
     [0.4, (p) => EV.leak(G, p)],
     [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
     [0.6, () => {}],
-    [0.7, (p) => { fill(G, p, 'suburb', 'corp', 1, () => 44 - (P.corpDice ? 5 : 0)) }],
+    [0.7, () => {}],
     [0.8, (p) => hire(G, p, 'sales')],
     [0.9, () => {}],
   ]

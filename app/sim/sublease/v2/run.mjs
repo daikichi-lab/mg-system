@@ -64,10 +64,24 @@ for (const n of counts) {
     if (P.bot === 'smart') {
       console.log('\n| 戦い方の数値 | 低い | 中 | 高い |')
       console.log('|---|---|---|---|')
-      const rows = [['値引きの基本（disc）', (s) => s.disc, [0, 2, 4, 6]], ['棟の上限', (s) => s.maxBldg, [2, 3, 4, 6]], ['1期に借りる棟', (s) => s.leasePerPeriod, [1, 1, 2, 2]], ['営業チップの好み', (s) => s.chipW, [0.5, 0.83, 1.17, 1.5]], ['採用の好み', (s) => s.hireW, [0.6, 0.87, 1.13, 1.4]], ['借りる好み', (s) => s.leaseW, [0.6, 0.87, 1.13, 1.4]], ['現金の余裕', (s) => s.buffer, [0, 20, 40, 60]]]
-      for (const [name, f, [a, b, c, d]] of rows) {
-        const cell = (lo, hi) => { const v = H.filter((p) => f(p.strat) >= lo && f(p.strat) <= hi).map((p) => p.hist[4].equity); return v.length ? `${f0(q(v, 0.5))}（${v.length}社）` : '-' }
-        console.log(`| ${name} | ${a}〜${b}：${cell(a, b - 1e-9 + (b === c ? 1e-9 : 0))} | ${b === c ? '-' : `${b}〜${c}：${cell(b, c - 1e-9)}`} | ${c}〜${d}：${cell(c, d)} |`)
+      // 区切り [下限, 上限) を3つずつ。上限なしのときは棟の上限の行を出さない
+      const rows = [
+        ['値引きの基本（disc）', (s) => s.disc, [[0, 2], [2, 4], [4, 7]]],
+        ['棟の上限', (s) => s.maxBldg, [[2, 4], [4, 5], [5, 7]]],
+        ['1期に借りる棟', (s) => s.leasePerPeriod, [[1, 2], [2, 3], null]],
+        ['営業チップの好み', (s) => s.chipW, [[0.5, 0.83], [0.83, 1.17], [1.17, 1.51]]],
+        ['採用の好み', (s) => s.hireW, [[0.6, 0.87], [0.87, 1.13], [1.13, 1.41]]],
+        ['借りる好み', (s) => s.leaseW, [[0.6, 0.87], [0.87, 1.13], [1.13, 1.41]]],
+        ['現金の余裕', (s) => s.buffer, [[0, 20], [20, 40], [40, 61]]],
+      ]
+      for (const [name, f, bins] of rows) {
+        const cells = bins.map((b) => {
+          if (!b) return '-'
+          const v = H.filter((p) => f(p.strat) >= b[0] && f(p.strat) < b[1]).map((p) => p.hist[4].equity)
+          return v.length ? `${b[0]}〜${b[1]}：${f0(q(v, 0.5))}（${v.length}社）` : null
+        })
+        if (cells.every((c) => c === null || c === '-')) continue
+        console.log(`| ${name} | ${cells.map((c) => c ?? '-').join(' | ')} |`)
       }
       console.log('（数値は第5期末の純資産の中央値）')
     }
