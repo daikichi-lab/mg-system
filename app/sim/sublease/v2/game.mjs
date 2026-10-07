@@ -569,7 +569,8 @@ function sampleStrategy(rand) {
   const u = (a, b) => a + (b - a) * rand()
   const s = {
     disc: Math.floor(u(0, 7)), // 相手がいる入札で相場から引く基本の額（0〜6）
-    maxBldg: 2 + Math.floor(u(0, 5)), // 棟の上限（2〜6）
+    // 棟の上限（2〜6）。P.noBldgCap のときは上限を持たず、得になる限り借りる（2026-10-08 案）
+    maxBldg: 2 + Math.floor(u(0, 5)),
     leasePerPeriod: 1 + Math.floor(u(0, 2)), // 1期に借りる棟の数の上限（1〜2）
     buffer: Math.round(u(0, 60)), // 手元に残しておきたい現金の余裕
     chipW: u(0.5, 1.5), // 営業チップの好み
@@ -1031,6 +1032,11 @@ export function playGame(P, personas, seed) {
   if (P.bot === 'smart')
     for (const p of G.players) {
       p.strat = sampleStrategy(rand)
+      // 棟の上限なし（P.maxBldg が Infinity か99以上）：自動プレイヤーも上限を持たず、広げるかは借りる好み（leaseW）で分ける
+      if (!Number.isFinite(P.maxBldg) || P.maxBldg >= 99) {
+        p.strat.maxBldg = Infinity
+        p.strat.style = (p.strat.leaseW >= 1 ? 'wide' : 'narrow') + (p.strat.disc >= 3 ? 'Low' : 'High')
+      }
       p.persona = p.strat.style
       p.bidStat = {}
       p.adapt = {}
