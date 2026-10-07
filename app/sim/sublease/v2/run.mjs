@@ -5,7 +5,7 @@
 //   node sim/sublease/v2/run.mjs --players 5 --games 200 --seed 3
 //   node sim/sublease/v2/run.mjs --dist 1                         # 期ごとの最小・下位10%・中央値・上位10%・最大
 import { paramsV2 } from './params.mjs'
-import { playGame, PERSONA_KEYS } from './game.mjs'
+import { playGame, PERSONA_KEYS as DEFAULT_KEYS } from './game.mjs'
 import { rng } from '../game.mjs'
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => (a.startsWith('--') ? [...acc, [a.slice(2), arr[i + 1]]] : acc), []))
@@ -13,6 +13,8 @@ const counts = (args.players || '4,5,6').split(',').map(Number)
 const games = Number(args.games || 100)
 const seed = Number(args.seed || 1)
 const P = paramsV2(args.set ? JSON.parse(args.set) : {})
+// --personas corpFocus,indivFocus,... で卓に座る性格の候補を変える（席ごとにランダム）
+const PERSONA_KEYS = args.personas ? args.personas.split(',') : DEFAULT_KEYS
 
 const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN)
 const q = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.round(p * (s.length - 1))] }
@@ -27,7 +29,7 @@ for (const n of counts) {
   let cancelled = 0
   for (let g = 0; g < games; g++) {
     const G = playGame(P, Array.from({ length: n }, () => PERSONA_KEYS[Math.floor(rand() * PERSONA_KEYS.length)]), Math.floor(rand() * 2 ** 31))
-    for (const p of G.players) H.push(p)
+    for (const p of G.players) { p.game = g; H.push(p) }
     const best = G.players.reduce((a, b) => (b.hist.at(-1).equity > a.hist.at(-1).equity ? b : a))
     wins[best.persona] = (wins[best.persona] || 0) + 1
     winOpen[best.opening]++
@@ -45,6 +47,17 @@ for (const n of counts) {
     for (let k = 0; k < 5; k++) {
       const g = H.map((p) => p.hist[k].G)
       console.log(`| ${k + 1} | ${f0(Math.min(...g))} | ${f0(q(g, 0.1))} | ${f0(q(g, 0.5))} | ${f0(q(g, 0.9))} | ${f0(Math.max(...g))} | ${pct(mean(g.map((v) => (v > 0 ? 1 : 0))))} |`)
+    }
+    // 性格ごと：第3期・第5期の G 中央値、最終純資産の中央値と最小・最大、1位になった率
+    console.log('\n| 性格 | 社数 | 第3期 G 中央値 | 第5期 G 中央値 | 最終純資産 中央値 | 最小 | 最大 | 1位になった率 | 第5期末の法人／個人／学生 |')
+    console.log('|---|---|---|---|---|---|---|---|---|')
+    for (const k of PERSONA_KEYS) {
+      const A = H.filter((p) => p.persona === k)
+      if (!A.length) continue
+      const appear = new Set(A.map((p) => p.game)).size
+      const eqk = A.map((p) => p.hist[4].equity)
+      const mix = A.map((p) => p.hist[4].mix)
+      console.log(`| ${k} | ${A.length} | ${f0(q(A.map((p) => p.hist[2].G), 0.5))} | ${f0(q(A.map((p) => p.hist[4].G), 0.5))} | ${f0(q(eqk, 0.5))} | ${f0(Math.min(...eqk))} | ${f0(Math.max(...eqk))} | ${pct((wins[k] || 0) / appear)} | ${mean(mix.map((m) => m.corp)).toFixed(1)}／${mean(mix.map((m) => m.indiv)).toFixed(1)}／${mean(mix.map((m) => m.stud)).toFixed(1)} |`)
     }
     const eq = H.map((p) => p.hist[4].equity)
     console.log(`| 第5期末の純資産 | ${f0(Math.min(...eq))} | ${f0(q(eq, 0.1))} | ${f0(q(eq, 0.5))} | ${f0(q(eq, 0.9))} | ${f0(Math.max(...eq))} | 資本金400超え ${pct(mean(eq.map((v) => (v > 400 ? 1 : 0))))} |`)

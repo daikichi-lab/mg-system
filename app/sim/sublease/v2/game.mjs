@@ -22,7 +22,12 @@ export const PERSONAS = {
   steady: { expandOcc: 0.9, maxBldg: 3, bidDisc: 2, corpChips: 3, reno: false, lock: true, ins: true, borrow: false, buffer: 50, prefer: ['corp', 'stud', 'indiv'] },
   premium: { expandOcc: 0.8, maxBldg: 4, bidDisc: 1, corpChips: 0, reno: true, lock: false, ins: false, borrow: true, buffer: 20, prefer: ['indiv', 'corp', 'stud'] },
 }
-export const PERSONA_KEYS = Object.keys(PERSONAS)
+// 入居者の種類に特化した性格（2026-10-07）：棟の増やし方・採用などは標準と同じで、入札で取りにいく種類だけが違う
+PERSONAS.corpFocus = { ...PERSONAS.standard, corpChips: 3, prefer: ['corp'] }
+PERSONAS.indivFocus = { ...PERSONAS.standard, prefer: ['indiv'] }
+PERSONAS.studFocus = { ...PERSONAS.standard, prefer: ['stud', 'indiv'] }
+PERSONAS.studOnly = { ...PERSONAS.standard, prefer: ['stud'] }
+export const PERSONA_KEYS = ['standard', 'aggressive', 'steady', 'premium']
 
 // ---- 山札 ----
 function makeDeck(P) {
@@ -143,7 +148,8 @@ function evict(G, p, rooms, type) {
 function auction(G, parent, area, type, seats) {
   const P = G.P
   const bidders = [parent]
-  for (const q of G.players) if (q !== parent && vac(q, area) > 0 && !(type === 'indiv' && q.flags.noIndiv) && G.rand() < 0.9) bidders.push(q)
+  // 子は、そのエリアに空室があり、その種類を取りにいく性格なら参加する
+  for (const q of G.players) if (q !== parent && vac(q, area) > 0 && ps(q).prefer.includes(type) && !(type === 'indiv' && q.flags.noIndiv) && G.rand() < 0.9) bidders.push(q)
   const bids = bidders.map((q) => {
     const open = q.bldgs.filter((b) => b.area === area && b.rooms.some((r) => r.st === 'vac'))
     const cap = Math.max(...open.map((b) => mktOf(P, q, b))) + P.bidCap[type]
@@ -504,6 +510,7 @@ function periodEnd(G, p) {
     areas: { city: p.bldgs.filter((b) => b.area === 'city').length, suburb: p.bldgs.filter((b) => b.area === 'suburb').length, rural: p.bldgs.filter((b) => b.area === 'rural').length },
     occEnd,
     corpShare: occEnd ? corpN / occEnd : 0,
+    mix: { corp: corpN, indiv: occ(p, 'indiv').length, stud: occ(p, 'stud').length },
     contracts: { ...p.pl.contracts },
     equity: equity(p),
     cash: p.cash,
