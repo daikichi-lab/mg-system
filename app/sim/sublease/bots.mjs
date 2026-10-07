@@ -241,3 +241,17 @@ export function periodStartChoices(G, p) {
   const b = [...p.bldgs].sort((x, y) => x.rooms.filter((r) => r.st === 'occ').length - y.rooms.filter((r) => r.st === 'occ').length)[0]
   return b ? [b] : []
 }
+
+/**
+ * 期末の退去で、サイコロで決まった n 室のうち誰を退去させるか（evictChoose: 'player'）。性格ごとの選び方：
+ * - 標準・積極・単価重視：家賃の安い部屋から（来期の継続家賃をできるだけ残す）
+ * - 堅実：法人を残す（学生 → 個人の順。同じ種類なら家賃の安い部屋から）。法人は退去が少なく、埋め直しの手間がかからない
+ * どの性格も、学生は次の期の春（手番の2回目まで）にまた入れられるので、同じ家賃なら学生から出す
+ */
+export function chooseEvict(G, p, b, n) {
+  const occ = b.rooms.filter((r) => r.st === 'occ')
+  const typeRank = { stud: 0, indiv: 1, corp: 2 }
+  const keepCorp = p.persona === 'steady'
+  occ.sort((x, y) => (keepCorp ? typeRank[x.type] - typeRank[y.type] : 0) || x.rent - y.rent || typeRank[x.type] - typeRank[y.type])
+  return occ.slice(0, Math.max(0, n))
+}

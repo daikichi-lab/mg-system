@@ -11,7 +11,7 @@
 
 import { makeDeck } from './cards.mjs'
 import { TUTORIAL } from './tutorial.mjs'
-import { decide, preTurn, joinAuction, bidPrice, periodStartChoices, openingSetup } from './bots.mjs'
+import { decide, preTurn, joinAuction, bidPrice, periodStartChoices, openingSetup, chooseEvict } from './bots.mjs'
 
 // ---- 乱数（種を固定して同じ結果を再現する） ----
 export function rng(seed) {
@@ -715,12 +715,24 @@ function periodEnd(G, p) {
       const die = G.evictDie ?? 1 + Math.floor(G.rand() * 6)
       let n = P.evictDice[die - 1]
       const out = []
-      for (const t of P.evictOrder)
-        for (const r of b.rooms.filter((x) => x.st === 'occ' && x.type === t).sort((x, y) => y.rent - x.rent))
-          if (n > 0) {
-            out.push(r)
-            n--
-          }
+      if (P.evictChoose === 'random' && !G.inTutorial) {
+        // 比較用：誰が出るかをくじで決める（選び方の上手下手でどれだけ差が出るかを見るため）
+        const occ = b.rooms.filter((r) => r.st === 'occ')
+        for (let i = occ.length - 1; i > 0; i--) {
+          const j = Math.floor(G.rand() * (i + 1))
+          ;[occ[i], occ[j]] = [occ[j], occ[i]]
+        }
+        out.push(...occ.slice(0, n))
+      } else if (P.evictChoose === 'player' && !G.inTutorial) {
+        // 誰を退去させるかは各社が選ぶ（室数はサイコロで決まっている）
+        out.push(...chooseEvict(G, p, b, n))
+      } else
+        for (const t of P.evictOrder)
+          for (const r of b.rooms.filter((x) => x.st === 'occ' && x.type === t).sort((x, y) => y.rent - x.rent))
+            if (n > 0) {
+              out.push(r)
+              n--
+            }
       evictRooms(G, p, out, true, false)
       evicted += out.length
     }
@@ -844,7 +856,10 @@ export function playGame(P, personas, seed) {
     if (P.pace === 'time') G.rowLimit = Infinity
     if (per === 1 && P.tutorial) {
       runTutorial(G)
+      // 第1期は台本どおり全員同じ盤面にするので、退去する人も決まった順（学生 → 個人 → 法人）
+      G.inTutorial = true
       for (const p of G.players) periodEnd(G, p)
+      G.inTutorial = false
       G.evictDie = null
       continue
     }

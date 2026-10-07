@@ -120,6 +120,11 @@ export const BASE = {
   evictMode: 'rate',
   evictDice: [1, 2, 3, 4, 5, 6],
   evictOrder: ['stud', 'indiv', 'corp'],
+  /**
+   * サイコロで決まった室数のうち、誰が退去するかの決め方：'order'＝evictOrder の順に決まる／
+   * 'player'＝各社が選ぶ（自動プレイヤーは bots.mjs の chooseEvict。性格ごとに選び方が違う）／'random'＝くじ（比較用）
+   */
+  evictChoose: 'order',
   /** 期末の退去率（種類ごとに 入居室数 × 率 を切り上げ） */
   evict: { corp: 0.1, indiv: 0.25, stud: 0.5 },
 
