@@ -205,6 +205,7 @@ npm run test:calc
 |---|---|
 | `docs/仕様書.md` | 仕様の唯一の情報源（研修ゲームの内容・確定事項） |
 | `docs/calc-spec.md` | 計算ロジック仕様（TS移植の基準） |
+| `docs/sublease-spec.md` | サブリース経営MG（別モデル・開発中）の仕様。製造業MGとは別ファイルで実装する |
 | `app/README.md` | アプリの構成・API 一覧・セキュリティの現状と受容したトレードオフ |
 | `DEPLOY.md` | 本番デプロイ手順（Render / Docker / VPS） |
 
