@@ -42,11 +42,13 @@ export const V2 = {
   adPrice: 10,
   adPerSales: 2,
   adRooms: 2,
-  corpChipPrice: 20,
-  corpChipMax: 3,
+  // 営業チップ（2026-10-07：法人営業チップから変更）：製造業MGと同じく、入札で1枚につき2低くコールしたものとして比べる。どの種類の入札にも効く
+  salesChipPrice: 20,
+  salesChipMax: 3,
+  salesChipBid: 2,
+  // リノベ（2026-10-07）：棟に付け、その棟の入居者から入る家賃が1室につき＋2（入居中の部屋にも効く）
   renoPrice: 30,
-  renoMkt: 3,
-  renoBid: 2,
+  renoRent: 2,
   lockPrice: 20,
   insPrice: 5,
   claimCost: 5,
@@ -54,8 +56,6 @@ export const V2 = {
   /** 入札の上限（その棟の相場からの差）と下限 */
   bidCap: { indiv: 0, corp: 0, stud: 0 }, // どの種類も相場まで（入札で決まるので種類ごとの差は付けない：2026-10-07）
   priceFloor: { indiv: 30, corp: 30, stud: 25 },
-  /** 法人営業チップ：法人の入札で、1枚ごとに1安いものとして比べる（法人との関係の深さ） */
-  corpChipBid: 1,
 
   /**
    * 市場の人駒：1期あたり「人数 × この数」をエリア・種類ごとに置く（期首に置き直す。売れ残りは市場から去る）。

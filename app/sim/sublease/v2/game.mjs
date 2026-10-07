@@ -17,13 +17,13 @@ const shuffle = (a, rand) => {
 
 // ---- 性格（自動プレイヤー）。v1 と同じ4つ ----
 export const PERSONAS = {
-  standard: { expandOcc: 0.75, maxBldg: 4, bidDisc: 3, corpChips: 1, reno: false, lock: false, ins: false, borrow: true, buffer: 20, prefer: ['corp', 'stud', 'indiv'] },
-  aggressive: { expandOcc: 0.5, maxBldg: 6, bidDisc: 5, corpChips: 1, reno: false, lock: false, ins: false, borrow: true, buffer: 0, prefer: ['corp', 'indiv', 'stud'] },
-  steady: { expandOcc: 0.9, maxBldg: 3, bidDisc: 2, corpChips: 3, reno: false, lock: true, ins: true, borrow: false, buffer: 50, prefer: ['corp', 'stud', 'indiv'] },
-  premium: { expandOcc: 0.8, maxBldg: 4, bidDisc: 1, corpChips: 0, reno: true, lock: false, ins: false, borrow: true, buffer: 20, prefer: ['indiv', 'corp', 'stud'] },
+  standard: { expandOcc: 0.75, maxBldg: 4, bidDisc: 3, salesChips: 1, reno: false, lock: false, ins: false, borrow: true, buffer: 20, prefer: ['corp', 'stud', 'indiv'] },
+  aggressive: { expandOcc: 0.5, maxBldg: 6, bidDisc: 5, salesChips: 1, reno: false, lock: false, ins: false, borrow: true, buffer: 0, prefer: ['corp', 'indiv', 'stud'] },
+  steady: { expandOcc: 0.9, maxBldg: 3, bidDisc: 2, salesChips: 3, reno: false, lock: true, ins: true, borrow: false, buffer: 50, prefer: ['corp', 'stud', 'indiv'] },
+  premium: { expandOcc: 0.8, maxBldg: 4, bidDisc: 1, salesChips: 0, reno: true, lock: false, ins: false, borrow: true, buffer: 20, prefer: ['indiv', 'corp', 'stud'] },
 }
 // 入居者の種類に特化した性格（2026-10-07）：棟の増やし方・採用などは標準と同じで、入札で取りにいく種類だけが違う
-PERSONAS.corpFocus = { ...PERSONAS.standard, corpChips: 3, prefer: ['corp'] }
+PERSONAS.corpFocus = { ...PERSONAS.standard, salesChips: 3, prefer: ['corp'] }
 PERSONAS.indivFocus = { ...PERSONAS.standard, prefer: ['indiv'] }
 PERSONAS.studFocus = { ...PERSONAS.standard, prefer: ['stud', 'indiv'] }
 PERSONAS.studOnly = { ...PERSONAS.standard, prefer: ['stud'] }
@@ -58,7 +58,7 @@ const unfurn = (p) => p.bldgs.reduce((s, b) => s + b.rooms.filter((r) => r.st ==
 const leaseCap = (P, p) => p.sales * P.leasePerSales
 const indivCap = (P, p) => leaseCap(P, p) + Math.min(p.ads, p.sales * P.adPerSales) * P.adRooms
 const mgmtCap = (P, p) => p.mgmt * P.mgmtRooms + p.locks * P.lockRooms
-const mktOf = (P, p, b) => b.mkt + (b.reno ? P.renoMkt : 0) - (p.flags.competitor && b.area === 'city' ? 3 : 0)
+const mktOf = (P, p, b) => b.mkt - (p.flags.competitor && b.area === 'city' ? 3 : 0)
 const equity = (p) => p.capital + p.retained
 const loanRoom = (P, p) => (p.period < P.loanFrom ? 0 : Math.max(0, Math.round(equity(p) * P.loanMult) - p.loan))
 const furnBook = (p) => p.furn.reduce((s, l) => s + l.n * l.book, 0)
@@ -124,7 +124,8 @@ function fill(G, p, area, type, n, rentOf) {
   cand.sort((x, y) => rentOf(y.b) - rentOf(x.b))
   let got = 0
   for (const { r, b } of cand.slice(0, Math.max(0, n))) {
-    Object.assign(r, { st: 'occ', type, rent: rentOf(b) })
+    // リノベした棟は入ってくる家賃が＋2
+    Object.assign(r, { st: 'occ', type, rent: rentOf(b) + (b.reno ? P.renoRent : 0) })
     got++
   }
   if (got) {
@@ -161,19 +162,19 @@ function auction(G, parent, area, type, seats) {
     const pressure = total ? Math.round((vac(q) / total) * 4) : 0
     const corpExtra = type === 'corp' ? 2 : 0 // 法人は一度入れば出ていかないので、少し安くしてでも取りにいく
     const price = Math.max(P.priceFloor[type], Math.min(cap, cap - s.bidDisc - pressure - corpExtra - Math.max(0, bidders.length - 2) - Math.floor(G.rand() * 3)))
-    const reno = open.some((b) => b.reno)
-    const eff = price - (reno ? P.renoBid : 0) - (type === 'corp' ? q.corpChips * P.corpChipBid : 0)
+    // 営業チップ1枚ごとに2低くコールしたものとして比べる（製造業MGと同じ）
+    const eff = price - q.salesChips * P.salesChipBid
     const offer = Math.min(type === 'indiv' ? indivCap(P, q) : leaseCap(P, q), vac(q, area))
-    return { q, price, eff, reno, offer, tie: G.rand() }
+    return { q, price, eff, offer, tie: G.rand() }
   })
-  bids.sort((x, y) => x.eff - y.eff || Number(y.reno) - Number(x.reno) || Number(y.q === parent) - Number(x.q === parent) || x.tie - y.tie)
+  bids.sort((x, y) => x.eff - y.eff || Number(y.q === parent) - Number(x.q === parent) || x.tie - y.tie)
   let left = Math.min(seats, G.market[area][type])
   for (const bd of bids) {
     if (left <= 0) break
     const n = Math.min(left, bd.offer)
     if (n <= 0) continue
     let cut = 0
-    if (type === 'corp' && P.corpDice) cut = Math.max(0, 1 + Math.floor(G.rand() * 6) - bd.q.corpChips)
+    if (type === 'corp' && P.corpDice) cut = Math.max(0, 1 + Math.floor(G.rand() * 6) - bd.q.salesChips)
     const got = fill(G, bd.q, area, type, n, () => Math.max(1, bd.price - cut))
     left -= got
     G.market[area][type] -= got
@@ -266,6 +267,12 @@ const canSpend = (G, p, a) => p.cash >= a && outlook(G, p) - a >= ps(p).buffer
 
 function preTurn(G, p) {
   const P = G.P
+  // 保険はルールB（借入と同じく、カードを引く前に1つまで）
+  if (ps(p).ins && p.ins < 1 && p.bldgs.length && canSpend(G, p, P.insPrice)) {
+    pay(G, p, P.insPrice, 'insurance')
+    p.ins++
+    return
+  }
   const room = loanRoom(P, p)
   if (room <= 0) return
   const o = outlook(G, p)
@@ -359,16 +366,17 @@ function decide(G, p) {
   }
   if (v >= lc * 2 && p.sales < P.staffMax && canSpend(G, p, P.hireCost + 30)) return hire(G, p, 'sales')
   if (v > lc && p.ads < p.sales * P.adPerSales && canSpend(G, p, P.adPrice)) return buy(G, p, 'ads', P.adPrice, 'ads')
-  if (p.corpChips < s.corpChips && canSpend(G, p, P.corpChipPrice)) return buy(G, p, 'corpChips', P.corpChipPrice, 'corpChip')
+  if (p.salesChips < Math.min(s.salesChips, P.salesChipMax) && canSpend(G, p, P.salesChipPrice)) return buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')
   if (s.reno) {
-    const b = p.bldgs.find((x) => !x.reno)
+    const b = [...p.bldgs].filter((x) => !x.reno).sort((x, y) => occ({ bldgs: [y] }).length - occ({ bldgs: [x] }).length)[0]
     if (b && canSpend(G, p, P.renoPrice)) {
       pay(G, p, P.renoPrice, 'reno')
+      accrue(G, p)
       b.reno = true
+      for (const r of b.rooms) if (r.st === 'occ') r.rent += P.renoRent // 入居中の部屋にも効く
       return
     }
   }
-  if (s.ins && p.ins < 1 && canSpend(G, p, P.insPrice)) return buy(G, p, 'ins', P.insPrice, 'insurance')
 }
 function hire(G, p, kind) {
   pay(G, p, G.P.hireCost, 'hire')
@@ -552,7 +560,7 @@ export function playGame(P, personas, seed) {
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
       cash: P.capital, capital: P.capital, retained: 0, loan: 0, short: 0, taxDue: 0,
-      sales: 1, mgmt: 1, ads: 0, corpChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
+      sales: 1, mgmt: 1, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
     })),
     log: [],
     auctions: [],
