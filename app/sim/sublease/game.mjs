@@ -655,6 +655,9 @@ function runTutorial(G) {
     G.tutorialLog.push({ title: step.title, at: step.at, cash: p0.cash, rev: p0.pl.rev, own: p0.pl.F.ownerRent || 0, occ: occupied(p0), vac: vacant(p0) })
   }
   G.clock = G.periodMin
+  // 期末の退去のサイコロ：講師が振った目を全員で使う（台本の closing に書く）
+  const closing = TUTORIAL.find((x) => x.kind === 'closing')
+  G.evictDie = closing?.do?.evictDie ?? null
 }
 
 /** 1手番：（ルールB）→ カードを1枚引く → 意思決定ならルールAを1つ、リスク・チャンスなら効果 */
@@ -703,9 +706,26 @@ function periodEnd(G, p) {
     evictRooms(G, p, order, false, false)
     pay(G, p, over * P.claimCost, 'claim')
   }
-  // 5. 退去判定（割合で固定・切り上げ）。外した部屋は募集中に戻り、原状回復費
+  // 5. 退去判定。外した部屋は募集中に戻り、原状回復費
   let evicted = 0
-  for (const t of ['corp', 'indiv', 'stud']) {
+  if (P.evictMode === 'dice') {
+    // 棟ごとにサイコロを振り、出た目に応じた室数が退去する。学生 → 個人 → 法人 の順に出ていく
+    // （学生は卒業で出やすく、法人は会社が契約を続けるので出にくい）。第1期の台本は講師の目（G.evictDie）を全員で使う
+    for (const b of p.bldgs) {
+      const die = G.evictDie ?? 1 + Math.floor(G.rand() * 6)
+      let n = P.evictDice[die - 1]
+      const out = []
+      for (const t of P.evictOrder)
+        for (const r of b.rooms.filter((x) => x.st === 'occ' && x.type === t).sort((x, y) => y.rent - x.rent))
+          if (n > 0) {
+            out.push(r)
+            n--
+          }
+      evictRooms(G, p, out, true, false)
+      evicted += out.length
+    }
+  }
+  for (const t of P.evictMode === 'dice' ? [] : ['corp', 'indiv', 'stud']) {
     const occ = occRooms(p, t)
     const n = Math.min(occ.length, Math.ceil(occ.length * P.evict[t] - 1e-9))
     // 家賃の高い部屋から先に退去（家賃の見直しで上げた部屋を先に外すルールの近似）
@@ -801,6 +821,7 @@ export function playGame(P, personas, seed) {
     cardLog: [],
     tutorialLog: [],
     corpCuts: [], // 法人の単価交渉で下がった額（集計用）
+    evictDie: null, // 第1期の台本の期末の退去のサイコロ（全員共通の目）
   }
   refillMarket(G)
   // 開業の方針は半々（1棟を充実させる／2棟にまんべんなく）。資本金がどちらでも成り立つかを見るため
@@ -824,6 +845,7 @@ export function playGame(P, personas, seed) {
     if (per === 1 && P.tutorial) {
       runTutorial(G)
       for (const p of G.players) periodEnd(G, p)
+      G.evictDie = null
       continue
     }
     for (;;) {
