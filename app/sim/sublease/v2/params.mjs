@@ -80,8 +80,10 @@ export const V2 = {
   salesChipMax: Infinity,
   salesChipBid: 2,
   // リノベ（2026-10-07）：棟に付け、その棟の入居者から入る家賃が1室につき＋2（入居中の部屋にも効く）
-  renoPrice: 30, // 60 では元が取れなかったので 30（6室入居で1期＋12、約3期で回収：2026-10-08）
+  renoPrice: 5, // 1室5（renoMode 'room'。2026-10-08）。棟ごとのときは30だった
   renoRent: 2,
+  /** リノベの単位：'room'＝募集中の空室だけ1室ずつ（renoPrice は1室あたり。2026-10-08）／'building'＝棟ごと（入居中の部屋にも効く） */
+  renoMode: 'room',
   lockPrice: 10, // 20 → 10（2026-10-08）
   insPrice: 5,
   claimCost: 5,

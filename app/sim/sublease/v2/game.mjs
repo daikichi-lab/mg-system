@@ -171,7 +171,8 @@ function fill(G, p, area, type, n, rentOf) {
   let got = 0
   for (const { r, b } of cand.slice(0, Math.max(0, n))) {
     // リノベした棟は入ってくる家賃が＋2
-    Object.assign(r, { st: 'occ', type, rent: rentOf(b) + (b.reno ? P.renoRent : 0) })
+    // リノベした棟（renoMode 'building'）またはリノベした部屋（'room'）は、入ってくる家賃が＋2
+    Object.assign(r, { st: 'occ', type, rent: rentOf(b) + (b.reno || r.reno ? P.renoRent : 0) })
     got++
   }
   if (got) {
@@ -366,7 +367,7 @@ const EV = {
     G.market.city.indiv += G.P.eventAdd.redevelop
   },
   pricing(G, p) {
-    for (const b of p.bldgs) if (b.reno) for (const r of b.rooms) if (r.st === 'occ') r.rent += 2
+    for (const b of p.bldgs) for (const r of b.rooms) if ((b.reno || r.reno) && r.st === 'occ') r.rent += 2
   },
 }
 
@@ -763,8 +764,22 @@ function decideSmart(G, p) {
       const extra = Math.min(P.adRooms, fillable(G, p, a) - indivCap(P, p, a))
       if (extra > 0) add(extra * pWin(G, p, a) * roomValue(G, p, a, 'indiv') * 0.7 * s.adW - P.adPrice, P.adPrice, () => buy(G, p, 'ads', P.adPrice, 'ads'), 'ads')
     }
-  // リノベ：入居中の部屋の家賃が＋2（この先ずっと）
-  for (const b of p.bldgs) {
+  // リノベ（renoMode 'room'：2026-10-08）：選んだ棟の募集中の空室をまとめてリノベ（1室 renoPrice）。その部屋に入る人の家賃が＋2
+  if (P.renoMode === 'room') {
+    const b = [...p.bldgs].sort((x, y) => y.rooms.filter((r) => r.st === 'vac' && !r.reno).length - x.rooms.filter((r) => r.st === 'vac' && !r.reno).length)[0]
+    const rooms = b ? b.rooms.filter((r) => r.st === 'vac' && !r.reno) : []
+    if (rooms.length) {
+      const left = L + (P.periods - G.period) * 0.85
+      const f = expectFill(G, p, b.area, rooms.length, true)
+      add(rooms.length * (f * P.renoRent * K(G) * left * s.renoW - P.renoPrice), rooms.length * P.renoPrice, () => {
+        note(G, p, `リノベ（${{ city: '都市', suburb: '郊外', rural: '地方' }[b.area]}の棟の空室 ${rooms.length}室）`)
+        pay(G, p, rooms.length * P.renoPrice, 'reno')
+        for (const r of rooms) r.reno = true
+      }, 'reno')
+    }
+  }
+  // リノベ（棟ごと）：入居中の部屋の家賃が＋2（この先ずっと）
+  for (const b of P.renoMode === 'room' ? [] : p.bldgs) {
     if (b.reno) continue
     const o = b.rooms.filter((r) => r.st === 'occ').length
     const left = L + (P.periods - G.period) * 0.85
