@@ -69,6 +69,8 @@ const mgmtCap = (P, p, area) =>
 const mgmtRoom = (P, p, area) => (P.mgmtByArea ? mgmtCap(P, p, area) - occ(p, null, area).length : mgmtCap(P, p) - occ(p).length)
 /** 営業所の家賃：スタッフのいるエリアの数 × officeRent（officeByArea でなければ本社家賃 hq） */
 const officeCost = (P, p) => (P.officeByArea ? ['city', 'suburb', 'rural'].filter((a) => (p.salesBy[a] || 0) + (p.mgmtBy[a] || 0) > 0).length * P.officeRent : P.hq)
+/** 入札の下限：floorAtOwn のときはそのエリアの借上げ賃料（それより安く貸さない。2026-10-08）、そうでなければ種類ごとの priceFloor */
+const floorOf = (P, type, area) => (P.floorAtOwn ? P.areas[area].own : P.priceFloor[type])
 const mktOf = (P, p, b) => b.mkt - (p.flags.competitor && b.area === 'city' ? 3 : 0)
 const equity = (p) => p.capital + p.retained
 const loanRoom = (P, p) => (p.period < P.loanFrom ? 0 : Math.max(0, Math.round(equity(p) * P.loanMult) - p.loan))
@@ -219,7 +221,8 @@ function auction(G, parent, area, type, seats) {
     // 参加する会社は入札の前に名乗り出るので、自分しかいなければ相場いっぱいで出す。相手がいるときだけ値引きする（2026-10-07）
     // smart：基本の値引き ＋ そのエリアで負けが続いた分（adapt）。勝つと戻す
     const disc = q.strat ? s.disc + (q.adapt[area] || 0) + Math.floor(G.rand() * 2) : s.bidDisc + pressure + corpExtra + Math.max(0, bidders.length - 2) + Math.floor(G.rand() * 3)
-    const price = bidders.length === 1 ? cap : Math.max(P.priceFloor[type], Math.min(cap, cap - disc))
+    const floor = floorOf(P, type, area)
+    const price = bidders.length === 1 ? cap : Math.max(floor, Math.min(cap, cap - disc))
     // 営業チップ1枚ごとに2低くコールしたものとして比べる（製造業MGと同じ）
     const eff = price - q.salesChips * P.salesChipBid
     // 管理能力を超えて入居させられない（mgmtHardCap）：取れる室数は 管理能力 − 今の入居室数 まで
@@ -631,7 +634,7 @@ function stayOf(p, t) {
 function rentEst(G, p, area, t, mkt) {
   const s = ps(p)
   const rivals = G.players.filter((q) => q !== p && vac(q, area) > 0).length
-  return Math.max(G.P.priceFloor[t], mkt - (rivals ? s.disc + (p.adapt?.[area] || 0) : 0))
+  return Math.max(floorOf(G.P, t, area), mkt - (rivals ? s.disc + (p.adapt?.[area] || 0) : 0))
 }
 const ownOf = (P, area) => P.areas[area].own
 const mktArea = (p, area, P) => {
@@ -846,14 +849,15 @@ function runTutorial(G) {
           [0.05, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
           [0.1, (p) => buyFurn(G, p, 8)],
         ]),
-    [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => 40); fill(G, p, 'suburb', 'stud', P.studBonus, () => 40) }],
-    [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => 44 - (P.corpDice ? 2 : 0)) }],
-    [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => 43) }],
+    // 練習の家賃（tutorialRent）：学生・法人（単価交渉の前）・個人。講師の目5で法人は2下がる
+    [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => P.tutorialRent.stud); fill(G, p, 'suburb', 'stud', P.studBonus, () => P.tutorialRent.stud) }],
+    [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0)) }],
+    [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv) }],
     [0.4, (p) => EV.corpCancel(G, p)], // リスクカード：法人の解約（法人2室の半分＝1室）
     [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
     [0.6, () => {}],
     // 手番6で法人が解約されたので、法人の入札（練習）1室で埋め直す
-    [0.7, (p) => fill(G, p, 'suburb', 'corp', 1, () => 44 - (P.corpDice ? 2 : 0))],
+    [0.7, (p) => fill(G, p, 'suburb', 'corp', 1, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0))],
     [0.8, (p) => hire(G, p, 'sales')],
     [0.9, () => {}],
   ]
