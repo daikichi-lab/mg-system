@@ -131,7 +131,24 @@ function accrue(G, p) {
   p.pl.availRQ += p.bldgs.reduce((s, b) => s + b.rooms.length, 0) * f
   p.lastT = t
 }
+/**
+ * 家賃と借上げ賃料の倍率：payMode 'perTurn' のときは、自分の手番ごとに1期分の額をまるごと受け取り・払うので、
+ * 1期あたりでは 手番の数 倍になる（自動プレイヤーの見積もり用）。'time' なら1
+ */
+const K = (G) => (G.P.payMode === 'perTurn' ? (G.P.turnsPerPeriod?.[G.period] ?? G.P.turnsPerPeriod?.default ?? 1) : 1)
 function collect(G, p) {
+  if (G.P.payMode === 'perTurn') {
+    // 手番ごとにまるごと（2026-10-08 ユーザー案）：入居中の部屋の家賃を受け取り、借りている棟の全室分の借上げ賃料を払う。期末の精算はない
+    accrue(G, p) // 入居率の集計だけ（お金は動かさない）
+    p.pend = { rent: 0, own: 0 }
+    if (G.ctx?.phase === 'end') return
+    const rent = occ(p).reduce((s, r) => s + r.rent, 0)
+    p.cash += rent
+    p.pl.rev += rent
+    if (rent > 0) tr(G, p, 'rent', rent)
+    pay(G, p, p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0), 'ownerRent')
+    return
+  }
   accrue(G, p)
   p.cash += p.pend.rent
   p.pl.rev += p.pend.rent
@@ -350,11 +367,11 @@ const EV = {
 function endCost(G, p) {
   const P = G.P
   const left = Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
-  return p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * left + p.pend.own + (p.sales + p.mgmt) * P.salary[G.period - 1] + officeCost(P, p) + Math.round(p.loan * P.repayRate) + p.short + 15
+  return p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0) * left * K(G) + p.pend.own + (p.sales + p.mgmt) * P.salary[G.period - 1] + officeCost(P, p) + Math.round(p.loan * P.repayRate) + p.short + 15
 }
 function outlook(G, p) {
   const left = Math.max(0, (G.periodMin - Math.min(G.clock, G.periodMin)) / G.periodMin)
-  return p.cash - endCost(G, p) + occ(p).reduce((s, r) => s + r.rent, 0) * left + p.pend.rent + vac(p) * 20 * left * (G.period >= G.P.loanFrom ? 0.6 : 0.3)
+  return p.cash - endCost(G, p) + (occ(p).reduce((s, r) => s + r.rent, 0) * left + vac(p) * 20 * left * (G.period >= G.P.loanFrom ? 0.6 : 0.3)) * K(G) + p.pend.rent
 }
 const canSpend = (G, p, a) => p.cash >= a && outlook(G, p) - a >= ps(p).buffer
 
@@ -623,7 +640,7 @@ function roomValue(G, p, area, t) {
   const m = rentEst(G, p, area, t, mktArea(p, area, P)) - ownOf(P, area)
   // 空室でも借上げ賃料は払っているので、埋めた価値は家賃そのもの（粗利ではなく家賃）で見る
   const rent = m + ownOf(P, area)
-  return rent * (L + fut * stayOf(p, t)) - P.V[t] - P.restore[t] * (1 - stayOf(p, t)) * (fut > 0 ? 1 : 0)
+  return rent * K(G) * (L + fut * stayOf(p, t)) - P.V[t] - P.restore[t] * (1 - stayOf(p, t)) * (fut > 0 ? 1 : 0)
 }
 /** 入札に勝つ見込み：相手がいなければほぼ勝つ。これまでの勝ち負け・営業チップの差で動かす */
 function pWin(G, p, area) {
@@ -710,15 +727,15 @@ function decideSmart(G, p) {
     const cap = leaseCap(P, p, a)
     const gain = idleRooms(G, p, a, cap) - idleRooms(G, p, a, cap + P.leasePerSales)
     const rent = rentEst(G, p, a, 'indiv', mktArea(p, a, P))
-    add((gain * rent * L * 2 + fut * Math.min(2, fillable(G, p, a)) * 4) * s.hireW - sal * (L + fut) - P.hireCost, P.hireCost, () => hire(G, p, 'sales', a), `hire sales ${a}`)
+    add((gain * rent * K(G) * L * 2 + fut * Math.min(2, fillable(G, p, a)) * 4) * s.hireW - sal * (L + fut) - P.hireCost, P.hireCost, () => hire(G, p, 'sales', a), `hire sales ${a}`)
   }
   // 管理の採用・スマートロック：管理能力が足りずに入れられない部屋がある分
   for (const a of areasHeld) {
     const blocked = Math.max(0, occ(p, null, a).length + vac(p, a) - mgmtCap(P, p, a))
     if (!blocked) continue
     const rent = rentEst(G, p, a, 'indiv', mktArea(p, a, P))
-    if ((p.mgmtBy[a] || 0) < P.staffMax) add(Math.min(blocked, P.mgmtRooms) * rent * H * 0.6 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'mgmt', a), `hire mgmt ${a}`)
-    if (s.lock && p.locks < P.lockMax) add(Math.min(blocked, P.lockRooms) * rent * H * 0.6 - P.lockPrice, P.lockPrice, () => buyLock(G, p, a), `lock ${a}`)
+    if ((p.mgmtBy[a] || 0) < P.staffMax) add(Math.min(blocked, P.mgmtRooms) * rent * K(G) * H * 0.6 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'mgmt', a), `hire mgmt ${a}`)
+    if (s.lock && p.locks < P.lockMax) add(Math.min(blocked, P.lockRooms) * rent * K(G) * H * 0.6 - P.lockPrice, P.lockPrice, () => buyLock(G, p, a), `lock ${a}`)
   }
   // 営業チップ：この期の残りの、相手のいる入札で勝ちやすくなる分。2枚以上あれば1枚は次の期へ残る
   {
@@ -743,7 +760,7 @@ function decideSmart(G, p) {
     if (b.reno) continue
     const o = b.rooms.filter((r) => r.st === 'occ').length
     const left = L + (P.periods - G.period) * 0.85
-    add((o + vac(p, b.area) * 0.3) * P.renoRent * left * s.renoW - P.renoPrice, P.renoPrice, () => {
+    add((o + vac(p, b.area) * 0.3) * P.renoRent * K(G) * left * s.renoW - P.renoPrice, P.renoPrice, () => {
       note(G, p, `リノベ（${{ city: '都市', suburb: '郊外', rural: '地方' }[b.area]}の棟）`)
       pay(G, p, P.renoPrice, 'reno')
       accrue(G, p)
@@ -765,7 +782,7 @@ function decideSmart(G, p) {
       const rent = rentEst(G, p, c.area, 'indiv', mkt)
       const newArea = !areasHeld.includes(c.area)
       const staff = newArea ? (2 * sal + P.officeRent) * H + 2 * P.hireCost : 0
-      const v = rooms * ((f * rent - own) * L * 0.6 + (ff * rent - own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff
+      const v = rooms * K(G) * ((f * rent - own) * L * 0.6 + (ff * rent - own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff
       add(v * s.leaseW, rooms * P.furnPrice + (newArea ? 2 * P.hireCost : 0), () => lease(G, p, i, P.leaseWithFurn ? rooms : 0), `lease ${c.area}`)
     })
 
@@ -778,7 +795,7 @@ function decideSmart(G, p) {
       const ff = expectFill(G, p, area, rooms, true)
       const rent = rentEst(G, p, area, 'indiv', P.areas[area].mkt)
       const staff = !areasHeld.includes(area) ? (2 * sal + P.officeRent) * H + 2 * P.hireCost : 0
-      return (rooms * ((f * rent - P.areas[area].own) * L * 0.6 + (ff * rent - P.areas[area].own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff) * s.leaseW
+      return (rooms * K(G) * ((f * rent - P.areas[area].own) * L * 0.6 + (ff * rent - P.areas[area].own) * fut) - rooms * (P.furnDep * H + ff * P.V.indiv) - staff) * s.leaseW
     }
     const bestUp = Math.max(0, ...G.market.cards.map((c) => val(c.area)))
     const bestAny = Math.max(...AREAS.map(val))
