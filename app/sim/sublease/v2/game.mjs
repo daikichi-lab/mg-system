@@ -146,7 +146,8 @@ function collect(G, p) {
     p.cash += rent
     p.pl.rev += rent
     if (rent > 0) tr(G, p, 'rent', rent)
-    pay(G, p, p.bldgs.reduce((s, b) => s + b.own * b.rooms.length, 0), 'ownerRent')
+    // 借りた手番の次の自分の手番は借上げ賃料なし（借りた手番に払う分はない：2026-10-08 ユーザー判断）。その次の手番から毎手番まるごと
+    pay(G, p, p.bldgs.reduce((s, b) => s + (b.leasedTot === (p.totTurns || 0) - 1 ? 0 : b.own * b.rooms.length), 0), 'ownerRent')
     return
   }
   accrue(G, p)
@@ -416,6 +417,7 @@ function lease(G, p, i, nf) {
   note(G, p, `物件を借り上げる：${{ city: '都市', suburb: '郊外', rural: '地方' }[c.area]}${c.old ? '（築古）' : ''}・${nb.rooms.length}室・借上げ賃料${nb.own}／室・相場${nb.mkt}`)
   // 集計用：借りた期と、その時点の自分の手番の回数（埋まるまでの手番を数える）
   nb.leasedAt = { period: G.period, turn: p.turnNo, clock: G.clock }
+  nb.leasedTot = p.totTurns || 0 // 何回目の自分の手番で借りたか（期をまたいで数える）
   p.bldgs.push(nb)
   if (nf > 0) buyFurn(G, p, nf)
   staffNewArea(G, p, c.area)
@@ -836,9 +838,9 @@ function runTutorial(G) {
   const steps = [
     // 借りる手番と家具を置く手番を分ける（leaseWithFurn=false）ときは、手番1で借り、手番2で家具を置く（2026-10-08）
     ...(P.leaseWithFurn
-      ? [[0.05, (p) => { accrue(G, p); p.bldgs.push(newBldg(P, { area: 'suburb', old: false })); buyFurn(G, p, 8) }]]
+      ? [[0.05, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }); buyFurn(G, p, 8) }]]
       : [
-          [0.05, (p) => { accrue(G, p); p.bldgs.push(newBldg(P, { area: 'suburb', old: false })) }],
+          [0.05, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
           [0.1, (p) => buyFurn(G, p, 8)],
         ]),
     [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => 40); fill(G, p, 'suburb', 'stud', P.studBonus, () => 40) }],
@@ -857,6 +859,7 @@ function runTutorial(G) {
       collect(G, p)
       f(p)
       p.turnNo++
+      p.totTurns = (p.totTurns || 0) + 1
     }
   }
   G.clock = G.periodMin
@@ -932,6 +935,7 @@ function turn(G, p) {
   if (c.kind === 'decision') (p.strat ? decideSmart : decide)(G, p)
   else if (p.bldgs.length) EV[c.key](G, p)
   p.turnNo++
+  p.totTurns = (p.totTurns || 0) + 1
   if (p.flags.noIndiv && p.flags.noIndiv++ > 1) p.flags.noIndiv = 0
 }
 function periodEnd(G, p) {
