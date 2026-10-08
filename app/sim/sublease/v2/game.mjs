@@ -34,7 +34,7 @@ function makeDeck(P) {
   const d = []
   for (let i = 0; i < P.deckDecision; i++) d.push({ kind: 'decision', key: 'decision' })
   const risk = [['defect', 1], ['corpCancel', P.corpCancelCards], ['pandemic', 1], ['lawsuit', 1], ['leak', 2], ['arrears', 1], ['noise', 1], ['competitor', 1]]
-  const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', 1], ['redevelop', 1]] : [])]
+  const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', P.universityCards ?? 1], ['redevelop', 1]] : [])]
   for (const [k, n] of risk) for (let i = 0; i < n; i++) d.push({ kind: 'risk', key: k })
   for (const [k, n] of chance) for (let i = 0; i < n; i++) d.push({ kind: 'chance', key: k })
   return d
