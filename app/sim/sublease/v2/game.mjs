@@ -146,8 +146,8 @@ function collect(G, p) {
     p.cash += rent
     p.pl.rev += rent
     if (rent > 0) tr(G, p, 'rent', rent)
-    // 借りた手番の次の自分の手番は借上げ賃料なし（借りた手番に払う分はない：2026-10-08 ユーザー判断）。その次の手番から毎手番まるごと
-    pay(G, p, p.bldgs.reduce((s, b) => s + (b.leasedTot === (p.totTurns || 0) - 1 ? 0 : b.own * b.rooms.length), 0), 'ownerRent')
+    // 自分の手番の最後に精算する（2026-10-08 ユーザー判断）。借りた手番は、その棟の借上げ賃料なし。次の手番から毎手番まるごと
+    pay(G, p, p.bldgs.reduce((s, b) => s + (b.leasedTot === (p.totTurns || 0) ? 0 : b.own * b.rooms.length), 0), 'ownerRent')
     return
   }
   accrue(G, p)
@@ -856,8 +856,9 @@ function runTutorial(G) {
   for (const [at, f] of steps) {
     G.clock = at * G.periodMin
     for (const p of G.players) {
-      collect(G, p)
+      if (P.payMode !== 'perTurn') collect(G, p)
       f(p)
+      if (P.payMode === 'perTurn') collect(G, p)
       p.turnNo++
       p.totTurns = (p.totTurns || 0) + 1
     }
@@ -926,7 +927,8 @@ function periodStart(G, p) {
 const CARD = { decision: '意思決定', defect: '施工不備の発覚', corpCancel: '法人の解約', pandemic: '感染症の流行', lawsuit: 'オーナー訴訟', leak: '漏水・設備故障', arrears: '家賃の滞納', noise: '入居者トラブル（騒音）', competitor: '近くに競合物件', rush: '3月の繁忙期', foreign: '外国人材の受け入れ増', factory: '工場の新設', pricing: 'プライシングの成功', regional: '地方創生', remote: 'リモートワーク需要の拡大', university: '大学の新設', redevelop: '都心の再開発' }
 function turn(G, p) {
   G.ctx = { who: p.id, turn: p.turnNo + 1, clock: G.clock }
-  collect(G, p)
+  // 手番ごとにまるごと（perTurn）のときは手番の最後に精算する。時間でならすときは手番の頭
+  if (G.P.payMode !== 'perTurn') collect(G, p)
   if (p.strat) preTurnSmart(G, p)
   else preTurn(G, p)
   if (!G.deck.length) G.deck = shuffle(makeDeck(G.P), G.rand)
@@ -934,6 +936,7 @@ function turn(G, p) {
   note(G, p, `カード：${c.kind === 'decision' ? '' : c.kind === 'risk' ? 'リスク　' : 'チャンス　'}${CARD[c.key]}`)
   if (c.kind === 'decision') (p.strat ? decideSmart : decide)(G, p)
   else if (p.bldgs.length) EV[c.key](G, p)
+  if (G.P.payMode === 'perTurn') collect(G, p)
   p.turnNo++
   p.totTurns = (p.totTurns || 0) + 1
   if (p.flags.noIndiv && p.flags.noIndiv++ > 1) p.flags.noIndiv = 0
