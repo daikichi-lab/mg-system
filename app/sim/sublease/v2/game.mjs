@@ -240,7 +240,8 @@ function auction(G, parent, area, type, seats) {
     const n = Math.min(left, bd.offer)
     if (n <= 0) continue
     let cut = 0
-    if (type === 'corp' && P.corpDice) cut = Math.max(0, 1 + Math.floor(G.rand() * 6) - bd.q.salesChips)
+    // 法人の単価交渉（corpDice。2026-10-08 復活）：勝った会社がサイコロを振り、4・5・6の目で家賃が1・2・3下がる（営業チップは関係しない）
+    if (type === 'corp' && P.corpDice) cut = Math.max(0, 1 + Math.floor(G.rand() * 6) - 3)
     // 法人の単価交渉：いつも最大の値下げを受ける前提（corpCutFixed。2026-10-08 ユーザー案）
     if (type === 'corp' && P.corpCutFixed) cut = P.corpCutFixed
     const got = fill(G, bd.q, area, type, n, () => Math.max(1, bd.price - cut))
