@@ -33,9 +33,7 @@ export const PERSONA_KEYS = ['standard', 'aggressive', 'steady', 'premium']
 function makeDeck(P) {
   const d = []
   for (let i = 0; i < P.deckDecision; i++) d.push({ kind: 'decision', key: 'decision' })
-  // moneyRiskToCorp：お金を払うリスクカード（訴訟・漏水2枚・滞納）を「法人の解約」に置き換える（2026-10-08 ユーザー判断）
-  const m = P.moneyRiskToCorp
-  const risk = [['defect', 1], ['corpCancel', P.corpCancelCards + (m ? 4 : 0)], ['pandemic', 1], ['lawsuit', m ? 0 : 1], ['leak', m ? 0 : 2], ['arrears', m ? 0 : 1], ['noise', 1], ['competitor', 1]]
+  const risk = [['defect', 1], ['corpCancel', P.corpCancelCards], ['pandemic', 1], ['lawsuit', 1], ['leak', 2], ['arrears', 1], ['noise', 1], ['competitor', 1]]
   const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', 1], ['redevelop', 1]] : [])]
   for (const [k, n] of risk) for (let i = 0; i < n; i++) d.push({ kind: 'risk', key: k })
   for (const [k, n] of chance) for (let i = 0; i < n; i++) d.push({ kind: 'chance', key: k })
@@ -285,11 +283,6 @@ const EV = {
   },
   corpCancel(G, p) {
     const P = G.P
-    // 保険があれば解約を1回防ぐ（保険チップを1枚返す。moneyRiskToCorp のとき）
-    if (P.moneyRiskToCorp && p.ins > 0 && occ(p, 'corp').length) {
-      note(G, p, '保険で法人の解約を防いだ（保険チップを1枚返す）')
-      return void p.ins--
-    }
     let out = []
     if (P.corpCancel === 'half') {
       const c = occ(p, 'corp')
@@ -856,11 +849,11 @@ function runTutorial(G) {
     [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => 40); fill(G, p, 'suburb', 'stud', P.studBonus, () => 40) }],
     [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => 44 - (P.corpDice ? 2 : 0)) }],
     [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => 43) }],
-    [0.4, (p) => (P.moneyRiskToCorp ? EV.corpCancel(G, p) : EV.leak(G, p))],
+    [0.4, (p) => EV.corpCancel(G, p)], // リスクカード：法人の解約（法人2室の半分＝1室）
     [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
     [0.6, () => {}],
-    // 手番6で法人が解約されたときは、法人の入札（練習）1室で埋め直す
-    [0.7, (p) => { if (P.moneyRiskToCorp) fill(G, p, 'suburb', 'corp', 1, () => 44 - (P.corpDice ? 2 : 0)) }],
+    // 手番6で法人が解約されたので、法人の入札（練習）1室で埋め直す
+    [0.7, (p) => fill(G, p, 'suburb', 'corp', 1, () => 44 - (P.corpDice ? 2 : 0))],
     [0.8, (p) => hire(G, p, 'sales')],
     [0.9, () => {}],
   ]
