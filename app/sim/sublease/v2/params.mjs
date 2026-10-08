@@ -64,6 +64,8 @@ export const V2 = {
   officeByArea: true,
   officeRent: 10,
   mgmtRooms: 12,
+  /** 開業時の管理スタッフ（郊外に配属）。管理1人の戸数を減らしたとき、第1期の8室を満室にできるように増やす */
+  initMgmt: 1,
   lockRooms: 6,
   lockMax: 4,
   /** 管理能力を超えては入居させられない（2026-10-07 案）。false なら今まで通り期末に超えた分が退去 */

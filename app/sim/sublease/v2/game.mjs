@@ -1055,7 +1055,7 @@ export function playGame(P, personas, seed) {
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
       cash: P.capital, capital: P.capital, retained: 0, loan: 0, short: 0, taxDue: 0,
-      sales: 1, salesBy: { suburb: 1, city: 0, rural: 0 }, mgmt: 1, mgmtBy: { suburb: 1, city: 0, rural: 0 }, lockBy: {}, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
+      sales: 1, salesBy: { suburb: 1, city: 0, rural: 0 }, mgmt: P.initMgmt ?? 1, mgmtBy: { suburb: P.initMgmt ?? 1, city: 0, rural: 0 }, lockBy: {}, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
     })),
     log: [],
     auctions: [],
