@@ -193,6 +193,24 @@ export const V2 = {
   repairPerRoom: 5,
   insPerRoom: 3,
 
+  /**
+   * 市場の形（2026-10-09）：'cards'＝顧客カード（入居希望カード）の山札。'pieces'＝エリアごとの人駒（それまでの方式）。
+   * 営業する（ルールA）：山札から 営業スタッフの人数 ＋ 広告チップ×adCards 枚をめくり、営業スタッフの人数まで選んで入札する。
+   * 条件に合う物件（希望エリアに室数分の空室と管理能力）を持つ会社は誰でも応札できる。使ったカードはすべて山札の下に戻す。
+   * 退去した人はストッカーに戻る（市場には戻らない）。広告チップ・営業チップは期をまたいで残る（2枚以上なら1枚）
+   */
+  marketMode: 'cards',
+  adCards: 2,
+  /** 顧客カード：[エリア, 種類, 室数, 予算（相場からの差）, …] を1枚ずつ。予算＝そのエリアの相場＋差 */
+  tenantCards: [
+    ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -4],
+    ['city', 'indiv', 2, -1], ['city', 'indiv', 2, -3], ['city', 'stud', 1, -2], ['city', 'stud', 1, -4], ['city', 'corp', 2, -2],
+    ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -3],
+    ['suburb', 'indiv', 2, -1], ['suburb', 'indiv', 2, -3], ['suburb', 'stud', 2, -2], ['suburb', 'stud', 2, -3], ['suburb', 'stud', 2, -4],
+    ['suburb', 'stud', 3, -3], ['suburb', 'corp', 2, -1], ['suburb', 'corp', 2, -3], ['suburb', 'corp', 3, -2],
+    ['rural', 'corp', 2, 0], ['rural', 'corp', 2, -2], ['rural', 'corp', 3, -1], ['rural', 'corp', 3, -3], ['rural', 'corp', 4, -2],
+    ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -4], ['rural', 'indiv', 2, -1], ['rural', 'stud', 1, -2],
+  ],
   /** 自動プレイヤー：'smart'＝打てる手を毎回比べる・戦い方は会社ごとにランダム（2026-10-08）／'persona'＝4つの性格の決め打ち（それまでの方式） */
   bot: 'smart',
   /** 第1期の台本（tutorial） */

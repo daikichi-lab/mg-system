@@ -187,7 +187,7 @@ function fill(G, p, area, type, n, rentOf) {
 function evict(G, p, rooms, type) {
   accrue(G, p)
   // ためておく市場では、退去した人はその棟のエリアの市場に戻る（次の期首に並ぶ）
-  if (G.P.supplyMode === 'stock')
+  if (G.P.supplyMode === 'stock' && G.P.marketMode !== 'cards')
     for (const b of p.bldgs)
       for (const r of b.rooms)
         // 個人は indivReturnRate の割合だけ市場に戻る（残りはゲームから去る）
@@ -343,19 +343,23 @@ const EV = {
   },
   // 人駒を増やすカードの人数は G.P.eventAdd（カードごとの人数）で決める（2026-10-08：はじめからあふれさせないため数値ルールにした）
   rush(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     G.market.city.indiv += G.P.eventAdd.rush
     G.market.suburb.indiv += G.P.eventAdd.rush
   },
   foreign(G, p) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     const a = p.bldgs.length ? p.bldgs[0].area : 'suburb'
     G.market[a].corp += G.P.eventAdd.foreign
   },
   factory(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     G.market.rural.corp += G.P.eventAdd.factory
   },
   // ---- 市場の人の移動・追加（卓の全員に効く・2026-10-07）。移る元の市場にいる人数までしか動かさない ----
   /** 地方創生：都市の市場の個人3人が地方へ移り、地方に法人＋2 */
   regional(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     const n = Math.min(3, G.market.city.indiv)
     G.market.city.indiv -= n
     G.market.rural.indiv += n
@@ -363,6 +367,7 @@ const EV = {
   },
   /** リモートワーク需要の拡大：都市の市場の個人3人が、郊外に2人・地方に1人移る */
   remote(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     const n = Math.min(3, G.market.city.indiv)
     G.market.city.indiv -= n
     G.market.suburb.indiv += Math.min(2, n)
@@ -370,10 +375,12 @@ const EV = {
   },
   /** 大学の新設：郊外に学生＋4 */
   university(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     G.market.suburb.stud += G.P.eventAdd.university
   },
   /** 都心の再開発：都市に個人＋4 */
   redevelop(G) {
+    if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     G.market.city.indiv += G.P.eventAdd.redevelop
   },
   pricing(G, p) {
@@ -671,15 +678,17 @@ function pWin(G, p, area) {
   return Math.min(0.95, Math.max(0.05, base + 0.12 * chipGap))
 }
 /** そのエリア・種類の入札で入れられる室数（営業能力・空室・管理能力・市場の人駒） */
+/** 市場の人駒の数（カードの市場では、そのエリア・種類の顧客カードの室数の合計をめやすにする） */
+const supplyOf = (G, area, t) => (G.P.marketMode === 'cards' ? G.P.tenantCards.filter((c) => c[0] === area && (!t || c[1] === t)).reduce((s, c) => s + c[2], 0) : t ? G.market[area][t] : TYPES.reduce((s, x) => s + G.market[area][x], 0))
 function seatsOf(G, p, area, t) {
   const P = G.P
   const cap = t === 'indiv' ? indivCap(P, p, area) : leaseCap(P, p, area)
-  return Math.max(0, Math.min(cap, vac(p, area), P.mgmtHardCap ? mgmtRoom(P, p, area) : Infinity, G.market[area][t]))
+  return Math.max(0, Math.min(cap, vac(p, area), P.mgmtHardCap ? mgmtRoom(P, p, area) : Infinity, supplyOf(G, area, t)))
 }
 /** そのエリアで埋めたい室数（空室のうち、管理能力と市場の人駒の範囲） */
 function fillable(G, p, area) {
   const P = G.P
-  const supply = TYPES.reduce((s, t) => s + G.market[area][t], 0)
+  const supply = supplyOf(G, area)
   return Math.max(0, Math.min(vac(p, area), P.mgmtHardCap ? mgmtRoom(P, p, area) : Infinity, supply))
 }
 /** この期に残っている自分の意思決定の回数の目安 */
@@ -701,8 +710,8 @@ function expectFill(G, p, area, rooms, future = false) {
   // そのエリアの人駒を、そこに棟を持つ会社（自分を含めて＋1）で分けたときの取り分。他社の空室が多いほど減る。
   // future のときは、次の期首に増える法人と、退去して戻ってくる人（個人の約3割・学生の半分）も数える
   const P = G.P
-  let supply = TYPES.reduce((s, t) => s + G.market[area][t], 0)
-  if (future) {
+  let supply = supplyOf(G, area)
+  if (future && P.marketMode !== 'cards') {
     supply += Math.round(P.supply[area].corp * G.players.length * P.corpInflow)
     for (const q of G.players) supply += occ(q, 'indiv', area).length * 0.3 + occ(q, 'stud', area).length * 0.5
   }
@@ -710,6 +719,96 @@ function expectFill(G, p, area, rooms, future = false) {
   // 他社の空室・家具なしの部屋は、同じ人駒を取り合う相手として全部数える
   const rivalVac = G.players.reduce((s, q) => s + (q === p ? 0 : vac(q, area) + q.bldgs.filter((b) => b.area === area).reduce((x, b) => x + b.rooms.filter((r) => r.st === 'none').length, 0)), 0)
   return Math.min(0.95, Math.max(0.1, (supply - rivalVac) / holders / rooms))
+}
+
+// ---- 顧客カード（marketMode 'cards'：2026-10-09） ----
+// シミュレーターでは同期で動く。画面（プロトタイプ）に組み込むときは、あなたの入力を待つため async に変換される（engine.py）
+function makeTenantDeck(P, rand) {
+  return shuffle(P.tenantCards.map(([area, type, rooms, d]) => ({ area, type, rooms, budget: P.areas[area].mkt + d })), rand)
+}
+function drawTenant(G) {
+  if (!G.tdeck || !G.tdeck.length) G.tdeck = makeTenantDeck(G.P, G.rand)
+  return G.tdeck.pop()
+}
+/** そのカードに応札できるか：希望エリアに室数分の空室と管理能力がある（学生は春だけ・施工不備の次の手番は個人に出られない） */
+function canTake(G, q, c, opener) {
+  const P = G.P
+  if (vac(q, c.area) < c.rooms) return false
+  if (P.mgmtHardCap && mgmtRoom(P, q, c.area) < c.rooms) return false
+  if (c.type === 'stud' && ((opener ? opener.turnNo : q.turnNo) >= P.studTurns || G.noStud)) return false
+  if (c.type === 'indiv' && q.flags.noIndiv) return false
+  return true
+}
+/** 顧客カードのうち、いま自分が応札できるカードの割合 */
+const matchRate = (G, p) => G.P.tenantCards.filter(([area, type, rooms]) => canTake(G, p, { area, type, rooms }, p)).length / G.P.tenantCards.length
+/** 入札の上限：カードの予算と、そのエリアの自分の棟の相場の低い方 */
+const capFor = (G, q, c) => Math.min(c.budget, Math.max(...q.bldgs.filter((b) => b.area === c.area && b.rooms.some((r) => r.st === 'vac')).map((b) => mktOf(G.P, q, b))))
+/** 1枚の顧客カードの入札。開いた会社と、条件に合う物件を持つ会社が応札。安い宣言（家賃 − 2×営業チップ）が取り、契約家賃は書いた額 */
+function cardAuction(G, opener, c) {
+  const P = G.P
+  const bidders = [opener]
+  for (const q of G.players) {
+    if (q === opener || !canTake(G, q, c, opener)) continue
+    if (q.human) bidders.push(q)
+    else if (q.strat && roomValue(G, q, c.area, c.type) > 0 && G.rand() < 0.95) bidders.push(q)
+  }
+  for (const q of [...bidders]) {
+    if (!q.human) continue
+    q._bid = q === opener ? G.humanPrice : G.askHuman({ parent: opener, area: c.area, type: c.type, seats: c.rooms, card: c, others: bidders.length - 1 })
+    if (q._bid == null) bidders.splice(bidders.indexOf(q), 1)
+  }
+  if (!bidders.length) return
+  const bids = bidders.map((q) => {
+    const cap = capFor(G, q, c)
+    const floor = floorOf(P, c.type, c.area)
+    let price
+    if (q.human) price = q._bid
+    else {
+      const disc = q.strat.disc + (q.adapt[c.area] || 0) + Math.floor(G.rand() * 2)
+      price = bidders.length === 1 ? cap : Math.max(floor, Math.min(cap, cap - disc))
+    }
+    return { q, price, eff: price - q.salesChips * P.salesChipBid, tie: G.rand() }
+  })
+  bids.sort((x, y) => x.eff - y.eff || Number(y.q === opener) - Number(x.q === opener) || x.tie - y.tie)
+  const w = bids[0]
+  const cut = c.type === 'corp' && P.corpDice ? Math.max(0, 1 + Math.floor(G.rand() * 6) - 3) : 0
+  const tn = { corp: '法人', indiv: '個人', stud: '学生' }[c.type]
+  const an = { city: '都市', suburb: '郊外', rural: '地方' }[c.area]
+  if (G.trace) {
+    const txt = `入札 ${an}・${tn}${c.rooms}室（予算${c.budget}・開いた会社 ${opener.id + 1}社）：` + bids.map((b) => `${b.q.id + 1}社 ${b.price}${b.q.salesChips ? `（営業チップ${b.q.salesChips}枚・宣言${b.eff}）` : ''}`).join(' ／ ') + ` → ${w.q.id + 1}社${cut ? `（単価交渉 −${cut}）` : ''}`
+    for (const b of bids) note(G, b.q, txt)
+  }
+  fill(G, w.q, c.area, c.type, c.rooms, () => Math.max(1, w.price - cut))
+  if (c.type === 'stud' && P.studBonus) fill(G, w.q, c.area, 'stud', Math.min(P.studBonus, vac(w.q, c.area), P.mgmtHardCap ? Math.max(0, mgmtRoom(P, w.q, c.area)) : 99), () => w.price)
+  if (bids.length > 1)
+    for (const b of bids) {
+      if (!b.q.strat) continue
+      const st = (b.q.bidStat[c.area] ||= { w: 0, n: 0 })
+      st.n++
+      if (b === w) st.w++
+      b.q.adapt[c.area] = Math.max(0, Math.min(6, (b.q.adapt[c.area] || 0) + (b === w ? -1 : 1)))
+    }
+  G.auctions.push({ type: c.type, area: c.area, n: bids.length, seats: c.rooms, parent: opener.persona, parentWon: w.q === opener })
+}
+/** 営業する（ルールA）：営業スタッフの人数 ＋ 広告チップ×adCards 枚をめくり、営業スタッフの人数まで選んで入札。使ったカードはすべて山札の下に戻す */
+function salesAction(G, p) {
+  const P = G.P
+  const n = p.sales + P.adCards * p.ads
+  const drawn = Array.from({ length: n }, () => drawTenant(G)).filter(Boolean)
+  note(G, p, `営業する：顧客カード ${drawn.length}枚をめくる`)
+  let chosen
+  if (p.human) chosen = G.humanChoose(drawn) // [{ card, price }]（画面では await される）
+  else {
+    // 自動プレイヤー：条件に合うカードを、1室の粗利 × 室数 × 種類の好み が大きい順に、営業スタッフの人数まで
+    const score = (c) => c.rooms * (capFor(G, p, c) - ownOf(P, c.area)) * (p.strat.typeW[c.type] || 1)
+    chosen = drawn.filter((c) => canTake(G, p, c, p)).sort((x, y) => score(y) - score(x)).slice(0, p.sales).map((card) => ({ card }))
+  }
+  for (const { card, price } of chosen.slice(0, p.sales)) {
+    if (!canTake(G, p, card, p)) continue // 前のカードで空室が埋まった
+    G.humanPrice = price
+    cardAuction(G, p, card)
+  }
+  G.tdeck.unshift(...drawn) // 使ったカードはすべて山札の下へ
 }
 
 /** 打てる手を並べて、いちばん得な手を打つ */
@@ -723,8 +822,16 @@ function decideSmart(G, p) {
   const add = (v, cost, run, label) => cands.push({ v: v * (1 + s.noise * (G.rand() * 2 - 1)), cost, run, label })
   const areasHeld = [...new Set(p.bldgs.map((b) => b.area))]
 
+  // 営業する（顧客カード）：空室と管理能力のあるエリアがあれば。見込み＝営業の人数 × 2室 × 勝率 × 1室の価値
+  if (P.marketMode === 'cards' && p.sales > 0) {
+    const open = areasHeld.filter((a) => vac(p, a) > 0 && (!P.mgmtHardCap || mgmtRoom(P, p, a) > 0))
+    if (open.length) {
+      const v = open.reduce((x, a) => x + pWin(G, p, a) * roomValue(G, p, a, 'indiv'), 0) / open.length
+      add(Math.min(p.sales, open.length + 1) * 2 * v * 0.5, 0, () => salesAction(G, p), 'sales')
+    }
+  }
   // 入札：エリア × 種類
-  for (const a of areasHeld)
+  for (const a of P.marketMode === 'cards' ? [] : areasHeld)
     for (const t of TYPES) {
       if (t === 'stud' && (p.turnNo >= P.studTurns || G.noStud)) continue
       if (t === 'indiv' && p.flags.noIndiv) continue
@@ -740,8 +847,20 @@ function decideSmart(G, p) {
     const a = p.bldgs.find((b) => b.rooms.some((r) => r.st === 'none')).area
     add(n * (expectFill(G, p, a, n) * roomValue(G, p, a, 'indiv') - P.furnDep * H), n * P.furnPrice, () => buyFurn(G, p, n), 'furn')
   }
+  // 顧客カードの市場：営業1人で めくる＋1枚・入札＋1件、広告1枚で めくる＋2枚。条件に合うカードの割合（matchRate）から見込む
+  if (P.marketMode === 'cards') {
+    const open = areasHeld.filter((a) => vac(p, a) > 0)
+    const rate = matchRate(G, p)
+    const rv = open.length ? open.reduce((x, a) => x + roomValue(G, p, a, 'indiv'), 0) / open.length : 0
+    const uses = Math.min(12, decisionsLeft(G, p) * 0.4) // この期の残りで営業する回数の目安
+    if (open.length && rv > 0) {
+      const hireA = neediestArea(G, p)
+      if (p.sales < P.staffMax * 3) add(uses * rate * 2 * rv * 0.5 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'sales', hireA), 'hire sales')
+      add(uses * Math.min(1, 2 * rate) * 2 * rv * 0.25 * s.adW - P.adPrice, P.adPrice, () => buy(G, p, 'ads', P.adPrice, 'ads'), 'ads')
+    }
+  }
   // 営業の採用：そのエリアの空室を早く埋められる分
-  for (const a of areasHeld) {
+  for (const a of P.marketMode === 'cards' ? [] : areasHeld) {
     if (salesIn(P, p, a) >= P.staffMax) continue
     const cap = leaseCap(P, p, a)
     const gain = idleRooms(G, p, a, cap) - idleRooms(G, p, a, cap + P.leasePerSales)
@@ -768,7 +887,7 @@ function decideSmart(G, p) {
     if (gain > 0) add(gain * s.chipW + keep - P.salesChipPrice, P.salesChipPrice, () => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip'), 'chip')
   }
   // 広告：個人の入札で＋2室（期末に1枚返す）
-  if (p.ads < p.sales * P.adPerSales)
+  if (P.marketMode !== 'cards' && p.ads < p.sales * P.adPerSales)
     for (const a of areasHeld) {
       if (!salesIn(P, p, a) || G.market[a].indiv <= leaseCap(P, p, a)) continue
       const extra = Math.min(P.adRooms, fillable(G, p, a) - indivCap(P, p, a))
@@ -1043,9 +1162,10 @@ function periodEnd(G, p) {
   const gradBy = {}
   for (const b of p.bldgs) for (const r of b.rooms) if (grads.includes(r)) gradBy[b.area] = (gradBy[b.area] || 0) + 1
   evict(G, p, grads, 'stud')
-  if (P.studGradLeave) for (const [a, k] of Object.entries(gradBy)) G.back[a].stud = Math.max(0, (G.back[a].stud || 0) - k)
+  if (P.studGradLeave && P.marketMode !== 'cards') for (const [a, k] of Object.entries(gradBy)) G.back[a].stud = Math.max(0, (G.back[a].stud || 0) - k)
   // 法人：期末の退去なし
-  p.ads = Math.max(0, p.ads - 1)
+  // 広告チップ：カードの市場では使っても減らず、期末に2枚以上あれば1枚だけ残る。人駒の市場では期末に1枚返す
+  p.ads = P.marketMode === 'cards' ? (p.ads >= 2 ? 1 : 0) : Math.max(0, p.ads - 1)
   // 営業チップ：2枚以上あれば1枚だけ次の期に残る（製造業MGの商品開発チップと同じ）
   p.salesChips = p.salesChips >= 2 ? 1 : 0
   let dep = 0
