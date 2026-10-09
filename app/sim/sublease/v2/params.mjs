@@ -188,6 +188,9 @@ export const V2 = {
   defectCost: 30,
   lawsuitCost: 20,
   repairCost: 10,
+  /** 漏水・設備故障：1棟まるごと、家具のある部屋1室につき修繕費5・保険があれば受取保険金3（2026-10-09） */
+  repairPerRoom: 5,
+  insPerRoom: 3,
 
   /** 自動プレイヤー：'smart'＝打てる手を毎回比べる・戦い方は会社ごとにランダム（2026-10-08）／'persona'＝4つの性格の決め打ち（それまでの方式） */
   bot: 'smart',

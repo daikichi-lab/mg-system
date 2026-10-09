@@ -314,20 +314,25 @@ const EV = {
   lawsuit(G, p) {
     pay(G, p, G.P.lawsuitCost, 'lawsuit')
   },
+  // 漏水・設備故障（2026-10-09）：家具のある部屋がいちばん多い棟（同じなら先に借りた棟）の1棟まるごと。
+  // 修繕費 ＝ 家具のある部屋 × repairPerRoom。保険があれば 受取保険金 ＝ その部屋数 × insPerRoom（特別利益・A列）を受け取り、保険チップを1枚返す
   leak(G, p) {
-    const b = p.bldgs[Math.floor(G.rand() * p.bldgs.length)]
-    const cost = G.P.repairCost * (b.old ? 2 : 1)
-    pay(G, p, cost, 'repair')
+    const furnished = (b) => b.rooms.filter((r) => r.st !== 'none').length
+    const b = p.bldgs.reduce((a, x) => (furnished(x) > furnished(a) ? x : a), p.bldgs[0])
+    const n = furnished(b)
+    if (!n) return
+    pay(G, p, n * G.P.repairPerRoom, 'repair')
     if (p.ins > 0) {
-      // 保険があれば、修繕費はいったん払い、同じ額を受取保険金（特別利益・A列）で受け取る（2026-10-09）。保険チップを1枚返す
+      const got = n * G.P.insPerRoom
       p.ins--
-      p.cash += cost
-      p.pl.special = (p.pl.special || 0) + cost
-      tr(G, p, 'insClaim', cost, '受取保険金')
+      p.cash += got
+      p.pl.special = (p.pl.special || 0) + got
+      tr(G, p, 'insClaim', got, '受取保険金')
     }
   },
+  // 家賃の滞納（2026-10-09）：家賃がいちばん高い個人の部屋（同じなら先に借りた棟の部屋）
   arrears(G, p) {
-    const r = occ(p, 'indiv')[0]
+    const r = occ(p, 'indiv').reduce((a, x) => (!a || x.rent > a.rent ? x : a), null)
     if (r) pay(G, p, r.rent, 'arrears')
   },
   noise(G, p) {
