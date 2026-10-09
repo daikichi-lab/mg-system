@@ -864,15 +864,28 @@ function runTutorial(G) {
           [0.05, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
           [0.1, (p) => buyFurn(G, p, 8)],
         ]),
-    // 練習の家賃（tutorialRent）：学生・法人（単価交渉の前）・個人。講師の目5で法人は2下がる
-    [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => P.tutorialRent.stud); fill(G, p, 'suburb', 'stud', P.studBonus, () => P.tutorialRent.stud) }],
-    [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0)) }],
-    [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv) }],
-    [0.4, (p) => EV.corpCancel(G, p)], // リスクカード：法人の解約（法人2室の半分＝1室）
-    [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
-    [0.6, () => {}],
-    // 手番6で法人が解約されたので、法人の入札（練習）1室で埋め直す
-    [0.7, (p) => fill(G, p, 'suburb', 'corp', 1, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0))],
+    // tutorialIndivOnly（2026-10-09 ユーザー判断）：学生・法人は説明だけで、入居させるのは個人だけ（手番3・4・5・9で2室ずつ → 満室）
+    ...(P.tutorialIndivOnly
+      ? [
+          [0.15, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)], // 学生の説明
+          [0.22, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)], // 法人・単価交渉の説明
+          [0.3, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)],
+          [0.4, (p) => EV.corpCancel(G, p)], // リスクカード：法人の解約（法人がいないので影響なし・説明だけ）
+          [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
+          [0.6, () => {}],
+          [0.7, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)], // 満室
+        ]
+      : [
+          // 練習の家賃（tutorialRent）：学生・法人（単価交渉の前）・個人。講師の目5で法人は2下がる
+          [0.15, (p) => { fill(G, p, 'suburb', 'stud', 2, () => P.tutorialRent.stud); fill(G, p, 'suburb', 'stud', P.studBonus, () => P.tutorialRent.stud) }],
+          [0.22, (p) => { fill(G, p, 'suburb', 'corp', 2, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0)) }],
+          [0.3, (p) => { fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv) }],
+          [0.4, (p) => EV.corpCancel(G, p)], // リスクカード：法人の解約（法人2室の半分＝1室）
+          [0.5, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
+          [0.6, () => {}],
+          // 手番6で法人が解約されたので、法人の入札（練習）1室で埋め直す
+          [0.7, (p) => fill(G, p, 'suburb', 'corp', 1, () => P.tutorialRent.corp - (P.corpDice ? 2 : 0))],
+        ]),
     [0.8, (p) => hire(G, p, 'sales')],
     [0.9, () => {}],
   ]
