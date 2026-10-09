@@ -163,6 +163,9 @@ function collect(G, p) {
 
 // ---- 入居・退去 ----
 /** その会社のそのエリアの募集中の部屋に、type の入居者を n 室入れる。家賃は rentOf(棟)。戻り値は入居した室数 */
+// 第1期の台本の営業3回（手番4・6・8）で取る顧客カード。上書きは P.tutorialDeals
+const TUT_DEALS_DEFAULT = [{ type: 'indiv', rooms: 1, rent: 35 }, { type: 'stud', rooms: 2, rent: 25 }, { type: 'corp', rooms: 1, rent: 30 }]
+let TUT_DEALS = TUT_DEALS_DEFAULT
 function fill(G, p, area, type, n, rentOf) {
   accrue(G, p)
   const P = G.P
@@ -1041,17 +1044,19 @@ function preTurnSmart(G, p) {
 // ---- 第1期の台本（全員同じ。2026-10-07 の v2 版） ----
 function runTutorial(G) {
   const P = G.P
-  // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 個人2室 → 広告 → 個人4室 → 営業チップ → 個人2室（満室）→ 保険 → リスク（クレーム）
+  // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 個人1室 → 広告 → 学生2室 → 営業チップ → 法人1室 → 保険 → リスク（漏水）
+  TUT_DEALS = P.tutorialDeals || TUT_DEALS_DEFAULT
   const v3 = [
     [0.05, (p) => { for (let i = 0; i < (P.tutorialSales ?? 1); i++) hire(G, p, 'sales', 'suburb'); hire(G, p, 'mgmt', 'suburb'); hire(G, p, 'mgmt', 'suburb') }], // 営業 tutorialSales 人・管理2人
     [0.1, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
     [0.15, (p) => buyFurn(G, p, 8)],
-    // 第1期の営業（練習）：個人1室のカードを、すべて満額（郊外の相場35）で契約する（2026-10-09）
-    [0.22, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[0], () => P.areas.suburb.mkt)],
+    // 第1期の営業（練習）：個人・学生・法人を1回ずつ体験する（2026-10-09 ユーザー指定）
+    // 手番4 個人1室・満額35 ／ 手番6 学生2室・25 ／ 手番8 法人1室・30（練習なので単価交渉のサイコロは振らない）
+    [0.22, (p) => fill(G, p, 'suburb', TUT_DEALS[0].type, TUT_DEALS[0].rooms, () => TUT_DEALS[0].rent)],
     [0.3, (p) => buy(G, p, 'ads', P.adPrice, 'ads')],
-    [0.4, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[1], () => P.areas.suburb.mkt)],
+    [0.4, (p) => fill(G, p, 'suburb', TUT_DEALS[1].type, TUT_DEALS[1].rooms, () => TUT_DEALS[1].rent)],
     [0.5, (p) => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')],
-    [0.6, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[2], () => P.areas.suburb.mkt)],
+    [0.6, (p) => fill(G, p, 'suburb', TUT_DEALS[2].type, TUT_DEALS[2].rooms, () => TUT_DEALS[2].rent)],
     [0.7, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
     [0.8, (p) => EV.leak(G, p)], // リスクカード：漏水・設備故障（手番9の保険で補償される）
   ]
@@ -1099,7 +1104,7 @@ function runTutorial(G) {
     }
   }
   G.clock = G.periodMin
-  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。家賃の高い部屋から出るので、満額35の2室が退去（2026-10-09）
+  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。個人は1室だけなので、その1室が退去（2026-10-09）
 }
 
 // ---- 期の進行 ----
