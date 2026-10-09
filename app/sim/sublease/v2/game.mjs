@@ -1046,11 +1046,12 @@ function runTutorial(G) {
     [0.05, (p) => { for (let i = 0; i < (P.tutorialSales ?? 1); i++) hire(G, p, 'sales', 'suburb'); hire(G, p, 'mgmt', 'suburb'); hire(G, p, 'mgmt', 'suburb') }], // 営業 tutorialSales 人・管理2人
     [0.1, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
     [0.15, (p) => buyFurn(G, p, 8)],
-    [0.22, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.areas.suburb.mkt)], // 最初の個人の入札は満額（相場30。2026-10-09）
+    // 第1期の営業（練習）：個人1室のカードを、すべて満額（郊外の相場35）で契約する（2026-10-09）
+    [0.22, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[0], () => P.areas.suburb.mkt)],
     [0.3, (p) => buy(G, p, 'ads', P.adPrice, 'ads')],
-    [0.4, (p) => fill(G, p, 'suburb', 'indiv', 4, () => P.tutorialRent.indiv)], // 営業2室＋広告2室
+    [0.4, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[1], () => P.areas.suburb.mkt)],
     [0.5, (p) => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')],
-    [0.6, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)], // 満室
+    [0.6, (p) => fill(G, p, 'suburb', 'indiv', (P.tutorialIndivRooms ?? [1, 1, 1])[2], () => P.areas.suburb.mkt)],
     [0.7, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
     [0.8, (p) => EV.leak(G, p)], // リスクカード：漏水・設備故障（手番9の保険で補償される）
   ]
