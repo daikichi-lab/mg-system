@@ -923,7 +923,7 @@ function runTutorial(G) {
     }
   }
   G.clock = G.periodMin
-  G.tutorialDie = 1 // 期末の個人の退去のサイコロ：講師の目（全員共通）
+  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。家賃の高い部屋から出るので、満額35の2室が退去（2026-10-09）
 }
 
 // ---- 期の進行 ----
