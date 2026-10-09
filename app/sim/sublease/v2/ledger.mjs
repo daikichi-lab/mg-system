@@ -12,7 +12,7 @@ for (const r of runs) { const G = playGame({ ...P, periods: per }, r.ps, r.seed)
 all.sort((a, b) => a.g - b.g); const m = all[all.length >> 1]
 const G = playGame({ ...P, periods: per, trace: true }, m.r.ps, m.r.seed)
 const me = m.i, p = G.players[me]
-const COL = { rent: ['ウ', '家賃収入'], loan: ['イ', '借入'], short: ['イ', '短期借入'], furniture: ['エ', '家具家電'], ownerRent: ['オ', '借上げ賃料'], hire: ['カ', '採用費'], salary: ['カ', '給料'], V: ['キ', '入居費用'], ads: ['キ', '広告'], salesChip: ['キ', '営業チップ'], hq: ['ク', '営業所の家賃'], reno: ['ク', 'リノベ'], lock: ['ク', 'スマートロック'], insurance: ['ク', '保険'], repair: ['ク', '修繕'], restore: ['ク', '原状回復'], claim: ['ク', 'クレーム'], lawsuit: ['ク', '訴訟'], defect: ['ク', '改修'], arrears: ['ク', '滞納'], interest: ['ク', '金利'], shortInterest: ['ク', '短期の金利'], transfer: ['ク', '配置転換'], repay: ['ケ', '返済'], tax: ['コ', '法人税'] }
+const COL = { rent: ['ウ', '家賃収入'], loan: ['イ', '借入'], short: ['イ', '短期借入'], furniture: ['エ', '家具家電'], ownerRent: ['オ', '借上げ賃料'], hire: ['カ', '採用費'], salary: ['カ', '給料'], V: ['キ', '入居費用'], ads: ['キ', '広告'], salesChip: ['キ', '営業チップ'], hq: ['ク', '営業所の家賃'], reno: ['ク', 'リノベ'], lock: ['ク', 'スマートロック'], insurance: ['ク', '保険'], repair: ['ク', '修繕'], restore: ['ク', '原状回復'], claim: ['ク', 'クレーム'], lawsuit: ['ク', '訴訟'], defect: ['ク', '改修'], arrears: ['ク', '滞納'], interest: ['ク', '金利'], shortInterest: ['ク', '短期の金利'], transfer: ['ク', '配置転換'], repay: ['ケ', '返済'], tax: ['コ', '法人税'], insClaim: ['A', '受取保険金'] }
 const ev = G.trace.filter((e) => e.period === per && e.p === me)
 const groups = []
 for (const e of ev) {

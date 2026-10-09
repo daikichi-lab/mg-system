@@ -315,12 +315,16 @@ const EV = {
     pay(G, p, G.P.lawsuitCost, 'lawsuit')
   },
   leak(G, p) {
-    if (p.ins > 0) {
-      note(G, p, '保険で補償（保険チップを1枚返す）')
-      return void p.ins--
-    }
     const b = p.bldgs[Math.floor(G.rand() * p.bldgs.length)]
-    pay(G, p, G.P.repairCost * (b.old ? 2 : 1), 'repair')
+    const cost = G.P.repairCost * (b.old ? 2 : 1)
+    pay(G, p, cost, 'repair')
+    if (p.ins > 0) {
+      // 保険があれば、修繕費はいったん払い、同じ額を受取保険金（特別利益・A列）で受け取る（2026-10-09）。保険チップを1枚返す
+      p.ins--
+      p.cash += cost
+      p.pl.special = (p.pl.special || 0) + cost
+      tr(G, p, 'insClaim', cost, '受取保険金')
+    }
   },
   arrears(G, p) {
     const r = occ(p, 'indiv')[0]
@@ -1053,10 +1057,12 @@ function periodEnd(G, p) {
   }
   const F = Object.values(p.pl.F).reduce((a, b) => a + b, 0)
   const Gv = p.pl.rev - p.pl.vq - F
-  const total = Gv + p.retained
-  let tax = Gv < 0 || total < 0 ? P.minTax : p.retained < 0 ? Math.round(total * P.taxRate) : Math.round(Gv * P.taxRate)
+  // 税引前 ＝ 経常利益 ＋ 特別利益（受取保険金）
+  const pre = Gv + (p.pl.special || 0)
+  const total = pre + p.retained
+  let tax = pre < 0 || total < 0 ? P.minTax : p.retained < 0 ? Math.round(total * P.taxRate) : Math.round(pre * P.taxRate)
   tax = Math.max(P.minTax, tax)
-  p.retained += Gv - tax
+  p.retained += pre - tax
   p.taxDue = tax
   const bal = p.cash + furnBook(p) - (p.loan + p.short + p.taxDue + equity(p))
   if (Math.abs(bal) > 1e-6) throw new Error(`B/S不一致 p${p.id} 第${G.period}期 ${bal}`)
@@ -1064,6 +1070,7 @@ function periodEnd(G, p) {
   p.hist.push({
     period: G.period,
     G: Gv,
+    special: p.pl.special || 0, // 特別利益（受取保険金）
     PQ: p.pl.rev,
     F,
     Fb: { ...p.pl.F },
