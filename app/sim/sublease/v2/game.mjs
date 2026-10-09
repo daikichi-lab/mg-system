@@ -35,7 +35,7 @@ function makeDeck(P) {
   for (let i = 0; i < P.deckDecision; i++) d.push({ kind: 'decision', key: 'decision' })
   // リスクカードの枚数は P.riskCards（2026-10-09：感染症・競合物件・入居者トラブルは削除、法人の解約4枚・ほかは2枚ずつ）
   const risk = P.riskCards ? Object.entries(P.riskCards) : [['defect', 1], ['corpCancel', P.corpCancelCards], ['pandemic', 1], ['lawsuit', 1], ['leak', 2], ['arrears', 1], ['noise', 1], ['competitor', 1]]
-  const chance = [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', P.universityCards ?? 1], ['redevelop', 1]] : [])]
+  const chance = P.chanceCards ? Object.entries(P.chanceCards) : [['rush', 2], ['foreign', 2], ['factory', 1], ['pricing', 1], ...(P.moveCards ? [['regional', 1], ['remote', 2], ['university', P.universityCards ?? 1], ['redevelop', 1]] : [])]
   for (const [k, n] of risk) for (let i = 0; i < n; i++) d.push({ kind: 'risk', key: k })
   for (const [k, n] of chance) for (let i = 0; i < n; i++) d.push({ kind: 'chance', key: k })
   return d
@@ -383,8 +383,33 @@ const EV = {
     if (G.P.marketMode === 'cards') return // 顧客カードの市場では効果なし（チャンスカードは見直し中：2026-10-09）
     G.market.city.indiv += G.P.eventAdd.redevelop
   },
+  // プライシングの成功（2026-10-09）：入居がいちばん多い棟（同じなら先に借りた棟）の、入居中の部屋の家賃をすべて＋1
   pricing(G, p) {
+    if (G.P.chanceCards) {
+      const n = (b) => b.rooms.filter((r) => r.st === 'occ').length
+      const b = p.bldgs.reduce((a, x) => (n(x) > n(a) ? x : a), p.bldgs[0])
+      if (!b || !n(b)) return
+      accrue(G, p)
+      for (const r of b.rooms) if (r.st === 'occ') r.rent += 1
+      note(G, p, `プライシングの成功：${b.name || ''}の入居中 ${n(b)}室の家賃 ＋1`)
+      return
+    }
     for (const b of p.bldgs) for (const r of b.rooms) if ((b.reno || r.reno) && r.st === 'occ') r.rent += 2
+  },
+  // 独占契約（2026-10-09）：顧客カードを 営業の人数＋広告×2 枚めくり、条件に合う1枚を他社の応札なしで、予算いっぱいの家賃で契約する
+  exclusive(G, p) {
+    const P = G.P
+    const drawn = Array.from({ length: Math.max(1, p.sales + P.adCards * p.ads) }, () => drawTenant(G)).filter(Boolean)
+    const val = (c) => c.rooms * (c.budget - ownOf(P, c.area))
+    const c = drawn.filter((x) => canTake(G, p, x, p)).sort((x, y) => val(y) - val(x))[0]
+    if (c) exclusiveContract(G, p, c)
+    G.tdeck.unshift(...drawn)
+  },
+  // 家具付きで建物借り上げ（2026-10-09）：表向きの棟カードから1枚を、家具付き（全室が募集中・家具代なし）で借りる
+  furnLease(G, p) {
+    if (!G.market.cards.length) return
+    const i = G.market.cards.map((c, k) => [cardScore(G, c), k]).sort((x, y) => y[0] - x[0])[0][1]
+    furnishedLease(G, p, i)
   },
 }
 
@@ -445,6 +470,18 @@ function lease(G, p, i, nf) {
   p.bldgs.push(nb)
   if (nf > 0) buyFurn(G, p, nf)
   staffNewArea(G, p, c.area)
+}
+/** 独占契約で1枚を契約する（他社の応札なし・家賃は予算いっぱい） */
+function exclusiveContract(G, p, c) {
+  note(G, p, `独占契約：${{ city: '都市', suburb: '郊外', rural: '地方' }[c.area]}・${{ corp: '法人', indiv: '個人', stud: '学生' }[c.type]}${c.rooms}室を予算${c.budget}で契約`)
+  fill(G, p, c.area, c.type, c.rooms, () => c.budget)
+}
+/** 家具付きで借り上げる（チャンスカード）：借りた棟の全室を、家具代なしで募集中にする（家具は資産に入れない） */
+function furnishedLease(G, p, i) {
+  lease(G, p, i, 0)
+  const b = p.bldgs[p.bldgs.length - 1]
+  for (const r of b.rooms) r.st = 'vac'
+  note(G, p, '家具付きで借り上げ：全室が募集中（家具代なし）')
 }
 /** 物件を探す（ルールA）：表向きの棟カードを山札に戻して混ぜ、表向きを faceUp 枚にそろえ直す */
 function searchCards(G, p) {
