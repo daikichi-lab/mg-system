@@ -148,7 +148,7 @@ export const V2 = {
 
   /** 学生：各期の自分の手番の4回目まで（春）。入札に勝つとストッカーから＋2人（空室があれば営業能力を超えてもよい） */
   studTurns: 4, // 春＝各期の自分の手番の4回目まで（2026-10-07）
-  studBonus: 2,
+  studBonus: 0, // ストッカーからの＋2人はなし（2026-10-09。顧客カードの学生の室数を多めにした）
   /** 卒業した学生は市場に戻らない（2026-10-08 案） */
   studGradLeave: true, // 既定（2026-10-08 ユーザー判断）
   /** 物件を借りる手番で家具も買えるか。false なら借りる手番と家具を置く手番を分ける（2026-10-08 案） */
@@ -202,19 +202,20 @@ export const V2 = {
   marketMode: 'cards',
   adCards: 2,
   /** 顧客カード：[エリア, 種類, 室数, 予算（相場からの差）, …] を1枚ずつ。予算＝そのエリアの相場＋差 */
-  // 2026-10-09：個人は1室だけ（多め）、学生は複数室、法人は1室〜複数室
+  // 2026-10-09：個人は1室だけ（多め）、学生は3〜5室（ストッカーの＋2をやめた分、多め）、法人は1室か2室
   tenantCards: [
     ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -4],
-    ['city', 'stud', 2, -3], ['city', 'stud', 3, -4], ['city', 'corp', 1, -1], ['city', 'corp', 2, -2],
+    ['city', 'stud', 3, -3], ['city', 'stud', 4, -4], ['city', 'corp', 1, -1], ['city', 'corp', 2, -2],
     ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2],
     ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -4], ['suburb', 'indiv', 1, -4],
-    ['suburb', 'stud', 2, -2], ['suburb', 'stud', 2, -3], ['suburb', 'stud', 3, -3], ['suburb', 'stud', 3, -4], ['suburb', 'stud', 4, -4],
-    ['suburb', 'corp', 1, -1], ['suburb', 'corp', 2, -2], ['suburb', 'corp', 3, -3],
+    ['suburb', 'stud', 3, -2], ['suburb', 'stud', 3, -3], ['suburb', 'stud', 4, -3], ['suburb', 'stud', 4, -4], ['suburb', 'stud', 5, -4],
+    ['suburb', 'corp', 1, -1], ['suburb', 'corp', 2, -2], ['suburb', 'corp', 2, -3],
     ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -3], ['rural', 'indiv', 1, -4],
-    ['rural', 'stud', 2, -3], ['rural', 'corp', 1, 0], ['rural', 'corp', 1, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -2], ['rural', 'corp', 3, -2], ['rural', 'corp', 4, -3],
+    ['rural', 'stud', 3, -3], ['rural', 'corp', 1, 0], ['rural', 'corp', 1, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -2], ['rural', 'corp', 2, -2], ['rural', 'corp', 2, -3],
   ],
+
   /** 空室が足りなくても、入れられる室数だけ入れられる（2026-10-09） */
-  cardPartial: true,
+  cardPartial: false, // 室数を全部入れられるときだけ応札できる（2026-10-09）
   /** 学生は春（各期の自分の手番の4回目まで）だけ。false でいつでも（2026-10-09：顧客カードではやめた） */
   studSpring: false,
 
