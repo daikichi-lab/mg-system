@@ -236,7 +236,7 @@ function auction(G, parent, area, type, seats) {
   if (G.trace) {
     const nm = { corp: '法人', indiv: '個人', stud: '学生' }[type]
     const an = { city: '都市', suburb: '郊外', rural: '地方' }[area]
-    const txt = `入札 ${an}・${nm}${seats}室（親 ${parent.id + 1}社）：` + bids.map((b) => `${b.q.id + 1}社 ${b.price}${b.q.salesChips ? `(チップ${b.q.salesChips})` : ''}`).join(' ／ ') + `・市場の人駒 ${G.market[area][type]}`
+    const txt = `入札 ${an}・${nm}${seats}室（親 ${parent.id + 1}社）：` + bids.map((b) => `${b.q.id + 1}社 ${b.price}${b.q.salesChips ? `（営業チップ${b.q.salesChips}枚・宣言${b.eff}）` : ''}`).join(' ／ ') + `・市場の人駒 ${G.market[area][type]}`
     for (const b of bids) note(G, b.q, txt)
   }
   let left = Math.min(seats, G.market[area][type])
