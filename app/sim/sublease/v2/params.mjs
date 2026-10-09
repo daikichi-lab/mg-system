@@ -202,15 +202,22 @@ export const V2 = {
   marketMode: 'cards',
   adCards: 2,
   /** 顧客カード：[エリア, 種類, 室数, 予算（相場からの差）, …] を1枚ずつ。予算＝そのエリアの相場＋差 */
+  // 2026-10-09：個人は1室だけ（多め）、学生は複数室、法人は1室〜複数室
   tenantCards: [
-    ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -4],
-    ['city', 'indiv', 2, -1], ['city', 'indiv', 2, -3], ['city', 'stud', 1, -2], ['city', 'stud', 1, -4], ['city', 'corp', 2, -2],
-    ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -3],
-    ['suburb', 'indiv', 2, -1], ['suburb', 'indiv', 2, -3], ['suburb', 'stud', 2, -2], ['suburb', 'stud', 2, -3], ['suburb', 'stud', 2, -4],
-    ['suburb', 'stud', 3, -3], ['suburb', 'corp', 2, -1], ['suburb', 'corp', 2, -3], ['suburb', 'corp', 3, -2],
-    ['rural', 'corp', 2, 0], ['rural', 'corp', 2, -2], ['rural', 'corp', 3, -1], ['rural', 'corp', 3, -3], ['rural', 'corp', 4, -2],
-    ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -4], ['rural', 'indiv', 2, -1], ['rural', 'stud', 1, -2],
+    ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -4],
+    ['city', 'stud', 2, -3], ['city', 'stud', 3, -4], ['city', 'corp', 1, -1], ['city', 'corp', 2, -2],
+    ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2],
+    ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -4], ['suburb', 'indiv', 1, -4],
+    ['suburb', 'stud', 2, -2], ['suburb', 'stud', 2, -3], ['suburb', 'stud', 3, -3], ['suburb', 'stud', 3, -4], ['suburb', 'stud', 4, -4],
+    ['suburb', 'corp', 1, -1], ['suburb', 'corp', 2, -2], ['suburb', 'corp', 3, -3],
+    ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -3], ['rural', 'indiv', 1, -4],
+    ['rural', 'stud', 2, -3], ['rural', 'corp', 1, 0], ['rural', 'corp', 1, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -2], ['rural', 'corp', 3, -2], ['rural', 'corp', 4, -3],
   ],
+  /** 空室が足りなくても、入れられる室数だけ入れられる（2026-10-09） */
+  cardPartial: true,
+  /** 学生は春（各期の自分の手番の4回目まで）だけ。false でいつでも（2026-10-09：顧客カードではやめた） */
+  studSpring: false,
+
   /** 自動プレイヤー：'smart'＝打てる手を毎回比べる・戦い方は会社ごとにランダム（2026-10-08）／'persona'＝4つの性格の決め打ち（それまでの方式） */
   bot: 'smart',
   /** 第1期の台本（tutorial） */

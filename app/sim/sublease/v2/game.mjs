@@ -718,6 +718,8 @@ function expectFill(G, p, area, rooms, future = false) {
   const holders = G.players.filter((q) => q !== p && q.bldgs.some((b) => b.area === area)).length + 1
   // 他社の空室・家具なしの部屋は、同じ人駒を取り合う相手として全部数える
   const rivalVac = G.players.reduce((s, q) => s + (q === p ? 0 : vac(q, area) + q.bldgs.filter((b) => b.area === area).reduce((x, b) => x + b.rooms.filter((r) => r.st === 'none').length, 0)), 0)
+  // 顧客カードの市場：カードは山札に戻るので需要はなくならない。埋まり具合は、そのエリアで競う会社の数と他社の空室で決まる
+  if (P.marketMode === 'cards') return Math.min(0.9, Math.max(0.2, 0.9 - 0.08 * (holders - 1) - rivalVac / (rooms * 6)))
   return Math.min(0.95, Math.max(0.1, (supply - rivalVac) / holders / rooms))
 }
 
@@ -731,11 +733,16 @@ function drawTenant(G) {
   return G.tdeck.pop()
 }
 /** そのカードに応札できるか：希望エリアに室数分の空室と管理能力がある（学生は春だけ・施工不備の次の手番は個人に出られない） */
+/** そのカードで入れられる室数（cardPartial なら空室・管理能力の範囲で一部でもよい） */
+function takeRooms(G, q, c) {
+  const P = G.P
+  const room = Math.min(vac(q, c.area), P.mgmtHardCap ? Math.max(0, mgmtRoom(P, q, c.area)) : Infinity)
+  return P.cardPartial ? Math.min(c.rooms, room) : room >= c.rooms ? c.rooms : 0
+}
 function canTake(G, q, c, opener) {
   const P = G.P
-  if (vac(q, c.area) < c.rooms) return false
-  if (P.mgmtHardCap && mgmtRoom(P, q, c.area) < c.rooms) return false
-  if (c.type === 'stud' && ((opener ? opener.turnNo : q.turnNo) >= P.studTurns || G.noStud)) return false
+  if (takeRooms(G, q, c) <= 0) return false
+  if (c.type === 'stud' && ((P.studSpring !== false && (opener ? opener.turnNo : q.turnNo) >= P.studTurns) || G.noStud)) return false
   if (c.type === 'indiv' && q.flags.noIndiv) return false
   return true
 }
@@ -778,7 +785,7 @@ function cardAuction(G, opener, c) {
     const txt = `入札 ${an}・${tn}${c.rooms}室（予算${c.budget}・開いた会社 ${opener.id + 1}社）：` + bids.map((b) => `${b.q.id + 1}社 ${b.price}${b.q.salesChips ? `（営業チップ${b.q.salesChips}枚・宣言${b.eff}）` : ''}`).join(' ／ ') + ` → ${w.q.id + 1}社${cut ? `（単価交渉 −${cut}）` : ''}`
     for (const b of bids) note(G, b.q, txt)
   }
-  fill(G, w.q, c.area, c.type, c.rooms, () => Math.max(1, w.price - cut))
+  fill(G, w.q, c.area, c.type, takeRooms(G, w.q, c), () => Math.max(1, w.price - cut))
   if (c.type === 'stud' && P.studBonus) fill(G, w.q, c.area, 'stud', Math.min(P.studBonus, vac(w.q, c.area), P.mgmtHardCap ? Math.max(0, mgmtRoom(P, w.q, c.area)) : 99), () => w.price)
   if (bids.length > 1)
     for (const b of bids) {
@@ -800,7 +807,7 @@ function salesAction(G, p) {
   if (p.human) chosen = G.humanChoose(drawn) // [{ card, price }]（画面では await される）
   else {
     // 自動プレイヤー：条件に合うカードを、1室の粗利 × 室数 × 種類の好み が大きい順に、営業スタッフの人数まで
-    const score = (c) => c.rooms * (capFor(G, p, c) - ownOf(P, c.area)) * (p.strat.typeW[c.type] || 1)
+    const score = (c) => takeRooms(G, p, c) * (capFor(G, p, c) - ownOf(P, c.area)) * (p.strat.typeW[c.type] || 1)
     chosen = drawn.filter((c) => canTake(G, p, c, p)).sort((x, y) => score(y) - score(x)).slice(0, p.sales).map((card) => ({ card }))
   }
   for (const { card, price } of chosen.slice(0, p.sales)) {
@@ -827,7 +834,9 @@ function decideSmart(G, p) {
     const open = areasHeld.filter((a) => vac(p, a) > 0 && (!P.mgmtHardCap || mgmtRoom(P, p, a) > 0))
     if (open.length) {
       const v = open.reduce((x, a) => x + pWin(G, p, a) * roomValue(G, p, a, 'indiv'), 0) / open.length
-      add(Math.min(p.sales, open.length + 1) * 2 * v * 0.5, 0, () => salesAction(G, p), 'sales')
+      // めくる枚数 × 合う割合 の件数（営業の人数まで）× 1件の室数（約1.5）× 勝率 × 1室の価値
+      const deals = Math.min(p.sales, (p.sales + P.adCards * p.ads) * matchRate(G, p))
+      add(deals * 1.5 * v * (P.salesValueMult ?? 1), 0, () => salesAction(G, p), 'sales')
     }
   }
   // 入札：エリア × 種類
@@ -843,7 +852,8 @@ function decideSmart(G, p) {
   // 家具：家具なしの部屋に置く（置かないと募集できない）
   const uf = unfurn(p)
   if (uf > 0) {
-    const n = Math.min(uf, P.furnMax)
+    // 現金が足りなければ、買える分だけ置く（家具がないと募集できず、借上げ賃料だけかかり続けるため）
+    const n = Math.min(uf, P.furnMax, Math.max(1, Math.floor(p.cash / P.furnPrice)))
     const a = p.bldgs.find((b) => b.rooms.some((r) => r.st === 'none')).area
     add(n * (expectFill(G, p, a, n) * roomValue(G, p, a, 'indiv') - P.furnDep * H), n * P.furnPrice, () => buyFurn(G, p, n), 'furn')
   }
@@ -854,9 +864,13 @@ function decideSmart(G, p) {
     const rv = open.length ? open.reduce((x, a) => x + roomValue(G, p, a, 'indiv'), 0) / open.length : 0
     const uses = Math.min(12, decisionsLeft(G, p) * 0.4) // この期の残りで営業する回数の目安
     if (open.length && rv > 0) {
+      // 1回の営業で決まる件数の見込み：min(営業の人数, めくる枚数 × 合う割合, 埋めたい室数)。増やしたときの差（限界の効果）で比べる
+      const want = open.reduce((x, a) => x + Math.min(vac(p, a), P.mgmtHardCap ? Math.max(0, mgmtRoom(P, p, a)) : 99), 0)
+      const deals = (sales, ads) => Math.min(sales, (sales + P.adCards * ads) * rate, want)
+      const now = deals(p.sales, p.ads)
       const hireA = neediestArea(G, p)
-      if (p.sales < P.staffMax * 3) add(uses * rate * 2 * rv * 0.5 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'sales', hireA), 'hire sales')
-      add(uses * Math.min(1, 2 * rate) * 2 * rv * 0.25 * s.adW - P.adPrice, P.adPrice, () => buy(G, p, 'ads', P.adPrice, 'ads'), 'ads')
+      if (p.sales < P.staffMax * 3) add(uses * (deals(p.sales + 1, p.ads) - now) * 1.5 * rv * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'sales', hireA), 'hire sales')
+      add(uses * (deals(p.sales, p.ads + 1) - now) * 1.5 * rv * s.adW - P.adPrice, P.adPrice, () => buy(G, p, 'ads', P.adPrice, 'ads'), 'ads')
     }
   }
   // 営業の採用：そのエリアの空室を早く埋められる分
@@ -923,7 +937,9 @@ function decideSmart(G, p) {
   }
   // 物件の借り上げ：表向きのカードごと
   const leasedNow = p.bldgs.filter((b) => b.leasedAt && b.leasedAt.period === G.period).length
-  if (p.bldgs.length < Math.min(s.maxBldg, P.maxBldg) && uf === 0 && leasedNow < s.leasePerPeriod)
+  // 顧客カードの市場では、空室がほぼ埋まっていて（2室以下）、新しい棟の家具を買える現金があるときだけ借りる（借りすぎて資金が詰まるのを防ぐ）
+  const cardsOk = P.marketMode !== 'cards' || (vac(p) <= 2 && p.cash >= 8 * P.furnPrice + 50)
+  if (cardsOk && p.bldgs.length < Math.min(s.maxBldg, P.maxBldg) && uf === 0 && leasedNow < s.leasePerPeriod)
     G.market.cards.forEach((c, i) => {
       const rooms = roomsOf(P, c.area)
       const own = P.areas[c.area].own + (c.old ? P.oldDelta : 0)
@@ -961,9 +977,10 @@ function decideSmart(G, p) {
   for (const c of cands) {
     if (c.v <= 0) break
     const room = s.borrow ? loanRoom(P, p) : 0
-    if (c.cost > 0 && !(p.cash + room >= c.cost && outlook(G, p) + room - c.cost >= s.buffer)) continue
+    if (c.cost > 10 && !(p.cash + room >= c.cost && outlook(G, p) + room - c.cost >= s.buffer)) continue
     if (c.cost > p.cash) borrow(G, p, Math.min(room, Math.ceil((c.cost - p.cash + 10) / 10) * 10))
     G.lastPick = c.label
+    if (G.debugPicks) G.debugPicks[G.debugPicks.length - 1].pick = c.label
     return c.run()
   }
   G.lastPick = 'none'
