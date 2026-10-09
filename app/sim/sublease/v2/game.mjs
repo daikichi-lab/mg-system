@@ -871,7 +871,7 @@ function runTutorial(G) {
     [0.05, (p) => { for (let i = 0; i < (P.tutorialSales ?? 1); i++) hire(G, p, 'sales', 'suburb'); hire(G, p, 'mgmt', 'suburb'); hire(G, p, 'mgmt', 'suburb') }], // 営業 tutorialSales 人・管理2人
     [0.1, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
     [0.15, (p) => buyFurn(G, p, 8)],
-    [0.22, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)],
+    [0.22, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.areas.suburb.mkt)], // 最初の個人の入札は満額（相場30。2026-10-09）
     [0.3, (p) => buy(G, p, 'ads', P.adPrice, 'ads')],
     [0.4, (p) => fill(G, p, 'suburb', 'indiv', 4, () => P.tutorialRent.indiv)], // 営業2室＋広告2室
     [0.5, (p) => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')],
