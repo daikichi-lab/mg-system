@@ -171,7 +171,8 @@ function fill(G, p, area, type, n, rentOf) {
   const P = G.P
   const cand = []
   for (const b of p.bldgs) if (b.area === area) for (const r of b.rooms) if (r.st === 'vac') cand.push({ r, b })
-  cand.sort((x, y) => rentOf(y.b) - rentOf(x.b))
+  // 家賃の高い棟から。同じ棟ではリノベした部屋（家賃＋2）から先に埋める
+  cand.sort((x, y) => rentOf(y.b) - rentOf(x.b) || (y.r.reno ? 1 : 0) - (x.r.reno ? 1 : 0))
   let got = 0
   for (const { r, b } of cand.slice(0, Math.max(0, n))) {
     // リノベした棟は入ってくる家賃が＋2
@@ -1044,7 +1045,9 @@ function preTurnSmart(G, p) {
 // ---- 第1期の台本（全員同じ。2026-10-07 の v2 版） ----
 function runTutorial(G) {
   const P = G.P
-  // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 学生4室 → 広告 → 個人1室 → 営業チップ → 法人1室 → 保険 → リスク（漏水）
+  // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 学生4室 → 広告 → 個人1室 → 営業チップ → 法人1室
+  //   → リノベ（空室2室・10）→ 個人1室（リノベした部屋に35＋2＝37）→ 保険 → リスク（漏水）。全12手番
+
   TUT_DEALS = P.tutorialDeals || TUT_DEALS_DEFAULT
   const v3 = [
     [0.05, (p) => { for (let i = 0; i < (P.tutorialSales ?? 1); i++) hire(G, p, 'sales', 'suburb'); hire(G, p, 'mgmt', 'suburb'); hire(G, p, 'mgmt', 'suburb') }], // 営業 tutorialSales 人・管理2人
@@ -1057,8 +1060,11 @@ function runTutorial(G) {
     [0.4, (p) => fill(G, p, 'suburb', TUT_DEALS[1].type, TUT_DEALS[1].rooms, () => TUT_DEALS[1].rent)],
     [0.5, (p) => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')],
     [0.6, (p) => fill(G, p, 'suburb', TUT_DEALS[2].type, TUT_DEALS[2].rooms, () => TUT_DEALS[2].rent)],
+    // リノベ：その時点の空室（2室）をまとめてリノベ（1室5）。次の手番で個人1室がリノベした部屋に入る
+    [0.64, (p) => { const rs = p.bldgs[0].rooms.filter((r) => r.st === 'vac' && !r.reno); pay(G, p, rs.length * P.renoPrice, 'reno'); for (const r of rs) r.reno = true }],
+    [0.68, (p) => fill(G, p, 'suburb', 'indiv', 1, () => P.areas.suburb.mkt)],
     [0.7, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
-    [0.8, (p) => EV.leak(G, p)], // リスクカード：漏水・設備故障（手番9の保険で補償される）
+    [0.8, (p) => EV.leak(G, p)], // リスクカード：漏水・設備故障（保険で補償される）
   ]
   const steps = P.tutorialPlan === 'v3' ? v3 : [
     // 借りる手番と家具を置く手番を分ける（leaseWithFurn=false）ときは、手番1で借り、手番2で家具を置く（2026-10-08）
@@ -1104,7 +1110,7 @@ function runTutorial(G) {
     }
   }
   G.clock = G.periodMin
-  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。個人は1室だけなので、その1室が退去（2026-10-09）
+  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。個人2室（35と37）がどちらも退去（2026-10-09）
 }
 
 // ---- 期の進行 ----
