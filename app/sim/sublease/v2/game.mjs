@@ -856,7 +856,20 @@ function preTurnSmart(G, p) {
 // ---- 第1期の台本（全員同じ。2026-10-07 の v2 版） ----
 function runTutorial(G) {
   const P = G.P
-  const steps = [
+  // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 個人2室 → 広告 → 個人4室 → 営業チップ → 個人2室（満室）→ 保険 → リスク（クレーム）
+  const v3 = [
+    [0.05, (p) => { for (let i = 0; i < (P.tutorialSales ?? 1); i++) hire(G, p, 'sales', 'suburb'); hire(G, p, 'mgmt', 'suburb'); hire(G, p, 'mgmt', 'suburb') }], // 営業 tutorialSales 人・管理2人
+    [0.1, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
+    [0.15, (p) => buyFurn(G, p, 8)],
+    [0.22, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)],
+    [0.3, (p) => buy(G, p, 'ads', P.adPrice, 'ads')],
+    [0.4, (p) => fill(G, p, 'suburb', 'indiv', 4, () => P.tutorialRent.indiv)], // 営業2室＋広告2室
+    [0.5, (p) => buy(G, p, 'salesChips', P.salesChipPrice, 'salesChip')],
+    [0.6, (p) => fill(G, p, 'suburb', 'indiv', 2, () => P.tutorialRent.indiv)], // 満室
+    [0.7, (p) => { pay(G, p, P.insPrice, 'insurance'); p.ins++ }],
+    [0.8, (p) => EV.noise(G, p)], // リスクカード：入居者トラブル（管理能力が足りているので影響なし）
+  ]
+  const steps = P.tutorialPlan === 'v3' ? v3 : [
     // 借りる手番と家具を置く手番を分ける（leaseWithFurn=false）ときは、手番1で借り、手番2で家具を置く（2026-10-08）
     ...(P.leaseWithFurn
       ? [[0.05, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }); buyFurn(G, p, 8) }]]
@@ -1083,7 +1096,8 @@ export function playGame(P, personas, seed) {
     players: personas.map((persona, id) => ({
       id, persona, opening: rand() < 0.5 ? 'focus' : 'spread', period: 1,
       cash: P.capital, capital: P.capital, retained: 0, loan: 0, short: 0, taxDue: 0,
-      sales: 1, salesBy: { suburb: 1, city: 0, rural: 0 }, mgmt: P.initMgmt ?? 1, mgmtBy: { suburb: P.initMgmt ?? 1, city: 0, rural: 0 }, lockBy: {}, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
+      // tutorialPlan 'v3' では開業時のスタッフは0人（第1期の手番1で雇う）
+      sales: P.tutorialPlan === 'v3' ? 0 : 1, salesBy: { suburb: P.tutorialPlan === 'v3' ? 0 : 1, city: 0, rural: 0 }, mgmt: P.tutorialPlan === 'v3' ? 0 : P.initMgmt ?? 1, mgmtBy: { suburb: P.tutorialPlan === 'v3' ? 0 : P.initMgmt ?? 1, city: 0, rural: 0 }, lockBy: {}, ads: 0, salesChips: 0, locks: 0, ins: 0, furn: [], bldgs: [], hist: [], flags: {},
     })),
     log: [],
     auctions: [],
