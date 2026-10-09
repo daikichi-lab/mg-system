@@ -919,11 +919,13 @@ function decideSmart(G, p) {
     add((gain * rent * K(G) * L * 2 + fut * Math.min(2, fillable(G, p, a)) * 4) * s.hireW - sal * (L + fut) - P.hireCost, P.hireCost, () => hire(G, p, 'sales', a), `hire sales ${a}`)
   }
   // 管理の採用・スマートロック：管理能力が足りずに入れられない部屋がある分
-  for (const a of areasHeld) {
-    const blocked = Math.max(0, occ(p, null, a).length + vac(p, a) - mgmtCap(P, p, a))
+  // 管理能力が会社全体のとき（mgmtByArea false）は、会社全体でまとめて1回だけ見る
+  for (const a of P.mgmtByArea ? areasHeld : areasHeld.slice(0, 1)) {
+    const area = P.mgmtByArea ? a : null
+    const blocked = Math.max(0, occ(p, null, area).length + vac(p, area) - mgmtCap(P, p, area))
     if (!blocked) continue
     const rent = rentEst(G, p, a, 'indiv', mktArea(p, a, P))
-    if ((p.mgmtBy[a] || 0) < P.staffMax) add(Math.min(blocked, P.mgmtRooms) * rent * K(G) * H * 0.6 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'mgmt', a), `hire mgmt ${a}`)
+    if ((P.mgmtByArea ? p.mgmtBy[a] || 0 : p.mgmt) < P.staffMax) add(Math.min(blocked, P.mgmtRooms) * rent * K(G) * H * 0.6 * s.hireW - sal * H - P.hireCost, P.hireCost, () => hire(G, p, 'mgmt', a), `hire mgmt ${a}`)
     if (s.lock && p.locks < P.lockMax) add(Math.min(blocked, P.lockRooms) * rent * K(G) * H * 0.6 - P.lockPrice, P.lockPrice, () => buyLock(G, p, a), `lock ${a}`)
   }
   // 営業チップ：この期の残りの、相手のいる入札で勝ちやすくなる分。2枚以上あれば1枚は次の期へ残る
