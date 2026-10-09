@@ -33,7 +33,8 @@ export const V2 = {
   // 2026-10-08：入居費用・原状回復を一律5に上げたので 借上げ賃料 都市20・郊外16・地方10、地方の相場は 40 → 35
   // 2026-10-08：手番ごとにまるごと精算するので、家賃の上限（相場）を 50/45/35 → 35/30/20 に下げる（借上げ賃料はそのまま）
   // 2026-10-09：上限を 40/35/30 に（ユーザー判断）
-  areas: { city: { n: 6, own: 20, mkt: 40 }, suburb: { n: 10, own: 16, mkt: 35 }, rural: { n: 8, own: 10, mkt: 30 } },
+  // 借上げ賃料と相場（家賃の上限）を半分にした（2026-10-09 ユーザー判断：固定費の重いゲーム。郊外の上限17.5は18に切り上げ）
+  areas: { city: { n: 6, own: 10, mkt: 20 }, suburb: { n: 10, own: 8, mkt: 18 }, rural: { n: 8, own: 5, mkt: 15 } },
   oldN: 0, // 築古の棟カードは無くした（2026-10-09 ユーザー判断）。棟カードは都市6・郊外10・地方8の24枚
   oldDelta: -4,
   faceUp: 6, // 物件市場は常に6枚（2026-10-08）
@@ -208,15 +209,16 @@ export const V2 = {
   adCards: 2,
   /** 顧客カード：[エリア, 種類, 室数, 予算（相場からの差）, …] を1枚ずつ。予算＝そのエリアの相場＋差 */
   // 2026-10-09：個人は1室だけ（多め）、学生は3〜5室（ストッカーの＋2をやめた分、多め）、法人は1室か2室
+  // 2026-10-09：相場を半分にしたので、予算の差も半分（0・−1・−2）
   tenantCards: [
-    ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -3], ['city', 'indiv', 1, -4],
-    ['city', 'stud', 3, -3], ['city', 'stud', 4, -4], ['city', 'corp', 1, -1], ['city', 'corp', 2, -2],
-    ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2],
-    ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -3], ['suburb', 'indiv', 1, -4], ['suburb', 'indiv', 1, -4],
-    ['suburb', 'stud', 3, -2], ['suburb', 'stud', 3, -3], ['suburb', 'stud', 4, -3], ['suburb', 'stud', 4, -4], ['suburb', 'stud', 5, -4],
-    ['suburb', 'corp', 1, -1], ['suburb', 'corp', 2, -2], ['suburb', 'corp', 2, -3],
-    ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -3], ['rural', 'indiv', 1, -4],
-    ['rural', 'stud', 3, -3], ['rural', 'corp', 1, 0], ['rural', 'corp', 1, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -2], ['rural', 'corp', 2, -2], ['rural', 'corp', 2, -3],
+    ['city', 'indiv', 1, 0], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -1], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -2], ['city', 'indiv', 1, -2],
+    ['city', 'stud', 3, -2], ['city', 'stud', 4, -2], ['city', 'corp', 1, -1], ['city', 'corp', 2, -1],
+    ['suburb', 'indiv', 1, 0], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -1],
+    ['suburb', 'indiv', 1, -1], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2], ['suburb', 'indiv', 1, -2],
+    ['suburb', 'stud', 3, -1], ['suburb', 'stud', 3, -2], ['suburb', 'stud', 4, -2], ['suburb', 'stud', 4, -2], ['suburb', 'stud', 5, -2],
+    ['suburb', 'corp', 1, -1], ['suburb', 'corp', 2, -1], ['suburb', 'corp', 2, -2],
+    ['rural', 'indiv', 1, 0], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -1], ['rural', 'indiv', 1, -2], ['rural', 'indiv', 1, -2],
+    ['rural', 'stud', 3, -2], ['rural', 'corp', 1, 0], ['rural', 'corp', 1, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -1], ['rural', 'corp', 2, -2],
   ],
 
   /** 空室が足りなくても、入れられる室数だけ入れられる（2026-10-09） */

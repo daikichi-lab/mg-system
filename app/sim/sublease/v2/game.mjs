@@ -164,7 +164,7 @@ function collect(G, p) {
 // ---- 入居・退去 ----
 /** その会社のそのエリアの募集中の部屋に、type の入居者を n 室入れる。家賃は rentOf(棟)。戻り値は入居した室数 */
 // 第1期の台本の営業3回（手番4・6・8）で取る顧客カード。上書きは P.tutorialDeals
-const TUT_DEALS_DEFAULT = [{ type: 'stud', rooms: 4, rent: 30 }, { type: 'indiv', rooms: 1, rent: 35 }, { type: 'corp', rooms: 1, rent: 30 }]
+const TUT_DEALS_DEFAULT = [{ type: 'stud', rooms: 4, rent: 15 }, { type: 'indiv', rooms: 1, rent: 18 }, { type: 'corp', rooms: 1, rent: 15 }] // 家賃を半分にした（2026-10-09）
 let TUT_DEALS = TUT_DEALS_DEFAULT
 function fill(G, p, area, type, n, rentOf) {
   accrue(G, p)
@@ -1046,7 +1046,7 @@ function preTurnSmart(G, p) {
 function runTutorial(G) {
   const P = G.P
   // tutorialPlan 'v3'（2026-10-09 ユーザー指定）：人を雇う → 借りる → 家具 → 学生4室 → 広告 → 個人1室 → 営業チップ → 法人1室
-  //   → リノベ（空室2室・10）→ 個人1室（リノベした部屋に35＋2＝37）→ 保険 → リスク（漏水）。全12手番
+  //   → リノベ（空室2室・10）→ 個人1室（リノベした部屋に18＋2＝20）→ 保険 → リスク（漏水）。全12手番
 
   TUT_DEALS = P.tutorialDeals || TUT_DEALS_DEFAULT
   const v3 = [
@@ -1054,7 +1054,7 @@ function runTutorial(G) {
     [0.1, (p) => { accrue(G, p); p.bldgs.push({ ...newBldg(P, { area: 'suburb', old: false }), leasedTot: p.totTurns || 0 }) }],
     [0.15, (p) => buyFurn(G, p, 8)],
     // 第1期の営業（練習）：個人・学生・法人を1回ずつ体験する（2026-10-09 ユーザー指定）
-    // 手番4 学生4室・30 ／ 手番6 個人1室・満額35 ／ 手番8 法人1室・30（練習なので単価交渉のサイコロは振らない）
+    // 手番4 学生4室・15 ／ 手番6 個人1室・満額18 ／ 手番8 法人1室・15（練習なので単価交渉のサイコロは振らない）
     [0.22, (p) => fill(G, p, 'suburb', TUT_DEALS[0].type, TUT_DEALS[0].rooms, () => TUT_DEALS[0].rent)],
     [0.3, (p) => buy(G, p, 'ads', P.adPrice, 'ads')],
     [0.4, (p) => fill(G, p, 'suburb', TUT_DEALS[1].type, TUT_DEALS[1].rooms, () => TUT_DEALS[1].rent)],
@@ -1110,7 +1110,7 @@ function runTutorial(G) {
     }
   }
   G.clock = G.periodMin
-  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。個人2室（35と37）がどちらも退去（2026-10-09）
+  G.tutorialDie = 2 // 期末の個人の退去のサイコロ：講師の目2（全員共通）。個人2室（18と20）がどちらも退去（2026-10-09）
 }
 
 // ---- 期の進行 ----
