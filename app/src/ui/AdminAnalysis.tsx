@@ -16,7 +16,12 @@ interface CoRows {
   c: ApiOrgCompany
   color: string
   rows: AnalysisRow[]
+  /** 表・グラフに出す名前（会社名か社長名。切り替えは nameBy） */
+  label: string
 }
+
+/** 表・グラフに出す名前の種類。会社名／社長名 */
+type NameBy = 'company' | 'president'
 
 export default function AdminAnalysis({ org, companies }: { org: string; companies: ApiOrgCompany[] }) {
   // その研修の数値ルール（計画の固定費の計算に使う）。読み込むまでは計算しない（既定ルールで出すと数字がずれるため）
@@ -45,9 +50,10 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
   const [period, setPeriod] = useState(0) // 0 = 全期
   const [showPlan, setShowPlan] = useState(true)
   const [hidden, setHidden] = useState<Set<string>>(new Set()) // 表・グラフから外した会社
+  const [nameBy, setNameBy] = useState<NameBy>('company')
 
   // 第4表のある会社（決算か経営計画のどちらかがある）。色は会社の並び順で固定（外しても他社の色が変わらない）
-  const all: CoRows[] = useMemo(() => {
+  const base = useMemo(() => {
     if (!rulesReady) return []
     const orgQ = orgQOf(companies)
     return companies
@@ -55,6 +61,12 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
       .filter((x) => x.rows.some((r) => r.actual || r.plan))
       .map((x, i) => ({ ...x, color: ORG_COLORS[i % ORG_COLORS.length] }))
   }, [companies, rulesReady])
+  // 名前の切り替えは表示だけ（計算し直さない）。社長名が未入力の会社は会社名で出す（空欄だと誰の列か分からないため）。
+  // 会社の選択（hidden）・data-testid は会社名のまま（研修内で一意なのは会社名なので）
+  const all: CoRows[] = base.map((x) => ({
+    ...x,
+    label: nameBy === 'president' && x.c.president?.trim() ? x.c.president.trim() : x.c.name,
+  }))
   const shown = all.filter((x) => !hidden.has(x.c.name))
   const periods = [...new Set(all.flatMap((x) => x.rows.map((r) => r.period)))].sort((a, b) => a - b)
 
@@ -92,6 +104,18 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
                   第{p}期
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5">
+            <span className="text-ink-500 font-bold">名前</span>
+            <select
+              data-testid="aa-nameby"
+              value={nameBy}
+              onChange={(e) => setNameBy(e.target.value as NameBy)}
+              className="h-8 border border-line rounded-lg px-2 bg-white"
+            >
+              <option value="company">会社名</option>
+              <option value="president">社長名</option>
             </select>
           </label>
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -132,7 +156,7 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
                   style={{ accentColor: x.color }}
                 />
                 <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: x.color }} />
-                {x.c.name}
+                {x.label}
               </label>
             )
           })}
@@ -187,7 +211,7 @@ function AnalysisTable({ list, period, periods, showPlan }: { list: CoRows[]; pe
             {list.map((x) => (
               <th key={x.c.name} colSpan={span} className={`${head} px-2 py-1 whitespace-nowrap border-l-2 border-line border-b`}>
                 <span className="inline-block w-2 h-2 rounded-full mr-1 align-middle" style={{ background: x.color }} />
-                {x.c.name}
+                {x.label}
               </th>
             ))}
           </tr>
@@ -277,7 +301,7 @@ interface Series {
 
 function Charts({ list, period, periods, showPlan }: { list: CoRows[]; period: number; periods: number[]; showPlan: boolean }) {
   // 全期：横軸＝期、系列＝会社。期ごと：横軸＝会社、系列＝会社（自分の位置にだけ値を持つ）
-  const cats = period ? list.map((x) => x.c.name) : periods.map((p) => `第${p}期`)
+  const cats = period ? list.map((x) => x.label) : periods.map((p) => `第${p}期`)
   const seriesOf = (pick: (c: AnalysisCol) => number | null, kind: 'actual' | 'plan' = 'actual'): Series[] =>
     list.map((x, i) => {
       const at = (p: number) => {
@@ -285,7 +309,7 @@ function Charts({ list, period, periods, showPlan }: { list: CoRows[]; period: n
         return col ? pick(col) : null
       }
       return {
-        name: `${x.c.name}${kind === 'plan' ? '（計画）' : ''}`,
+        name: `${x.label}${kind === 'plan' ? '（計画）' : ''}`,
         color: x.color,
         values: period ? cats.map((_, j) => (j === i ? at(period) : null)) : periods.map(at),
         line: !period,

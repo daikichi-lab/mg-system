@@ -728,6 +728,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('aa-table')).toContainText('第2期')
     await expect(page.getByTestId('aa-grade-E2E製菓-1-actual')).toHaveText(/^(S|A|B|C|D|DD)$/)
     await expect(page.getByTestId('aa-chart-ratio')).toBeVisible()
+    // 名前の切り替え：社長名にすると見出しが社長名になり、会社名に戻せる（会社の選択はそのまま）
+    await page.getByTestId('aa-nameby').selectOption('president')
+    await expect(page.getByTestId('aa-table')).toContainText('検証太郎')
+    await expect(page.getByTestId('aa-table')).not.toContainText('E2E製菓')
+    await expect(page.getByTestId('aa-chart-ratio')).toContainText('検証太郎')
+    await page.getByTestId('aa-nameby').selectOption('company')
+    await expect(page.getByTestId('aa-table')).toContainText('E2E製菓')
     await page.getByTestId('aa-period').selectOption('1')
     await expect(page.getByTestId('aa-table')).not.toContainText('第2期')
     await page.getByTestId('aa-plan').uncheck()
