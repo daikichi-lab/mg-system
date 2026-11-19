@@ -40,6 +40,8 @@ import {
 } from '../lib/figures-account'
 import { scoreCardsHTML, structureHTML, insightsHTML, lineChartHTML } from '../lib/figures-review'
 import OrgTab from './OrgTab'
+import AnalysisCard from './AnalysisCard'
+import type { ApiOrgCompany } from '../lib/api'
 import { boardHTML } from '../lib/figures-board'
 import PlanTab from './PlanTab'
 import ProgressTab from './ProgressTab'
@@ -251,7 +253,7 @@ export default function Participant() {
             }}
           />
         )}
-        {tab === 'review' && <ReviewTab history={game.history} plans={game.plans} st={st} />}
+        {tab === 'review' && <ReviewTab history={game.history} plans={game.plans} st={st} loadOrg={game.refreshOrg} />}
         {tab === 'org' && <OrgTab game={game} toast={toast} />}
       </main>
 
@@ -2093,7 +2095,18 @@ function ChartCard({ title, sub, html }: { title: string; sub?: string; html: st
   )
 }
 
-function ReviewTab({ history, plans, st }: { history: Result[]; plans: Record<string, unknown>; st: St }) {
+function ReviewTab({
+  history,
+  plans,
+  st,
+  loadOrg,
+}: {
+  history: Result[]
+  plans: Record<string, unknown>
+  st: St
+  /** 第4表のシェア（研修の全社の売上個数）を出すための組織データの読み込み */
+  loadOrg: () => Promise<ApiOrgCompany[]>
+}) {
   if (!history.length)
     return (
       <div className="bg-white rounded-2xl shadow-card border border-line p-8 text-center text-ink-400">
@@ -2190,6 +2203,8 @@ function ReviewTab({ history, plans, st }: { history: Result[]; plans: Record<st
           </p>
         </div>
       )}
+      {/* 紙の様式「第4表 MG経営戦略分析表」とグラフ用紙・S〜DD の評価（issue #109） */}
+      <AnalysisCard history={history} plans={plans} st={st} loadOrg={loadOrg} />
       <div className="bg-white rounded-2xl shadow-card border border-line p-5">
         <h2 className="font-bold mb-2">利益構造 STRAC の推移</h2>
         <Figure html={structureHTML(history)} />

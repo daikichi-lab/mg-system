@@ -67,6 +67,7 @@ npm run lint     # oxlint
 ```bash
 npm run test:calc   # golden-master：TSエンジンの出力が golden.json（期待値スナップショット）と厳密一致するか
 npm run test:game   # 台帳整合（幽霊販売クランプ・行削除/編集ガード・決算ブロック）
+npm run test:analysis # 第4表 MG経営戦略分析表・S〜DD の評価・シェア（lib/analysis.ts）
 npm run test:rules  # 数値ルールの差し替えが計算に効くか（rules.ts / setRules）
 npm run test:db     # Postgres 方言の round-trip（pglite = WASM版Postgres）
 npm run test:orgs   # 研修（組織）のマイグレーション・改名・研修URL変更・ルールのコピー・ステータス

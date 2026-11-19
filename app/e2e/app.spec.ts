@@ -281,6 +281,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('tab-review').click()
     await expect(page.getByTestId('pa-3')).toContainText('売上高 PQ')
     await expect(page.getByTestId('pa-3')).toContainText('320') // 計画 P32 × Q10
+    // 第4表 MG経営戦略分析表：決算前の今の期（第3期）も計画の列に PQ 320 が出る（issue #109）
+    await expect(page.getByTestId('analysis-table')).toContainText('320')
   })
 
   test('参加者：会社作成→全アクション→決算→次期→履歴/組織→リロード復元', async ({ page }) => {
@@ -425,6 +427,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // --- 振り返りタブ（推移・気づき） ---
     await page.getByTestId('tab-review').click()
     await expect(page.getByTestId('review')).toBeVisible()
+    // 第4表・推移グラフ・評価表（issue #109）。第1期の決算に S〜DD のどれかの評価が付く
+    await expect(page.getByTestId('analysis-table')).toContainText('第1期')
+    await expect(page.getByTestId('grade-1')).toHaveText(/^(S|A|B|C|D|DD)$/)
+    await expect(page.getByTestId('chart-ratio')).toBeVisible()
+    await expect(page.getByTestId('grade-table')).toContainText('倒産路線企業')
 
     // --- 期末処理タブ：決算済みは勘定の図解を表示 ---
     await page.getByTestId('tab-closing').click()
