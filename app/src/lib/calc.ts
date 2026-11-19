@@ -898,7 +898,11 @@ export function doClosingPrep(st: St) {
   recompute(st)
   const SAL = salaryFor(st.period)
   const head = st.staffMfg + st.staffSales
-  const retired = st.tx.filter((x) => x.key === 'taishoku_mfg' || x.key === 'taishoku_sales').length
+  // 退職者の期末給料（半額・切り上げ）は数値ルールで払わない設定にできる（issue #107）。
+  // 払わない設定のときは退職者を数えず、給料は在籍人数分だけにする
+  const retired = getRules().retireHalfSalary
+    ? st.tx.filter((x) => x.key === 'taishoku_mfg' || x.key === 'taishoku_sales').length
+    : 0
   const halfPer = Math.ceil(SAL / 2)
   const retSalary = retired * halfPer
   const salary = head * SAL + retSalary

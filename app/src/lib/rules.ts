@@ -24,6 +24,11 @@ export const LOAN_COMBINE_LABELS: Record<LoanCombine, string> = {
 export interface Rules {
   /** 期別の1人あたり給料（添字＝期−1）。表にない期は 28 を使う */
   salaryTable: number[]
+  /**
+   * 退職者に期末の給料の半額（切り上げ）を払うか。true＝払う（仕様書 §3.7「退職」・既定）、false＝払わない。
+   * 退職イベントの退職金 5 はこの設定に関係なく払う（カードの文面どおり）。issue #107
+   */
+  retireHalfSalary: boolean
   /** 借入金利（比率。0.05 ＝ 5%） */
   loanRate: number
   /**
@@ -69,6 +74,7 @@ export interface Rules {
 /** 既定ルール ＝ 入門編 標準。現行の計算結果を1円も変えないための基準値。 */
 export const DEFAULT_RULES: Rules = {
   salaryTable: [25, 28, 31, 34, 37],
+  retireHalfSalary: true,
   loanRate: 0.05,
   loanFrom: { equity: 2, sales: 0, debt: 0 }, // 既定は第2期から純資産倍率だけ（従来どおり）
   loanCombine: 'min',
@@ -122,6 +128,8 @@ export function normalizeRules(input?: Partial<Rules> | null): Rules {
     return { ...d, salaryTable: d.salaryTable.slice(), materialPrices: d.materialPrices.slice(), loanFrom: { ...d.loanFrom } }
   return {
     salaryTable: numList(input.salaryTable, d.salaryTable),
+    // 真偽値だけを受け付ける。項目の無い保存済みルール（issue #107 より前）は既定＝払う
+    retireHalfSalary: typeof input.retireHalfSalary === 'boolean' ? input.retireHalfSalary : d.retireHalfSalary,
     loanRate: num(input.loanRate, d.loanRate),
     loanFrom: loanFromOf(input.loanFrom, d.loanFrom),
     loanCombine: input.loanCombine === 'max' || input.loanCombine === 'min' ? input.loanCombine : d.loanCombine,

@@ -96,6 +96,13 @@ function Value({ field, rules }: { field: Field; rules: Rules }) {
       </div>
     )
   }
+  if (field.kind === 'flag') {
+    return (
+      <div className="font-bold text-base" data-testid={`v-${field.key}`}>
+        {rules[field.key] ? field.on : field.off}
+      </div>
+    )
+  }
   if (field.kind === 'pct') {
     return (
       <div className="num font-bold text-xl">

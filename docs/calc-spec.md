@@ -308,7 +308,9 @@ function doClosingPrep() {
   recompute()
   SAL   = SALARY_TABLE[st.period] || 28
   head  = st.staffMfg + st.staffSales                     // 期末在籍者数
-  retired = count(tx where key ∈ {taishoku_mfg, taishoku_sales})  // 当期退職イベント数
+  retired = rules.retireHalfSalary                         // 数値ルールで払わない設定なら退職者を数えない（issue #107・既定 true）
+            ? count(tx where key ∈ {taishoku_mfg, taishoku_sales})  // 当期退職イベント数
+            : 0
   halfPer = Math.ceil(SAL / 2)                            // 退職者1人あたり半額(切上)
   retSalary = retired * halfPer
   salary = head * SAL + retSalary                         // ★給料 = 在籍×給料表 + 退職者×半額
