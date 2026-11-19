@@ -11,19 +11,17 @@ import { setRules } from '../lib/calc'
 import { companyAnalysis, GRADES, orgQOf, type AnalysisCol, type AnalysisRow } from '../lib/analysis'
 import { ORG_COLORS } from '../lib/figures-review'
 import { GRADE_COLOR, GradeBadge, LINES, show } from './AnalysisCard'
+import { displayName, type NameBy } from './nameBy'
 
 interface CoRows {
   c: ApiOrgCompany
   color: string
   rows: AnalysisRow[]
-  /** 表・グラフに出す名前（会社名か社長名。切り替えは nameBy） */
+  /** 表・グラフに出す名前（会社名か社長名。切り替えは成績一覧の上部の「名前」） */
   label: string
 }
 
-/** 表・グラフに出す名前の種類。会社名／社長名 */
-type NameBy = 'company' | 'president'
-
-export default function AdminAnalysis({ org, companies }: { org: string; companies: ApiOrgCompany[] }) {
+export default function AdminAnalysis({ org, companies, nameBy }: { org: string; companies: ApiOrgCompany[]; nameBy: NameBy }) {
   // その研修の数値ルール（計画の固定費の計算に使う）。読み込むまでは計算しない（既定ルールで出すと数字がずれるため）
   const [rulesReady, setRulesReady] = useState(false)
   useEffect(() => {
@@ -50,7 +48,6 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
   const [period, setPeriod] = useState(0) // 0 = 全期
   const [showPlan, setShowPlan] = useState(true)
   const [hidden, setHidden] = useState<Set<string>>(new Set()) // 表・グラフから外した会社
-  const [nameBy, setNameBy] = useState<NameBy>('company')
 
   // 第4表のある会社（決算か経営計画のどちらかがある）。色は会社の並び順で固定（外しても他社の色が変わらない）
   const base = useMemo(() => {
@@ -61,12 +58,8 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
       .filter((x) => x.rows.some((r) => r.actual || r.plan))
       .map((x, i) => ({ ...x, color: ORG_COLORS[i % ORG_COLORS.length] }))
   }, [companies, rulesReady])
-  // 名前の切り替えは表示だけ（計算し直さない）。社長名が未入力の会社は会社名で出す（空欄だと誰の列か分からないため）。
-  // 会社の選択（hidden）・data-testid は会社名のまま（研修内で一意なのは会社名なので）
-  const all: CoRows[] = base.map((x) => ({
-    ...x,
-    label: nameBy === 'president' && x.c.president?.trim() ? x.c.president.trim() : x.c.name,
-  }))
+  // 名前の切り替えは表示だけ（計算し直さない）。会社の選択（hidden）・data-testid は会社名のまま
+  const all: CoRows[] = base.map((x) => ({ ...x, label: displayName(x.c, nameBy) }))
   const shown = all.filter((x) => !hidden.has(x.c.name))
   const periods = [...new Set(all.flatMap((x) => x.rows.map((r) => r.period)))].sort((a, b) => a - b)
 
@@ -104,18 +97,6 @@ export default function AdminAnalysis({ org, companies }: { org: string; compani
                   第{p}期
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-1.5">
-            <span className="text-ink-500 font-bold">名前</span>
-            <select
-              data-testid="aa-nameby"
-              value={nameBy}
-              onChange={(e) => setNameBy(e.target.value as NameBy)}
-              className="h-8 border border-line rounded-lg px-2 bg-white"
-            >
-              <option value="company">会社名</option>
-              <option value="president">社長名</option>
             </select>
           </label>
           <label className="flex items-center gap-1.5 cursor-pointer select-none">

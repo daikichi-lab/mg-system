@@ -722,19 +722,22 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('rank-charts').click()
     await expect(page.getByTestId('admin-charts')).toBeVisible()
     await expect(page.getByTestId('admin-charts')).toContainText('売上 PQ の推移')
+    // 名前の切り替え（成績一覧の上部・3つの表示で共有）：グラフ形式の凡例が社長名になる
+    await expect(page.getByTestId('admin-charts')).toContainText('E2E製菓')
+    await page.getByTestId('rank-nameby').selectOption('president')
+    await expect(page.getByTestId('admin-charts')).toContainText('検証太郎')
+    await expect(page.getByTestId('admin-charts')).not.toContainText('E2E製菓')
     // 経営戦略分析表（第4表・issue #111）：上に表・下にグラフ。期ごと・会社の選択で表が絞られる
     await page.getByTestId('rank-analysis').click()
+    // 社長名のまま経営戦略分析表に切り替わる（見出し・グラフとも社長名）。会社名に戻せる
+    await expect(page.getByTestId('aa-table')).toContainText('検証太郎')
+    await expect(page.getByTestId('aa-table')).not.toContainText('E2E製菓')
+    await expect(page.getByTestId('aa-chart-ratio')).toContainText('検証太郎')
+    await page.getByTestId('rank-nameby').selectOption('company')
     await expect(page.getByTestId('aa-table')).toContainText('E2E製菓')
     await expect(page.getByTestId('aa-table')).toContainText('第2期')
     await expect(page.getByTestId('aa-grade-E2E製菓-1-actual')).toHaveText(/^(S|A|B|C|D|DD)$/)
     await expect(page.getByTestId('aa-chart-ratio')).toBeVisible()
-    // 名前の切り替え：社長名にすると見出しが社長名になり、会社名に戻せる（会社の選択はそのまま）
-    await page.getByTestId('aa-nameby').selectOption('president')
-    await expect(page.getByTestId('aa-table')).toContainText('検証太郎')
-    await expect(page.getByTestId('aa-table')).not.toContainText('E2E製菓')
-    await expect(page.getByTestId('aa-chart-ratio')).toContainText('検証太郎')
-    await page.getByTestId('aa-nameby').selectOption('company')
-    await expect(page.getByTestId('aa-table')).toContainText('E2E製菓')
     await page.getByTestId('aa-period').selectOption('1')
     await expect(page.getByTestId('aa-table')).not.toContainText('第2期')
     await page.getByTestId('aa-plan').uncheck()
@@ -746,6 +749,12 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
 
     await page.getByTestId('rank-table').click()
     await expect(page.getByTestId('admin-rank')).toBeVisible()
+    // 表形式：社長名にすると見出しの太字が社長名、下に小さく会社名
+    const firstHead = page.getByTestId('admin-rank').locator('thead tr').first().locator('th').nth(1)
+    await expect(firstHead).toHaveText('E2E製菓検証太郎')
+    await page.getByTestId('rank-nameby').selectOption('president')
+    await expect(firstHead).toHaveText('検証太郎E2E製菓')
+    await page.getByTestId('rank-nameby').selectOption('company')
 
     // CSV ダウンロード
     const [download] = await Promise.all([
