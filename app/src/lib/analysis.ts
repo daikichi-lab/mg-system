@@ -3,7 +3,7 @@
 // 紙の様式の「実績／計画」を期ごとに並べる表と、その右側のグラフ用紙（純資産・シェア・f/m比率）の数字を作る。
 // 実績は決算（Result）、計画はその期の経営計画書（plan.ts の planFigures）から取る。式は二重に持たない。
 // 画面（ui/AnalysisCard.tsx）はここで作った値を並べるだけにする。issue #109
-import type { Result, St } from './calc.ts'
+import { newState, type Result, type St } from './calc.ts'
 import { normalizePlan, planFigures, stateAtPeriod } from './plan.ts'
 
 /** 評価の段階。損益分岐点比率が低いほど良い */
@@ -187,6 +187,34 @@ export function analysisTable(
       period: p,
       actual: r ? actualCol(r, shareOf(p, base.name, r.Q, orgQ)) : null,
       plan: planCol(p, plans, history, base),
+    })
+  }
+  return rows
+}
+
+/**
+ * 管理画面用：研修の会社1社分の第4表（組織 API の会社データから作る）。issue #111
+ * 参加者アプリのような「今の盤面」は持たないので、計画の期首の盤面はすべて前の期の決算から組み直す
+ * （base.period を 0 にして planCol() が必ず stateAtPeriod() を通るようにする）。
+ * 並べる期は第1期から「決算のある最後の期」と「その会社の今の期」の遅いほうまで。
+ * 計画の固定費は数値ルールで決まるので、呼び出し側でその研修のルールを setRules() しておくこと。
+ */
+export function companyAnalysis(
+  c: { name: string; period?: number; results?: unknown[]; plans?: Record<string, unknown> },
+  orgQ: OrgQ | null,
+): AnalysisRow[] {
+  const history = (c.results || []) as Result[]
+  const base = newState()
+  base.name = c.name
+  base.period = 0
+  const last = Math.max(Number(c.period) || 0, ...history.map((r) => r.period))
+  const rows: AnalysisRow[] = []
+  for (let p = 1; p <= last; p++) {
+    const r = history.find((h) => h.period === p)
+    rows.push({
+      period: p,
+      actual: r ? actualCol(r, shareOf(p, c.name, r.Q, orgQ)) : null,
+      plan: planCol(p, c.plans || {}, history, base),
     })
   }
   return rows

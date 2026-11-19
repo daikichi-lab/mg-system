@@ -8,7 +8,7 @@ import { analysisTable, GRADES, orgQOf, type AnalysisCol, type AnalysisRow, type
 import type { ApiOrgCompany } from '../lib/api'
 
 /** 評価ごとの色（文字・帯）。良い順に 緑 → 青緑 → 青 → 黄 → 橙 → 赤 */
-const GRADE_COLOR: Record<Grade, { fg: string; bg: string }> = {
+export const GRADE_COLOR: Record<Grade, { fg: string; bg: string }> = {
   S: { fg: '#15803d', bg: '#e8f5ec' },
   A: { fg: '#0f766e', bg: '#e6f4f2' },
   B: { fg: '#2f6fe0', bg: '#eaf1fd' },
@@ -21,12 +21,12 @@ const GRADE_COLOR: Record<Grade, { fg: string; bg: string }> = {
 const MIN_PERIODS = 5
 
 /** 値の表示。出せない値は「—」、マイナスは ▲ */
-const show = (v: number | null | undefined, unit = '') => (v == null ? '—' : `${fmtA(v)}${unit}`)
+export const show = (v: number | null | undefined, unit = '') => (v == null ? '—' : `${fmtA(v)}${unit}`)
 /** シェアは小数1桁まで（lib/analysis.ts の shareOf と同じ桁） */
-const showShare = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(1)}%`)
+export const showShare = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(1)}%`)
 
 /** 表の1行の定義：区分・丸数字・項目名・値の取り出し方 */
-interface Line {
+export interface Line {
   group: string
   no: string
   label: string
@@ -36,7 +36,7 @@ interface Line {
   /** 表示の仕方を変えるとき（シェアの小数1桁） */
   fmt?: (v: number | null) => string
 }
-const LINES: Line[] = [
+export const LINES: Line[] = [
   { group: 'コスト構造', no: '①', label: '平均単価', sub: 'P', get: (c) => c.P },
   { group: 'コスト構造', no: '②', label: '変動単価', sub: 'vP（V）', get: (c) => c.V },
   { group: 'コスト構造', no: '③', label: '付加価値単価', sub: 'mP（M）', get: (c) => c.M },
@@ -52,7 +52,7 @@ const LINES: Line[] = [
   { group: '', no: '⑫', label: '損益分岐点比率', sub: '⑧÷⑦×100', get: (c) => c.ratio, unit: '%' },
 ]
 
-function GradeBadge({ g }: { g: Grade | null }) {
+export function GradeBadge({ g }: { g: Grade | null }) {
   if (!g) return <span className="text-ink-300">—</span>
   return (
     <span

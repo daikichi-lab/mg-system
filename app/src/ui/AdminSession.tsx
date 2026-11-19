@@ -5,6 +5,7 @@ import { api, type ApiOrgCompany } from '../lib/api'
 import { useToast, Toaster } from './Toast'
 import { AdminLogin, useAdminToken } from './adminAuth'
 import { RankTable, RankCharts, downloadCsv } from './AdminRank'
+import AdminAnalysis from './AdminAnalysis'
 
 export default function AdminSession({ org }: { org: string }) {
   const { toasts, push: toast } = useToast()
@@ -13,7 +14,8 @@ export default function AdminSession({ org }: { org: string }) {
   const [companies, setCompanies] = useState<ApiOrgCompany[]>([])
   const [curCo, setCurCo] = useState<ApiOrgCompany | null>(null) // 参加者ビューで表示中の会社
   const [mainView, setMainView] = useState<'frame' | 'rank'>('frame') // 参加者ビュー / 成績一覧
-  const [rankView, setRankView] = useState<'table' | 'charts'>('table') // 成績一覧：表形式 / グラフ形式
+  // 成績一覧：表形式 / グラフ形式 / 経営戦略分析表（第4表・issue #111）
+  const [rankView, setRankView] = useState<'table' | 'charts' | 'analysis'>('table')
   const [frameMode, setFrameMode] = useState<'view' | 'edit'>('view') // 閲覧専用 / 編集モード
   const [frameKey, setFrameKey] = useState(0) // 参加者ビューの再読み込み用
 
@@ -284,6 +286,13 @@ export default function AdminSession({ org }: { org: string }) {
                     >
                       グラフ形式
                     </button>
+                    <button
+                      data-testid="rank-analysis"
+                      onClick={() => setRankView('analysis')}
+                      className={`px-3 py-1 rounded-md transition ${rankView === 'analysis' ? 'bg-white shadow-sm text-ink' : 'text-ink-400'}`}
+                    >
+                      経営戦略分析表
+                    </button>
                   </div>
                   <button
                     data-testid="csv-download"
@@ -295,7 +304,13 @@ export default function AdminSession({ org }: { org: string }) {
                 </div>
               </div>
               <div className="overflow-auto min-h-0">
-                {rankView === 'table' ? <RankTable companies={companies} /> : <RankCharts companies={companies} />}
+                {rankView === 'table' ? (
+                  <RankTable companies={companies} />
+                ) : rankView === 'charts' ? (
+                  <RankCharts companies={companies} />
+                ) : (
+                  <AdminAnalysis org={org} companies={companies} />
+                )}
               </div>
             </div>
           )}

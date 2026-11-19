@@ -722,6 +722,21 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await page.getByTestId('rank-charts').click()
     await expect(page.getByTestId('admin-charts')).toBeVisible()
     await expect(page.getByTestId('admin-charts')).toContainText('売上 PQ の推移')
+    // 経営戦略分析表（第4表・issue #111）：上に表・下にグラフ。期ごと・会社の選択で表が絞られる
+    await page.getByTestId('rank-analysis').click()
+    await expect(page.getByTestId('aa-table')).toContainText('E2E製菓')
+    await expect(page.getByTestId('aa-table')).toContainText('第2期')
+    await expect(page.getByTestId('aa-grade-E2E製菓-1-actual')).toHaveText(/^(S|A|B|C|D|DD)$/)
+    await expect(page.getByTestId('aa-chart-ratio')).toBeVisible()
+    await page.getByTestId('aa-period').selectOption('1')
+    await expect(page.getByTestId('aa-table')).not.toContainText('第2期')
+    await page.getByTestId('aa-plan').uncheck()
+    await expect(page.getByTestId('aa-table')).not.toContainText('計画')
+    await page.getByTestId('aa-check-E2E製菓').uncheck()
+    await expect(page.getByTestId('aa-table')).toHaveCount(0)
+    await page.getByTestId('aa-all').click()
+    await expect(page.getByTestId('aa-table')).toContainText('E2E製菓')
+
     await page.getByTestId('rank-table').click()
     await expect(page.getByTestId('admin-rank')).toBeVisible()
 
