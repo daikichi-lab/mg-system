@@ -587,3 +587,35 @@ test('前期の決算の値：期またぎで入り、保存値が無い会社�
   } as never)
   assert.deepEqual([st2.prevPQ, st2.prevG], [res.PQ, res.G])
 })
+
+// issue #113：借入を第1期からできるようにする数値ルール（純資産倍率の開始期を 1 にする）
+test('第1期の借入：既定ルールでは借りられない（従来どおり）', () => {
+  calc.setRules(null)
+  const st = newGame()
+  st.period = 1
+  assert.equal(calc.loanOpen(st), false)
+  assert.equal(calc.loanCap(st), 0)
+  assert.deepEqual(game.recordAction(st, 'kariire', { a: 100 }), ['第1期は借入できません', '借入可能額（0）を超えています'])
+})
+
+test('第1期の借入：純資産倍率を第1期からにすると借りられ、借入時の金利と期末返済も計上される', () => {
+  calc.setRules({ loanFrom: { equity: 1, sales: 0, debt: 0 } })
+  try {
+    const st = newGame()
+    st.period = 1
+    st.repayRate = 10
+    assert.equal(calc.loanOpen(st), true)
+    assert.equal(calc.loanCap(st), 300) // 純資産（資本金）300 × 倍率 1
+    assert.deepEqual(game.recordAction(st, 'kariire', { a: 200 }), [])
+    assert.equal(st.loan, 200)
+    // 借入時の金利行（借入額 × 5%）
+    assert.equal(st.tx.find((t) => t.isBorrowInterest)?.amount, 10)
+    // 枠を超える借入は拒否
+    assert.equal(game.recordAction(st, 'kariire', { a: 200 }).length, 1)
+    // 期末返済：(期首残高 0 ＋ 当期借入 200) × 10%
+    calc.doClosingPrep(st)
+    assert.equal(st.tx.find((t) => t.isClosing && t.col === 9)?.amount, 20)
+  } finally {
+    calc.setRules(null)
+  }
+})

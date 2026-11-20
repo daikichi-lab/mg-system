@@ -820,15 +820,17 @@ export interface LoanCriterion {
 
 /**
  * その期に効く借入枠の基準と、基準ごとの枠（docs/calc-spec.md §9・issue #85）。
- * 数値ルール loanFrom で基準ごとに「何期から使うか（0＝使わない）」を決める。第1期は借入なしなので常に空。
+ * 数値ルール loanFrom で基準ごとに「何期から使うか（0＝使わない）」を決める。
+ * 第1期から使えるのは純資産倍率だけ（月商倍率・債務償還年数は前期の決算の値が要るので第2期から。issue #113）。
  * - equity：純資産 × 倍率（講師が会社ごとに設定する loanMult）
  * - sales：前期の売上 ÷ 12 × loanSalesMonths（借入金月商倍率）
  * - debt：max(0, 前期の経常利益 ＋ 減価償却 − 法人税) × loanRepayYears（債務償還年数）
  * sales・debt は前期の決算の値が要る。補えなかった（前期の値が無い）ときは、その基準を使わない
  */
 export function loanCriteria(st: St): LoanCriterion[] {
-  if (st.period <= 1) return []
   const R = getRules()
+  // 開始期に達した基準だけを使う。loanFrom の第1期指定は equity だけ（normalizeRules が sales・debt の 1 を 2 に直す）。
+  // 既定（equity: 2）なら第1期は空＝借入枠 0 で、従来の「第1期は借入なし」と同じ結果になる
   const on = (k: LoanBasis) => R.loanFrom[k] > 0 && st.period >= R.loanFrom[k]
   const list: LoanCriterion[] = []
   if (on('equity')) {
@@ -858,12 +860,19 @@ export function loanCriteria(st: St): LoanCriterion[] {
 
 /**
  * 借入枠（借入残高の上限）。その期に効く基準の枠のうち、数値ルール loanCombine が min なら一番小さい枠（銀行審査）、
- * max なら一番大きい枠。効く基準が無い期（第1期・全部「使わない」）は 0＝借入できない
+ * max なら一番大きい枠。効く基準が無い期（開始期の前・全部「使わない」）は 0＝借入できない
  */
 export function loanCap(st: St): number {
   const caps = loanCriteria(st).map((c) => c.cap)
   if (!caps.length) return 0
   return getRules().loanCombine === 'max' ? Math.max(...caps) : Math.min(...caps)
+}
+/**
+ * その期に借入ができるか（借入枠の基準が1つでも効いているか）。期首画面の⑨や借入の記帳ガードで使う。
+ * 既定ルールでは第1期は false（従来の「第1期は借入なし」）。数値ルールで純資産倍率を第1期からにすると true（issue #113）
+ */
+export function loanOpen(st: St): boolean {
+  return loanCriteria(st).length > 0
 }
 export function loanRoom(st: St, excl = 0): number {
   return Math.max(0, loanCap(st) - (st.loan - excl))

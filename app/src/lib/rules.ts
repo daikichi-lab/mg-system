@@ -32,7 +32,8 @@ export interface Rules {
   /** 借入金利（比率。0.05 ＝ 5%） */
   loanRate: number
   /**
-   * 借入枠の基準ごとに、何期から使うか（0＝使わない）。第1期は借入なしなので 2 以上で効く（docs/calc-spec.md §9・issue #85）。
+   * 借入枠の基準ごとに、何期から使うか（0＝使わない）（docs/calc-spec.md §9・issue #85）。
+   * 1（第1期から）にできるのは equity だけ。sales・debt は前期の決算の値を使うので 2 以上（issue #113）
    * equity＝純資産×倍率／sales＝前期の月商×月数／debt＝前期の（経常利益＋減価償却−法人税）×償還年数
    */
   loanFrom: Record<LoanBasis, number>
@@ -115,7 +116,9 @@ const loanFromOf = (v: unknown, fallback: Record<LoanBasis, number>): Record<Loa
     const x = o[k]
     return typeof x === 'number' && Number.isInteger(x) && x >= 0 ? x : fallback[k]
   }
-  return { equity: one('equity'), sales: one('sales'), debt: one('debt') }
+  // 月商倍率・債務償還年数は前期の値が要るので、第1期からの指定（1）は第2期から（2）に直す
+  const fromP2 = (x: number) => (x === 1 ? 2 : x)
+  return { equity: one('equity'), sales: fromP2(one('sales')), debt: fromP2(one('debt')) }
 }
 
 /**

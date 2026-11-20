@@ -45,8 +45,9 @@ function FieldInput({
   }
 
   if (field.kind === 'loanPlan') {
-    // 基準ごとに「何期から使うか（なし＝0）」と、月商倍率の月数・償還年数。第1期は借入なしなので第2期から選ぶ
-    const fromOpts = [0, 2, 3, 4, 5]
+    // 基準ごとに「何期から使うか（なし＝0）」と、月商倍率の月数・償還年数。
+    // 純資産倍率だけ第1期から選べる。月商倍率・債務償還年数は前期の決算の値を使うので第2期から（issue #113）
+    const fromOpts = (k: string) => (k === 'equity' ? [0, 1, 2, 3, 4, 5] : [0, 2, 3, 4, 5])
     const extra = (k: string) =>
       k === 'sales' ? (
         <span className="flex items-center gap-1 text-xs text-ink-500">
@@ -88,7 +89,7 @@ function FieldInput({
               onChange={(e) => set({ loanFrom: { ...rules.loanFrom, [k]: Number(e.target.value) } })}
               className="h-9 border border-line rounded-lg px-2 bg-field text-sm"
             >
-              {fromOpts.map((p) => (
+              {fromOpts(k).map((p) => (
                 <option key={p} value={p}>
                   {p === 0 ? 'なし' : `第${p}期から`}
                 </option>
