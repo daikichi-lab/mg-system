@@ -5,6 +5,8 @@ import { api, type ApiOrgCompany } from '../lib/api'
 import { useToast, Toaster } from './Toast'
 import { AdminLogin, useAdminToken } from './adminAuth'
 import { RankTable, RankCharts, downloadCsv } from './AdminRank'
+import AdminAnalysis from './AdminAnalysis'
+import type { NameBy } from './nameBy'
 
 export default function AdminSession({ org }: { org: string }) {
   const { toasts, push: toast } = useToast()
@@ -13,7 +15,10 @@ export default function AdminSession({ org }: { org: string }) {
   const [companies, setCompanies] = useState<ApiOrgCompany[]>([])
   const [curCo, setCurCo] = useState<ApiOrgCompany | null>(null) // 参加者ビューで表示中の会社
   const [mainView, setMainView] = useState<'frame' | 'rank'>('frame') // 参加者ビュー / 成績一覧
-  const [rankView, setRankView] = useState<'table' | 'charts'>('table') // 成績一覧：表形式 / グラフ形式
+  // 成績一覧：表形式 / グラフ形式 / 経営戦略分析表（第4表・issue #111）
+  const [rankView, setRankView] = useState<'table' | 'charts' | 'analysis'>('table')
+  // 成績一覧に出す名前（会社名／社長名）。表形式・グラフ形式・経営戦略分析表で共有し、表示を切り替えても保つ
+  const [nameBy, setNameBy] = useState<NameBy>('company')
   const [frameMode, setFrameMode] = useState<'view' | 'edit'>('view') // 閲覧専用 / 編集モード
   const [frameKey, setFrameKey] = useState(0) // 参加者ビューの再読み込み用
 
@@ -269,6 +274,18 @@ export default function AdminSession({ org }: { org: string }) {
                   成績一覧 <span className="text-ink-400 font-normal">（{orgName || org}・{companies.length}社）</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs">
+                    <span className="text-ink-500 font-bold">名前</span>
+                    <select
+                      data-testid="rank-nameby"
+                      value={nameBy}
+                      onChange={(e) => setNameBy(e.target.value as NameBy)}
+                      className="h-9 border border-line rounded-lg px-2 bg-white"
+                    >
+                      <option value="company">会社名</option>
+                      <option value="president">社長名</option>
+                    </select>
+                  </label>
                   <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5 text-xs font-bold">
                     <button
                       data-testid="rank-table"
@@ -284,6 +301,13 @@ export default function AdminSession({ org }: { org: string }) {
                     >
                       グラフ形式
                     </button>
+                    <button
+                      data-testid="rank-analysis"
+                      onClick={() => setRankView('analysis')}
+                      className={`px-3 py-1 rounded-md transition ${rankView === 'analysis' ? 'bg-white shadow-sm text-ink' : 'text-ink-400'}`}
+                    >
+                      経営戦略分析表
+                    </button>
                   </div>
                   <button
                     data-testid="csv-download"
@@ -295,7 +319,13 @@ export default function AdminSession({ org }: { org: string }) {
                 </div>
               </div>
               <div className="overflow-auto min-h-0">
-                {rankView === 'table' ? <RankTable companies={companies} /> : <RankCharts companies={companies} />}
+                {rankView === 'table' ? (
+                  <RankTable companies={companies} nameBy={nameBy} />
+                ) : rankView === 'charts' ? (
+                  <RankCharts companies={companies} nameBy={nameBy} />
+                ) : (
+                  <AdminAnalysis org={org} companies={companies} nameBy={nameBy} />
+                )}
               </div>
             </div>
           )}

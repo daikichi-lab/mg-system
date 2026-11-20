@@ -4,6 +4,7 @@ import type { ApiOrgCompany } from '../lib/api'
 import { fmt, fmtA, fmRatio } from '../lib/calc'
 import { ORG_COLORS } from '../lib/figures-review'
 import { OrgLineChart } from './OrgLineChart'
+import { displayName, otherName, type NameBy } from './nameBy'
 
 // ---- 成績一覧：表形式（転置＝行が指標・列が会社×期。指標クリックでソート）----
 const RANK_ROWS: { k: string; label: string; get: (r: any) => number; cell: (r: any) => string }[] = [
@@ -20,7 +21,8 @@ const RANK_ROWS: { k: string; label: string; get: (r: any) => number; cell: (r: 
   { k: 'dec', label: '意思決定', get: (r) => r.decisions, cell: (r) => String(r.decisions) },
 ]
 
-export function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
+// nameBy：見出しに太字で出す名前（会社名／社長名）。もう一方は下に小さく添える
+export function RankTable({ companies, nameBy = 'company' }: { companies: ApiOrgCompany[]; nameBy?: NameBy }) {
   const [period, setPeriod] = useState(0) // 0 = 全期
   const [sort, setSort] = useState<{ k: string; dir: 'desc' | 'asc' } | null>(null)
   const periods = [...new Set(companies.flatMap((c) => (c.results || []).map((r: any) => r.period as number)))].sort((a, b) => a - b)
@@ -82,11 +84,11 @@ export function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
         <thead>
           {/* 会社名の行：上に固定。左上のセルは左右・上下の両方に固定するので z を一段上げる */}
           <tr ref={headRow} className="text-ink-600 border-b border-line bg-canvas">
-            <th className={`${stickyTop} left-0 z-30 px-2 py-1.5 text-left font-bold whitespace-nowrap`}>会社</th>
+            <th className={`${stickyTop} left-0 z-30 px-2 py-1.5 text-left font-bold whitespace-nowrap`}>{nameBy === 'president' ? '社長' : '会社'}</th>
             {entries.map((e, i) => (
               <th key={i} className={`${stickyTop} px-2 py-1.5 text-right font-bold whitespace-nowrap border-l border-line/60`}>
-                {e.c.name}
-                <div className="text-ink-400 text-[10px] font-normal">{e.c.president || '—'}</div>
+                {displayName(e.c, nameBy)}
+                <div className="text-ink-400 text-[10px] font-normal">{otherName(e.c, nameBy)}</div>
               </th>
             ))}
           </tr>
@@ -130,13 +132,14 @@ export function RankTable({ companies }: { companies: ApiOrgCompany[] }) {
 }
 
 // ---- 成績一覧：グラフ形式（組織比較チャートを講師用に表示）----
-export function RankCharts({ companies }: { companies: ApiOrgCompany[] }) {
+// nameBy：凡例に出す名前（会社名／社長名）
+export function RankCharts({ companies, nameBy = 'company' }: { companies: ApiOrgCompany[]; nameBy?: NameBy }) {
   const withHist = companies.filter((c) => (c.results || []).length)
   if (!withHist.length)
     return <p className="text-ink-300 text-sm p-6 text-center">成績データがありません。参加者が決算すると各期の成績が表示されます。</p>
   const series = (get: (r: any) => number) =>
     withHist.map((c, i) => ({
-      name: c.name,
+      name: displayName(c, nameBy),
       color: ORG_COLORS[i % ORG_COLORS.length],
       pts: (c.results || []).map((r: any) => ({ x: r.period, y: get(r) })),
     }))

@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { newState, type Result } from '../src/lib/calc.ts'
-import { analysisTable, bepRatio, gradeOf, orgQOf, shareOf, GRADES } from '../src/lib/analysis.ts'
+import { analysisTable, bepRatio, companyAnalysis, gradeOf, orgQOf, shareOf, GRADES } from '../src/lib/analysis.ts'
 
 // 最小限の決算結果（plan.test.ts の res() と同じ形）
 function res(period: number, over: Partial<Result> = {}): Result {
@@ -103,4 +103,26 @@ test('第4表：実績は決算から、計画はその期の経営計画書か�
   assert.deepEqual([p.share, p.debt, p.equity], [null, null, null])
   // 計画を書いていない期は null
   assert.equal(rows[1].plan, null)
+})
+
+test('管理画面：組織 API の会社データから期ごとの実績・計画を作る（計画の期首は前期の決算から組み直す）', () => {
+  const r2 = res(2, {
+    Q: 8, PQ: 256, vPQ: 96, mPQ: 160, F: 200, G: -40, tax: 5, loanEnd: 100, capEnd: 300, retEnd: -45,
+    staffMfg: 2, staffSales: 2, machines: 1, cashEnd: 252, equipEnd: 100,
+  } as Partial<Result>)
+  const r3 = res(3, { Q: 12, PQ: 396, vPQ: 144, mPQ: 252, F: 306, G: -54 } as Partial<Result>)
+  // 今の期は第4期（決算前）。第4期の計画も第3期の決算から組み直して出す
+  const rows = companyAnalysis(
+    { name: 'A社', period: 4, results: [r2, r3], plans: { '3': { g: 34, p: 32, v: 12 }, '4': { g: 10, p: 30, v: 12 } } },
+    null,
+  )
+  assert.deepEqual(rows.map((r) => r.period), [1, 2, 3, 4])
+  // 参加者アプリ（analysisTable）と同じ計画の値になる
+  assert.deepEqual([rows[2].plan!.F, rows[2].plan!.Q, rows[2].plan!.grade], [164, 10, 'B'])
+  assert.equal(rows[3].actual, null)
+  assert.notEqual(rows[3].plan, null)
+  // 組織データが無いのでシェアは出さない
+  assert.equal(rows[2].actual!.share, null)
+  // results が無い会社は第1期まで（今の期が無ければ空）
+  assert.deepEqual(companyAnalysis({ name: 'B社' }, null), [])
 })
