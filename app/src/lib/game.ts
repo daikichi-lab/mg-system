@@ -6,6 +6,7 @@ import {
   doClosingPrep,
   settle,
   nextPeriod,
+  loanOpen,
   loanRoom,
   getRules,
   lotLabel,
@@ -263,7 +264,8 @@ export function validate(st: St, key: string, f: Fvals): string[] {
       break
     }
     case 'kariire':
-      if (st.period <= 1) errs.push('第1期は借入できません')
+      // 借入枠の基準がまだ始まっていない期は借りられない（既定ルールなら第1期。数値ルールで第1期からにもできる・issue #113）
+      if (!loanOpen(st)) errs.push(`第${st.period}期は借入できません`)
       if (!Number.isInteger(f.a) || f.a < 1) errs.push('借入額を入力してください')
       else if (f.a > loanRoom(st)) errs.push(`借入可能額（${loanRoom(st)}）を超えています`)
       break

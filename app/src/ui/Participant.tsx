@@ -10,6 +10,7 @@ import {
   cashflow,
   loanCap,
   loanCriteria,
+  loanOpen,
   loanRoom,
   equipSale,
   lotLabel,
@@ -548,6 +549,9 @@ function OpeningTab({
 }) {
   const st = game.st
   const first = st.period <= 1
+  // ⑨ 借入枠・金利・返済を出すか。借入枠の基準が効く期か、借入残高を持っているとき。
+  // 既定ルールでは第1期は出さない（従来どおり）。数値ルールで純資産倍率を第1期からにすると第1期でも出る（issue #113）
+  const loanShown = loanOpen(st) || st.openingLoan > 0 || st.loan > 0
   const openTax = st.tx.find((t) => t.isOpeningTax)?.amount || 0
   const openInt = st.tx.find((t) => t.isOpeningInterest)?.amount || 0
   const [editing, setEditing] = useState(false)
@@ -564,7 +568,7 @@ function OpeningTab({
   // 期末に自動計上される支払い（記帳を始める前に把握してもらう）。
   // 給料は「期末の在籍人数 × 1人あたり」で決まり、人数は採用・退職で期中に変わるため、
   // ここでは単価（期末処理と同じ salaryFor()）と計上ルールだけを示し、人数での見込み額は出さない。
-  // 返済率も率と計上ルールだけを示す（返済額は⑨に出ている。第1期は借入がないので率は「—」）
+  // 返済率も率と計上ルールだけを示す（返済額は⑨に出ている。借入のない期＝既定ルールの第1期は率は「—」）
   const rent = getRules().rent
   const salaryPer = salaryFor(st.period)
   const kv = (l: string, v: string, accent?: boolean) => (
@@ -636,12 +640,12 @@ function OpeningTab({
         </div>
       </div>
 
-      {/* ⑨ 借入金可能枠・金利・返済（倍率と返済率は講師設定・第2期以降） */}
+      {/* ⑨ 借入金可能枠・金利・返済（倍率と返済率は講師設定・借入枠の基準が効く期だけ） */}
       <div className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
         <h2 className="font-bold mb-2 text-f-ink">⑨ 借入金可能枠・金利・返済（倍率・返済率は講師設定）</h2>
-        {first ? (
-          <div className="rounded-lg bg-canvas text-ink-400 p-3 text-center">
-            第1期は借入・金利・期末返済はありません。第2期以降に表示されます。
+        {!loanShown ? (
+          <div className="rounded-lg bg-canvas text-ink-400 p-3 text-center" data-testid="op-loan-off">
+            第{st.period}期は借入・金利・期末返済はありません。借入枠の基準が始まる期から表示されます。
           </div>
         ) : (
           <>
@@ -768,7 +772,7 @@ function OpeningTab({
         </div>
       )}
 
-      {/* この期末に支払うもの：家賃・1人あたり人件費・元本返済率（第1期は借入なしなので返済は「なし」） */}
+      {/* この期末に支払うもの：家賃・1人あたり人件費・元本返済率（借入のない期は返済は「—」） */}
       <div data-testid="opening-costs" className="bg-white rounded-2xl shadow-card border border-line p-5 text-sm">
         <h2 className="font-bold mb-0.5">この期末に支払うもの（期末処理で自動計上）</h2>
         <p className="text-ink-400 text-xs mb-3">記帳を始める前に、期末に出ていく金額を頭に入れておきましょう。</p>
@@ -789,7 +793,7 @@ function OpeningTab({
           <div className="rounded-lg bg-canvas border border-line px-2 py-2 text-center">
             <div className="text-[10px] text-ink-500 whitespace-nowrap">元本返済率</div>
             <div data-testid="oc-repay" className="num font-black text-lg">
-              {first ? '—' : `${st.repayRate}%`}
+              {!loanShown ? '—' : `${st.repayRate}%`}
             </div>
             <div className="text-[10px] text-ink-400 whitespace-nowrap">(期首の借入残高＋今期の借入) × 返済率</div>
           </div>

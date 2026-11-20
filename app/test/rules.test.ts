@@ -62,6 +62,8 @@ test('normalizeRules：借入枠は基準ごとの開始期（既定 純資産�
   assert.equal(r.loanRepayYears, 5) // マイナスは既定
   assert.equal(normalizeRules({ loanCombine: 'x' as never }).loanCombine, 'min')
   assert.deepEqual(normalizeRules({ rent: 20 }).loanFrom, DEFAULT_RULES.loanFrom) // 項目が無い保存済みのルール
+  // 第1期から（1）は純資産倍率だけ。月商倍率・債務償還年数は前期の値が要るので第2期からに直す（issue #113）
+  assert.deepEqual(normalizeRules({ loanFrom: { equity: 1, sales: 1, debt: 1 } }).loanFrom, { equity: 1, sales: 2, debt: 2 })
 })
 
 test('normalizeRules：配列は複製する（既定値を書き換えない）', () => {

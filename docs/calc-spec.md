@@ -145,7 +145,7 @@ function rowsOf(f){ return (f && f.items && f.items.length) ? f.items : [{qty: f
 | `hensai` | 借入返済 | B | 9(ケ返済) | out | ケ 返済 | a(d0,千) | `a` | `loan=max(0, loan-a)` | — |
 | `baikyaku` | 什器売却 | B | 3(A保険金・その他) | in | 什器売却 | lot(select・盤面の什器を1台ずつ「期:何台目」`optionsOf`。例 `"3:2"`) | `amountOf`: `equipSale(st,f).price`（選んだ什器の簿価の半値） | `idx=その期の何台目か; lots.splice(idx,1); machines-=1; equipVal-=book; equipSold+=book` | `第N期に購入・簿価の半値` |
 
-- `kariire`: 第1期は不可。借入額は `loanRoom()` でクランプ（§9）。**借入時、recompute で借入額×5%の金利行（col8）を自動生成**（§5）。
+- `kariire`: 借入枠の基準が効いていない期は不可（既定ルールでは第1期。`loanFrom.equity = 1` なら第1期から可・issue #113）。借入額は `loanRoom()` でクランプ（§9）。**借入時、recompute で借入額×5%の金利行（col8）を自動生成**（§5）。
 - `baikyaku`: 「いつ買った機械か」（購入した期）を選んで1回1台。什器は `st.lots`（`{period, book}` の配列）で1台ずつ持ち、`kikai` で `{period: 今期, book: machinePrice}` を追加、決算で各台の簿価から減価償却を引いて `Result.lotsEnd` → 次期の `openingLots` に引き継ぐ。`openingLots` が無い古いデータは読み込み時に `lotsFromHistory()` が過去の決算結果（各期の什器購入額÷購入価格＝台数、期末に減価償却）から購入期を復元する。それでも無い／台数・合計と合わないときは `openingLotsOf()` が合計簿価を台数で按分し、購入期は簿価から逆算（`inferLotPeriod`：購入価格 − 減価償却×経過期数）、逆算できない台は 0（購入期不明）。プルダウンは1台ずつ（同じ期は「1台目」「2台目」）。売却代金＝選んだ什器の簿価の半値（`price=round(book/2)`）。金額は盤面に依存するので `ActionDef.amountOf(st,f)` で決め、**recompute の再生時にも決め直す**（前の行の削除・編集で簿価が変わっても追従する）。外した簿価 `equipSold` は決算で特別損失（§5）。台数 ≤ 保有台数。
 
 ### 3.3 イベントカード（rule='X'）
@@ -471,7 +471,9 @@ function loanRoom(excludeAmt=0){ return Math.max(0, loanCap() - (st.loan - exclu
 
 ### 借入枠の決め方（基準ごとの開始期・issue #85）
 
-数値ルール `loanFrom` で、3つの基準それぞれを **何期から使うか**（0＝使わない）を決める。第1期は常に借入なし。
+数値ルール `loanFrom` で、3つの基準それぞれを **何期から使うか**（0＝使わない）を決める。
+**第1期から（1）にできるのは純資産倍率だけ**（issue #113）。月商倍率・債務償還年数は前期の決算の値を使うため 2 以上で、保存値が 1 なら `normalizeRules()` が 2 に直す。
+既定（`equity: 2`）では第1期の借入枠は 0 で、従来の「第1期は借入なし」と同じ。第1期から借りた分にも、借入時の金利（§5）と期末返済（§6）は第2期以降と同じ式でかかる。
 その期に効く基準が複数あれば、`loanCombine` で **一番小さい枠（min・銀行審査）** か **一番大きい枠（max）** を借入枠にする。
 効く基準が1つも無い期は借入枠 0（借入できない）。既定は `loanFrom = { equity: 2, sales: 0, debt: 0 }`・`loanCombine = 'min'`（上の式と同じ）。
 
@@ -486,7 +488,7 @@ function loanRoom(excludeAmt=0){ return Math.max(0, loanCap() - (st.loan - exclu
 - 今期借入可能額 ＝ max(0, 借入枠 − 借入残高)（従来どおり）
 - 計算は `calc.ts` の `loanCriteria()`（その期に効く基準ごとの枠）と `loanCap()`（min／max）
 
-- **第1期は借入不可**（`loanCap()=0`、`openModal` でも `period<=1` を弾く L842）。
+- **借入枠の基準が効いていない期は借入不可**（`loanCap()=0`・`loanOpen()=false`。`validate('kariire')` で弾く）。既定ルールでは第1期がこれに当たる。
 - `openModal('kariire')`: `curMaxA = loanRoom(編集中の借入額)`。`curMaxA<=0` ならアラート。
 - バリデーション: `a > curMaxA` でエラー（L1013）。
 

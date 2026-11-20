@@ -7,6 +7,7 @@ import {
   ACTIONS,
   caps,
   getRules,
+  loanOpen,
   loanRoom,
   cashNow,
   nextPeriod,
@@ -786,8 +787,9 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
       key: 'repay',
       label: '元本返済',
       detail:
-        st.period <= 1
-          ? '第1期は借入なし'
+        // 借入枠の基準がまだ始まっていない期（既定ルールなら第1期）は返済もない（issue #113）
+        !loanOpen(st) && st.openingLoan <= 0
+          ? `第${st.period}期は借入なし`
           : `(期首の借入金 ${st.openingLoan} ＋ 今期の借入 ${plan.loanNew}) × 返済率 ${st.repayRate}%`,
       amount: repay,
     },
