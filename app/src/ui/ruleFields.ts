@@ -54,7 +54,18 @@ export interface LoanPlanField {
   col: ColRef
   colNote?: string
 }
-export type Field = NumField | PctField | SalaryField | PricesField | LoanPlanField
+/** オン／オフで切り替える項目（チェックボックス） */
+export interface FlagField {
+  kind: 'flag'
+  key: 'retireHalfSalary'
+  label: string
+  desc: string
+  /** チェックが入っているとき／外れているときの表示（確認画面） */
+  on: string
+  off: string
+  col: ColRef
+}
+export type Field = NumField | PctField | SalaryField | PricesField | LoanPlanField | FlagField
 
 export interface Group {
   title: string
@@ -137,6 +148,15 @@ export const GROUPS: Group[] = [
         key: 'salaryTable',
         label: '給料（1人あたり）',
         desc: '期末処理で「在籍人数 × その期の給料」として計上されます。表にない期は 28 を使います',
+        col: 6,
+      },
+      {
+        kind: 'flag',
+        key: 'retireHalfSalary',
+        label: '退職者の期末の給料',
+        desc: 'チェックを入れると、その期に退職した人にも期末に給料の半額（切り上げ）を払います。外すと払いません。退職金 5 はどちらでも払います',
+        on: '半額を払う',
+        off: '払わない',
         col: 6,
       },
     ],

@@ -106,6 +106,41 @@ test('給料表：期末給料が差し替えた値になる（表にない期�
   }
 })
 
+test('normalizeRules：退職者の期末給料は既定で払う。真偽値以外は既定に落とす', () => {
+  assert.equal(DEFAULT_RULES.retireHalfSalary, true)
+  assert.equal(normalizeRules({ retireHalfSalary: false }).retireHalfSalary, false)
+  // issue #107 より前に保存したルール（項目なし）・壊れた値は既定＝払う
+  assert.equal(normalizeRules({ rent: 30 }).retireHalfSalary, true)
+  assert.equal(normalizeRules({ retireHalfSalary: 'false' as unknown as boolean }).retireHalfSalary, true)
+})
+
+test('退職者の期末給料：払わない設定なら給料は在籍人数分だけ（退職金 5 は払う）', () => {
+  // 製造2人を採用して1人退職 → 期末の在籍は1人。第1期の給料は 25
+  const run = () => {
+    const st = newState()
+    st.period = 1
+    st.tx.push({ id: st.seq++, key: 'saiyo', fvals: { mfg: 2, sales: 0, fail: 0 }, col: 6, amount: ACTIONS.saiyo.amount({ mfg: 2, sales: 0, fail: 0 }) })
+    st.tx.push({ id: st.seq++, key: 'taishoku_mfg', fvals: {}, col: 6, amount: ACTIONS.taishoku_mfg.amount({}) })
+    doClosingPrep(st)
+    return st
+  }
+  try {
+    // 既定（払う）：在籍1×25 ＋ 退職1×13（25 の半額を切り上げ）
+    const on = run()
+    assert.equal(on.tx.find((t) => t.isClosing && t.col === 6)?.amount, 38)
+
+    setRules({ retireHalfSalary: false })
+    const off = run()
+    const sal = off.tx.find((t) => t.isClosing && t.col === 6)
+    assert.equal(sal?.amount, 25)
+    assert.equal(sal?.note, '1×25')
+    // 退職金はイベントの記帳行のまま残る
+    assert.equal(off.tx.find((t) => t.key === 'taishoku_mfg')?.amount, 5)
+  } finally {
+    reset()
+  }
+})
+
 test('家賃：期末の家賃行が差し替えた値になる', () => {
   setRules({ rent: 40 })
   try {

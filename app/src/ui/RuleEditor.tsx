@@ -144,6 +144,22 @@ function FieldInput({
     )
   }
 
+  if (field.kind === 'flag') {
+    // オン／オフの項目。ラベル全体を押せるようにして、チェックの意味（on の文言）を横に出す
+    return (
+      <label className="inline-flex items-center gap-2 cursor-pointer select-none text-sm">
+        <input
+          data-testid={`f-${field.key}`}
+          type="checkbox"
+          checked={rules[field.key]}
+          onChange={(e) => set({ [field.key]: e.target.checked } as Partial<Rules>)}
+          className="w-5 h-5 accent-ink"
+        />
+        {field.on}
+      </label>
+    )
+  }
+
   if (field.kind === 'pct') {
     return (
       <div className="flex items-center gap-1">
