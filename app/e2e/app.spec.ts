@@ -227,6 +227,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('plan-act-amt-0')).toHaveValue('-60') // 12 × 5個
     // 選んだ回数が「計画」に数えられる
     await expect(page.getByTestId('plan-need-shiire')).toContainText('1回')
+    // 借入は数量欄を出さず、入出金欄に金額を直接入れる。借入金利の行も付く（issue #117）
+    await setField(page, 'plan-act-key-1', 'kariire')
+    await expect(page.getByTestId('plan-act-qty-1')).toHaveCount(0)
+    await setField(page, 'plan-act-amt-1', 10)
+    await expect(page.getByTestId('plan-act-amt-1')).toHaveValue('10')
+    await expect(page.getByTestId('plan-act-interest-1')).toBeVisible()
+    await setField(page, 'plan-act-key-1', '') // 後の確認に響かないよう未選択に戻す
 
     // 入力が落ち着いてから保存される → リロードしても残っている（DB 経由）
     await page.waitForTimeout(1500)
