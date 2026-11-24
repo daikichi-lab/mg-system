@@ -38,13 +38,13 @@ export interface Line {
 }
 export const LINES: Line[] = [
   { group: 'コスト構造', no: '①', label: '平均単価', sub: 'P', get: (c) => c.P },
-  { group: 'コスト構造', no: '②', label: '変動単価', sub: 'vP（V）', get: (c) => c.V },
-  { group: 'コスト構造', no: '③', label: '付加価値単価', sub: 'mP（M）', get: (c) => c.M },
+  { group: 'コスト構造', no: '②', label: '変動単価', sub: 'vP', get: (c) => c.V },
+  { group: 'コスト構造', no: '③', label: '付加価値単価', sub: 'mP', get: (c) => c.M },
   { group: '', no: '④', label: '売上個数', sub: 'Q', get: (c) => c.Q },
   { group: '', no: '', label: 'シェア', get: (c) => c.share, fmt: showShare },
   { group: '収益構造', no: '⑤', label: '売上高', sub: 'PQ', get: (c) => c.PQ },
-  { group: '収益構造', no: '⑥', label: '売上原価（変動費）', sub: 'vPQ（VQ）', get: (c) => c.VQ },
-  { group: '収益構造', no: '⑦', label: '売上総利益（付加価値）', sub: 'mPQ（MQ）', get: (c) => c.MQ },
+  { group: '収益構造', no: '⑥', label: '売上原価（変動費）', sub: 'vPQ', get: (c) => c.VQ },
+  { group: '収益構造', no: '⑦', label: '売上総利益（付加価値）', sub: 'mPQ', get: (c) => c.MQ },
   { group: '収益構造', no: '⑧', label: '固定費（諸経費）', sub: 'F', get: (c) => c.F },
   { group: '収益構造', no: '⑨', label: '経常利益', sub: 'G', get: (c) => c.G },
   { group: '資本', no: '⑩', label: '負債', sub: 'B/S より', get: (c) => c.debt },
@@ -404,7 +404,7 @@ export default function AnalysisCard({
       </div>
       <div className="bg-white rounded-2xl shadow-card border border-line p-4 sm:p-5">
         <h2 className="font-bold mb-1">評価（S〜DD）</h2>
-        <p className="text-xs text-ink-400 mb-3">損益分岐点比率（固定費 F ÷ 粗利 MQ × 100）で会社の状態を6段階で評価します。</p>
+        <p className="text-xs text-ink-400 mb-3">損益分岐点比率（固定費 F ÷ 粗利 mPQ × 100）で会社の状態を6段階で評価します。</p>
         <GradeTable rows={rows} />
       </div>
     </>

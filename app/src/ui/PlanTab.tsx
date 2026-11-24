@@ -757,9 +757,32 @@ export default function PlanTab({
                 }`}
                 data-testid="plan-cash-diff"
               >
-                <span>{need.diff < 0 ? (need.loanIn > 0 ? '不足（さらに借入などが必要）' : '不足（借入などが必要）') : '余裕'}</span>
+                <span>{need.diff < 0 ? '不足' : '余裕'}</span>
                 <b className="num text-lg">{fmt(Math.abs(need.diff))}</b>
               </div>
+              {/* 不足のときは、不足分を補うのに期中で上げる必要がある売上高を出す。売上は現金で入るので不足額と同じ額（issue #122） */}
+              {need.diff < 0 && (
+                <div className="rounded-lg border border-accent/30 px-3 py-2 space-y-1" data-testid="plan-cash-short">
+                  <div className="flex justify-between items-baseline gap-3">
+                    <span className="font-bold text-sm">不足分を補うために必要な売上高</span>
+                    <b className="num text-lg text-accent-ink" data-testid="plan-cash-short-sales">
+                      {fmt(need.shortSales)}
+                    </b>
+                  </div>
+                  {need.shortQty != null && (
+                    <p className="text-[11px] text-ink-500 text-right" data-testid="plan-cash-short-qty">
+                      売上単価 P {fmt(plan.p)} で <b className="num text-ink-600">{need.shortQty}</b> 個分
+                    </p>
+                  )}
+                  <p className="text-xs text-ink-600">
+                    計画を達成するには、期中に売上を上げて、資金を戦略的投資や仕入れにあてる必要があります
+                  </p>
+                  {/* 計画の売上高を全部入れても足りない＝期末の現金がマイナス。売上だけでは補えないので借入が要る */}
+                  {need.endCash != null && need.endCash < 0 && (
+                    <p className="text-[11px] text-accent-ink">計画の売上高だけでは補えません。借入などで手当てが必要です</p>
+                  )}
+                </div>
+              )}
               {need.endCash != null && (
                 <p className="text-[11px] text-ink-400 px-1" data-testid="plan-cash-end">
                   売上高 <b className="num text-ink-600">{fmt(need.sales ?? 0)}</b> が入ると、期末の現金の見込みは{' '}

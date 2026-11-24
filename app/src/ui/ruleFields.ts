@@ -232,7 +232,7 @@ export const GROUPS: Group[] = [
       {
         kind: 'num',
         key: 'planHintV',
-        label: '仕入単価（V）の目安',
+        label: '仕入単価（vP）の目安',
         desc: '経営計画書の「4. 商品の各単価目標」に目安として出します。計算には影響しません',
         min: 0,
         col: null,
