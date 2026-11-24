@@ -729,6 +729,20 @@ test('必要な現金：期首処理・仕入代・固定費（減価償却と�
   assert.equal(n.endCash, 142) // −158 ＋ 売上 300
 })
 
+test('必要な現金：不足のときは、不足分を補うのに必要な売上高（＝不足額）と P で割った個数（切り上げ）を出す', () => {
+  const st = st3()
+  const short = cashNeeds({ ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }, st)
+  assert.equal(short.diff, -158)
+  assert.equal(short.shortSales, 158)
+  assert.equal(short.shortQty, 6) // ⌈158 ÷ 30⌉
+  // 不足が無ければ 0・個数なし（前期繰越の現金を多くして足りる状態にする）
+  st.openingCash = 1000
+  const ok = cashNeeds({ ...defaultPlan(), p: 30, v: 12 }, st)
+  assert.ok(ok.diff >= 0)
+  assert.equal(ok.shortSales, 0)
+  assert.equal(ok.shortQty, null)
+})
+
 test('必要な現金：今期あらたに借入する金額は使える現金に足し、不足から差し引く', () => {
   const st = st3() // 現金252
   const base = cashNeeds({ ...defaultPlan(), machinesNew: 1, p: 30, v: 12 }, st)

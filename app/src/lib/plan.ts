@@ -732,6 +732,10 @@ export interface CashNeeds {
   sales: number | null
   /** 期末の現金の見込み ＝ openingCash ＋ loanIn − total ＋ 売上高。Q が出せないときは null */
   endCash: number | null
+  /** 不足分を補うために期中に上げる必要がある売上高 ＝ 不足額（diff がプラスなら 0）。売上は現金で入るので不足額と同じ額 */
+  shortSales: number
+  /** shortSales を売上単価 P で割った個数（切り上げ）。不足が無い・P が 0 以下なら null */
+  shortQty: number | null
 }
 
 /**
@@ -768,7 +772,7 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
     {
       key: 'buy',
       label: '仕入代',
-      detail: fig.Q == null ? '売上必要個数（Q）が未確定です' : `仕入 ${buyQty}個 × 売上原価 V ${plan.v}`,
+      detail: fig.Q == null ? '売上必要個数（Q）が未確定です' : `仕入 ${buyQty}個 × 売上原価 vP ${plan.v}`,
       amount: buyQty * plan.v,
     },
     {
@@ -805,6 +809,9 @@ export function cashNeeds(plan: Plan, st: St): CashNeeds {
     diff,
     sales: fig.PQ,
     endCash: fig.PQ == null ? null : diff + fig.PQ,
+    // 不足のときだけ「先に売上を上げて資金にあてる」目安を出す（issue #122）
+    shortSales: Math.max(0, -diff),
+    shortQty: diff < 0 && plan.p > 0 ? Math.ceil(-diff / plan.p) : null,
   }
 }
 
@@ -971,13 +978,14 @@ export function planVsActual(history: Result[], plans: Record<string, unknown>, 
     // 実績の単価は決算の合計から割り戻す（決算書の STRAC 図と同じ出し方）
     const actP = r.Q ? Math.round(r.PQ / r.Q) : 0
     const actV = r.Q ? Math.round(r.vPQ / r.Q) : 0
+    // 見出しの表記はシート・決算書に合わせて vP／vPQ／mPQ（issue #115・#122）。key はテストや差の判定で使う内部名なので変えない
     const rows: [string, string, string, number, number, 'more' | 'less'][] = [
       ['P', '売上単価 P（1個）', '', plan.p, actP, 'more'],
-      ['V', '売上原価 V（1個）', '', plan.v, actV, 'less'],
+      ['V', '売上原価 vP（1個）', '', plan.v, actV, 'less'],
       ['Q', '売上個数 Q', '個', fig.Q, r.Q, 'more'],
       ['PQ', '売上高 PQ', '', fig.PQ, r.PQ, 'more'],
-      ['VQ', '売上原価 VQ', '', fig.VQ, r.vPQ, 'less'],
-      ['MQ', '粗利益 MQ', '', mPQ, r.mPQ, 'more'],
+      ['VQ', '売上原価 vPQ', '', fig.VQ, r.vPQ, 'less'],
+      ['MQ', '粗利益 mPQ', '', mPQ, r.mPQ, 'more'],
       ['F', '固定費 F', '', fig.F, r.F, 'less'],
       ['G', '経常利益 G', '', mPQ - fig.F, r.G, 'more'],
     ]
@@ -1209,7 +1217,7 @@ export function progressNow(plan: Plan, st: St): Guide | null {
     },
     {
       key: 'V',
-      label: '仕入単価 V',
+      label: '仕入単価 vP',
       plan: plan.v,
       now: vNow,
       diff: vDiff,

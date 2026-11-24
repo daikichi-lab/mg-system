@@ -214,6 +214,11 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('plan-cash-buy')).toHaveText('108')
     await expect(page.getByTestId('plan-cash-machine')).toHaveText('0')
     await expect(page.getByTestId('plan-cash-diff')).toBeVisible()
+    // 繰越 96 − 出金 200 ＝ 不足 104 → 不足分を補うのに必要な売上高 104、P32 で ⌈104÷32⌉ ＝ 4個分（issue #122）
+    await expect(page.getByTestId('plan-cash-diff')).toContainText('不足')
+    await expect(page.getByTestId('plan-cash-short-sales')).toHaveText('104')
+    await expect(page.getByTestId('plan-cash-short-qty')).toContainText('4')
+    await expect(page.getByTestId('plan-cash-short')).toContainText('期中に売上を上げて、資金を戦略的投資や仕入れにあてる必要があります')
     // 目標・単価がそろったので「動き方を決める」が開く
     await expect(page.getByTestId('plan-stage-actions')).toBeVisible()
     await expect(page.getByTestId('plan-stage-locked')).toHaveCount(0)
