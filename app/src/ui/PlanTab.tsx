@@ -893,7 +893,8 @@ export default function PlanTab({
                       <td className="py-1 px-1 whitespace-nowrap">
                         {/* 数量を入れると入出金が自動で入る。単位はアクションで変わるが、
                             単位が無いアクション（借入・返済）でも入力欄の位置がずれないよう幅を固定する */}
-                        {plan.actions[i].key && (
+                        {/* 借入は金額そのものを入れるので数量欄は出さない。金額は右の入出金欄に直接入れる（issue #117） */}
+                        {plan.actions[i].key && plan.actions[i].key !== 'kariire' && (
                           <div className="flex items-center justify-end gap-1">
                             {/* スタッフ採用は製造／販売、配置転換は向きを選ぶ。後ろの行の製造能力・販売能力が変わる */}
                             {opts && (
@@ -932,7 +933,13 @@ export default function PlanTab({
                           type="number"
                           value={plan.actions[i].amount}
                           disabled={ro}
-                          onChange={(e) => updateAction(i, { amount: Number(e.target.value) || 0 })}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0
+                            // 借入の行は数量＝借入額なので、金額を数量として渡す。今期借入可能額までに収め、金額も同じ値になる（issue #117）
+                            if (plan.actions[i].key === 'kariire') updateAction(i, { qty: Math.max(0, v) })
+                            else updateAction(i, { amount: v })
+                          }}
+                          title={plan.actions[i].key === 'kariire' ? qtyHint(i) : undefined}
                           className="h-7 w-[4.25rem] sm:w-24 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                         />
                       </td>
