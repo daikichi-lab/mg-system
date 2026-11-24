@@ -109,7 +109,7 @@ export default function ProgressTab({ game, onToPlan }: { game: Game; onToPlan: 
 
       {/* 目標 G に必要な粗利：G ＋ 固定費の見込み − 稼いだ粗利 ＝ これから稼ぐ粗利 */}
       <div className="bg-white rounded-2xl shadow-card border border-line p-4">
-        <h3 className="font-bold text-sm mb-2">目標 G に必要な粗利（MQ）</h3>
+        <h3 className="font-bold text-sm mb-2">目標 G に必要な粗利（mPQ）</h3>
         <div className="space-y-1.5 text-sm" data-testid="progress-mq">
           <div className="flex justify-between">
             <span className="text-ink-600">目標 G</span>

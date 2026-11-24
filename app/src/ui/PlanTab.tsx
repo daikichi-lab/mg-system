@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA, loanRoom, getRules } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
+import { NumField } from './NumField'
 import type { Game } from '../state/useGame'
 // 能力の比較の内訳行（1行に2つの tr）を組むのに使う
 import { Fragment } from 'react'
@@ -178,8 +179,8 @@ export default function PlanTab({
   const missing: string[] = []
   if (plan.g <= 0) missing.push('経常利益目標（G）を入力する')
   if (plan.p <= 0) missing.push('販売単価（P）を入力する')
-  if (plan.v <= 0) missing.push('売上原価（V）を入力する')
-  if (plan.g > 0 && plan.p > 0 && plan.v > 0 && fig.Q == null) missing.push('販売単価（P）を売上原価（V）より高く設定する')
+  if (plan.v <= 0) missing.push('売上原価（vP）を入力する')
+  if (plan.g > 0 && plan.p > 0 && plan.v > 0 && fig.Q == null) missing.push('販売単価（P）を売上原価（vP）より高く設定する')
   // 計画をたたんで要約1行にする（アクションプランを書くときに縦を詰める）
   const [folded, setFolded] = useState(false)
   // 計画を書き直して未完成に戻ったら、たたんだままにしない
@@ -201,16 +202,15 @@ export default function PlanTab({
   // 全角スペースで区切った見出し用
   const phrases = (text: string) => chunks(text.split('　'), true)
 
-  // 数値入力（0 以上）。入力できる欄は背景を黄色（bg-entry）にして自動計算の数字と見分ける（issue #100）。閲覧専用では無効でグレー
+  // 数値入力（0 以上）。0 を消して打ち直せるよう NumField を使う（issue #116）。入力できる欄は背景を黄色（bg-entry）にして自動計算の数字と見分ける（issue #100）。閲覧専用では無効でグレー
   const numIn = (testid: string, value: number, onChange: (v: number) => void, cls = 'w-20', max?: number) => (
-    <input
+    <NumField
       data-testid={testid}
-      type="number"
       min={0}
       max={max}
       value={value}
       disabled={ro}
-      onChange={(e) => onChange(Number(e.target.value) || 0)}
+      onValue={onChange}
       className={`h-9 border border-entry-line rounded px-2 num text-sm text-right bg-entry disabled:bg-canvas disabled:border-line ${cls}`}
     />
   )
@@ -351,8 +351,8 @@ export default function PlanTab({
           >
             {sumItem('経常利益 G', fmt(plan.g), 'text-g-ink')}
             {sumItem('固定費 F', fmt(fig.F), 'text-f-ink')}
-            {sumItem('必要粗利益 MQ', fmt(fig.MQ), 'text-m-ink')}
-            {sumItem('粗利単価 M', fmtA(fig.M), 'text-m-ink')}
+            {sumItem('必要粗利益 mPQ', fmt(fig.MQ), 'text-m-ink')}
+            {sumItem('粗利単価 mP', fmtA(fig.M), 'text-m-ink')}
             {sumItem('売上必要個数 Q', `${n(fig.Q)}個`, 'text-ink')}
           </div>
         ) : (
@@ -604,9 +604,9 @@ export default function PlanTab({
             </div>,
           )}
           {card(
-            <span className="text-m-ink">{chunks(['3. 商品の必要粗利益（付加価値）', '額（MQ）を計算'])}</span>,
+            <span className="text-m-ink">{chunks(['3. 商品の必要粗利益（付加価値）', '額（mPQ）を計算'])}</span>,
             <div className="space-y-2">
-              {/* G と F に、1. で入力した経常利益目標と 2. の固定費合計をそのまま出す（MQ ＝ G ＋ F） */}
+              {/* G と F に、1. で入力した経常利益目標と 2. の固定費合計をそのまま出す（mPQ ＝ G ＋ F）。表記はシート・決算書に合わせて mPQ／vP／mP（issue #115） */}
               <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 text-xs">
                 <div className="rounded-lg border border-line px-3 py-2 flex justify-between items-baseline gap-2">
                   <span className="text-g-ink">{phrases('1. 経常利益目標（G）')}</span>
@@ -623,7 +623,7 @@ export default function PlanTab({
                 </div>
               </div>
               <div className="flex justify-between items-center rounded-lg bg-m-bg px-3 py-2">
-                <span className="text-m-ink text-xs">{phrases('＝ 必要粗利益（MQ）')}</span>
+                <span className="text-m-ink text-xs">{phrases('＝ 必要粗利益（mPQ）')}</span>
                 <b className="num text-m-ink text-lg" data-testid="plan-MQ">
                   {fmt(fig.MQ)}
                 </b>
@@ -644,7 +644,7 @@ export default function PlanTab({
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-ink-500">{phrases('②売上原価（V）　売上原価1個あたり平均いくらで仕入れるか')}</span>
+                <span className="text-ink-500">{phrases('②売上原価（vP）　売上原価1個あたり平均いくらで仕入れるか')}</span>
                 <span className="flex items-center gap-2">
                   {/* 目安は数値ルール planHintV（既定 12）。計算には使わない */}
                   <span className="text-[11px] text-ink-400 whitespace-nowrap" data-testid="plan-v-hint">
@@ -654,7 +654,7 @@ export default function PlanTab({
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-m-bg px-3 py-2">
-                <span className="text-m-ink text-xs">{phrases('③計画粗利益（付加価値）単価（M）　式＜P − V＞')}</span>
+                <span className="text-m-ink text-xs">{phrases('③計画粗利益（付加価値）単価（mP）　式＜P − vP＞')}</span>
                 <b className="num text-m-ink text-lg" data-testid="plan-M">
                   {fmtA(fig.M)}
                 </b>
@@ -666,7 +666,7 @@ export default function PlanTab({
             <div className="space-y-2">
               <div className="rounded-lg bg-canvas px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-ink-500 text-xs">{chunks(['MQ ÷ M ＝ 必要個数', '（小数点以下は切り上げ）'])}</span>
+                  <span className="text-ink-500 text-xs">{chunks(['mPQ ÷ mP ＝ 必要個数', '（小数点以下は切り上げ）'])}</span>
                   <b className="num text-lg whitespace-nowrap" data-testid="plan-Q">
                     {n(fig.Q)}
                     <span className="text-xs font-normal text-ink-400 ml-0.5">個</span>
@@ -674,7 +674,7 @@ export default function PlanTab({
                 </div>
                 {/* 計算できない理由は、行を折り返さず下に置く */}
                 {fig.Q == null && (
-                  <p className="mt-1 text-xs text-accent-ink">粗利単価 M が 0 以下のため計算できません</p>
+                  <p className="mt-1 text-xs text-accent-ink">粗利単価 mP が 0 以下のため計算できません</p>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -685,7 +685,7 @@ export default function PlanTab({
                   </b>
                 </div>
                 <div className="flex justify-between rounded-lg border border-line px-3 py-2">
-                  <span className="text-ink-500">売上原価計（V×Q）</span>
+                  <span className="text-ink-500">売上原価計（vP×Q）</span>
                   <b className="num" data-testid="plan-VQ">
                     {n(fig.VQ)}
                   </b>
@@ -893,7 +893,8 @@ export default function PlanTab({
                       <td className="py-1 px-1 whitespace-nowrap">
                         {/* 数量を入れると入出金が自動で入る。単位はアクションで変わるが、
                             単位が無いアクション（借入・返済）でも入力欄の位置がずれないよう幅を固定する */}
-                        {plan.actions[i].key && (
+                        {/* 借入は金額そのものを入れるので数量欄は出さない。金額は右の入出金欄に直接入れる（issue #117） */}
+                        {plan.actions[i].key && plan.actions[i].key !== 'kariire' && (
                           <div className="flex items-center justify-end gap-1">
                             {/* スタッフ採用は製造／販売、配置転換は向きを選ぶ。後ろの行の製造能力・販売能力が変わる */}
                             {opts && (
@@ -911,15 +912,14 @@ export default function PlanTab({
                                 ))}
                               </select>
                             )}
-                            <input
+                            <NumField
                               data-testid={`plan-act-qty-${i}`}
-                              type="number"
                               min={0}
                               max={qtyMax(i) ?? undefined}
                               title={qtyHint(i)}
                               value={plan.actions[i].qty}
                               disabled={ro}
-                              onChange={(e) => updateAction(i, { qty: Number(e.target.value) || 0 })}
+                              onValue={(v) => updateAction(i, { qty: v })}
                               className="h-7 w-12 sm:w-16 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                             />
                             <span className="w-4 text-ink-400">{PLAN_ACTION_UNITS[plan.actions[i].key] ?? ''}</span>
@@ -927,12 +927,16 @@ export default function PlanTab({
                         )}
                       </td>
                       <td className="py-1 px-1 text-right">
-                        <input
+                        <NumField
                           data-testid={`plan-act-amt-${i}`}
-                          type="number"
                           value={plan.actions[i].amount}
                           disabled={ro}
-                          onChange={(e) => updateAction(i, { amount: Number(e.target.value) || 0 })}
+                          onValue={(v) => {
+                            // 借入の行は数量＝借入額なので、金額を数量として渡す。今期借入可能額までに収め、金額も同じ値になる（issue #117）
+                            if (plan.actions[i].key === 'kariire') updateAction(i, { qty: Math.max(0, v) })
+                            else updateAction(i, { amount: v })
+                          }}
+                          title={plan.actions[i].key === 'kariire' ? qtyHint(i) : undefined}
                           className="h-7 w-[4.25rem] sm:w-24 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                         />
                       </td>
