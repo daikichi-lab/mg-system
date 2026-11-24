@@ -29,7 +29,7 @@ export default function ProgressTab({ game, onToPlan }: { game: Game; onToPlan: 
     return (
       <div className="bg-white rounded-2xl shadow-card border border-line p-6 text-center space-y-3" data-testid="progress-noplan">
         <p className="text-sm text-ink-600">
-          第{st.period}期の経営計画がまだありません。経営計画書で G・P・V を入れて売上必要個数（Q）を出すと、ここに目標 G を達成するための指針が出ます。
+          第{st.period}期の経営計画がまだありません。経営計画書で G・P・vP を入れて売上必要個数（Q）を出すと、ここに目標 G を達成するための指針が出ます。
         </p>
         <button onClick={onToPlan} className="h-11 px-5 rounded-xl bg-cin-base text-white font-bold hover:brightness-95">
           経営計画書へ
