@@ -176,6 +176,16 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     // 計画がそろうまで「動き方を決める」は開かない
     await expect(page.getByTestId('plan-stage-locked')).toBeVisible()
     await expect(page.getByTestId('plan-stage-actions')).toHaveCount(0)
+    // 初期値の 0 を消すと空欄のままになり（0 に戻らない）、離れると 0 が戻る（issue #116）
+    const g = page.getByTestId('plan-g')
+    await g.click()
+    await page.keyboard.press('Backspace')
+    await expect(g).toHaveValue('')
+    await page.keyboard.type('5')
+    await expect(g).toHaveValue('5')
+    await page.keyboard.press('Backspace')
+    await g.blur()
+    await expect(g).toHaveValue('0')
     await setField(page, 'plan-g', 100)
     await setField(page, 'plan-p', 32)
     await setField(page, 'plan-v', 12)

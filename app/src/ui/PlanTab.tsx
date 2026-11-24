@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmt, fmtA, loanRoom, getRules } from '../lib/calc'
 import { stracFigureHTML } from '../lib/figures'
+import { NumField } from './NumField'
 import type { Game } from '../state/useGame'
 // 能力の比較の内訳行（1行に2つの tr）を組むのに使う
 import { Fragment } from 'react'
@@ -201,16 +202,15 @@ export default function PlanTab({
   // 全角スペースで区切った見出し用
   const phrases = (text: string) => chunks(text.split('　'), true)
 
-  // 数値入力（0 以上）。入力できる欄は背景を黄色（bg-entry）にして自動計算の数字と見分ける（issue #100）。閲覧専用では無効でグレー
+  // 数値入力（0 以上）。0 を消して打ち直せるよう NumField を使う（issue #116）。入力できる欄は背景を黄色（bg-entry）にして自動計算の数字と見分ける（issue #100）。閲覧専用では無効でグレー
   const numIn = (testid: string, value: number, onChange: (v: number) => void, cls = 'w-20', max?: number) => (
-    <input
+    <NumField
       data-testid={testid}
-      type="number"
       min={0}
       max={max}
       value={value}
       disabled={ro}
-      onChange={(e) => onChange(Number(e.target.value) || 0)}
+      onValue={onChange}
       className={`h-9 border border-entry-line rounded px-2 num text-sm text-right bg-entry disabled:bg-canvas disabled:border-line ${cls}`}
     />
   )
@@ -911,15 +911,14 @@ export default function PlanTab({
                                 ))}
                               </select>
                             )}
-                            <input
+                            <NumField
                               data-testid={`plan-act-qty-${i}`}
-                              type="number"
                               min={0}
                               max={qtyMax(i) ?? undefined}
                               title={qtyHint(i)}
                               value={plan.actions[i].qty}
                               disabled={ro}
-                              onChange={(e) => updateAction(i, { qty: Number(e.target.value) || 0 })}
+                              onValue={(v) => updateAction(i, { qty: v })}
                               className="h-7 w-12 sm:w-16 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                             />
                             <span className="w-4 text-ink-400">{PLAN_ACTION_UNITS[plan.actions[i].key] ?? ''}</span>
@@ -927,12 +926,11 @@ export default function PlanTab({
                         )}
                       </td>
                       <td className="py-1 px-1 text-right">
-                        <input
+                        <NumField
                           data-testid={`plan-act-amt-${i}`}
-                          type="number"
                           value={plan.actions[i].amount}
                           disabled={ro}
-                          onChange={(e) => updateAction(i, { amount: Number(e.target.value) || 0 })}
+                          onValue={(v) => updateAction(i, { amount: v })}
                           className="h-7 w-[4.25rem] sm:w-24 border border-entry-line rounded px-1 sm:px-2 num text-xs text-right bg-entry disabled:bg-canvas disabled:border-line"
                         />
                       </td>
