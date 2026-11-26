@@ -136,6 +136,13 @@ export interface Plan {
    */
   hireMfg: number // 製造スタッフの採用人数
   hireSales: number // 販売スタッフ（販売員）の採用人数
+  /**
+   * 配置転換の人数（issue #124）。toSales＝製造→販売、toMfg＝販売→製造。
+   * 費用は記帳の配置転換と同じ ACTIONS.haichi.amount（1人5・管理費ク。docs/calc-spec.md「配置転換費」）。
+   * 移せるのは「期首の人数＋今期の採用」まで（planStaff で丸める）
+   */
+  moveToSales: number
+  moveToMfg: number
   machinesNew: number // 機械購入台数（減価償却が増える）
   edu: number
   ins: number
@@ -150,14 +157,32 @@ export interface Plan {
 }
 
 /**
+ * 計画どおりに採用・配置転換したあとの製造・販売スタッフの人数。
+ * 配置転換は「期首＋今期の採用」の人数までしか移せない（記帳の haichi の apply と同じく、居ない人は移さない）。
+ * 製造→販売を先に移し、そのあとで販売→製造を移す（両方入れたときも人数が負にならない）
+ */
+export function planStaff(plan: Plan, st: St): { mfg: number; sales: number; toSales: number; toMfg: number } {
+  let mfg = st.openingStaffMfg + plan.hireMfg
+  let sales = st.openingStaffSales + plan.hireSales
+  const toSales = Math.min(plan.moveToSales, mfg)
+  mfg -= toSales
+  sales += toSales
+  const toMfg = Math.min(plan.moveToMfg, sales)
+  sales -= toMfg
+  mfg += toMfg
+  return { mfg, sales, toSales, toMfg }
+}
+
+/**
  * 計画どおりに投資したときの1回あたりの能力。
  * 盤面は「期首 ＋ 今期の採用（製造・販売）・機械購入・教育・広告」で組む（教育チップは期をまたがない）。
  */
 function planCaps(plan: Plan, st: St) {
+  const staff = planStaff(plan, st)
   return caps({
     ...st,
-    staffMfg: st.openingStaffMfg + plan.hireMfg,
-    staffSales: st.openingStaffSales + plan.hireSales,
+    staffMfg: staff.mfg,
+    staffSales: staff.sales,
     machines: st.openingMachines + plan.machinesNew,
     edu: plan.edu,
     ads: st.openingAds + plan.ads,
@@ -282,6 +307,8 @@ export function defaultPlan(): Plan {
     g: 0,
     hireMfg: 0,
     hireSales: 0,
+    moveToSales: 0,
+    moveToMfg: 0,
     machinesNew: 0,
     edu: 0,
     ins: 0,
@@ -307,6 +334,9 @@ export function normalizePlan(input: unknown): Plan {
     ...(o.hireMfg === undefined && o.hireSales === undefined
       ? { hireMfg: int0(o.hire), hireSales: 0 }
       : { hireMfg: int0(o.hireMfg), hireSales: int0(o.hireSales) }),
+    // 配置転換は issue #124 で追加。それより前に保存した計画には無いので 0 人として読む
+    moveToSales: int0(o.moveToSales),
+    moveToMfg: int0(o.moveToMfg),
     machinesNew: int0(o.machinesNew),
     edu: Math.min(EDU_MAX, int0(o.edu)), // 教育チップは最大1枚
     ins: int0(o.ins),
@@ -403,6 +433,7 @@ export interface FixedCostUnits {
   sal: number // 1人あたり給料（当期）
   dep: number // 減価償却（1台）
   hire: number // 採用費（1人）
+  move: number // 配置転換費（1人）
   edu: number
   ins: number
   ads: number
@@ -437,6 +468,7 @@ export function fixedCosts(plan: Plan, st: St): FixedCosts {
     sal,
     dep: R.depPerMachine,
     hire: unit('saiyo', { mfg: 1 }),
+    move: unit('haichi', { n: 1 }),
     edu: unit('kyoiku', { n: 1 }),
     ins: unit('hoken', { n: 1 }),
     ads: unit('koukoku', { n: 1 }),
@@ -473,6 +505,9 @@ export function fixedCosts(plan: Plan, st: St): FixedCosts {
       amount: sal * (plan.hireMfg + plan.hireSales),
       col: 'new',
     },
+    // 配置転換：1人あたりの費用だけ（人数が移るだけで給料は変わらない）。向きごとに1行
+    { key: 'moveToSales', label: '一般管理費', detail: `配置転換費 ${units.move} × ${plan.moveToSales}人`, amount: unit('haichi', { n: plan.moveToSales }), col: 'new' },
+    { key: 'moveToMfg', label: '一般管理費', detail: `配置転換費 ${units.move} × ${plan.moveToMfg}人`, amount: unit('haichi', { n: plan.moveToMfg }), col: 'new' },
     { key: 'depNew', label: '減価償却費', detail: `減価償却 ${R.depPerMachine} × ${plan.machinesNew}台`, amount: R.depPerMachine * plan.machinesNew, col: 'new' },
     { key: 'edu', label: '一般管理費', detail: `${units.edu} × ${plan.edu}枚`, amount: unit('kyoiku', { n: plan.edu }), col: 'new' },
     { key: 'ins', label: '一般管理費', detail: `${units.ins} × ${plan.ins}枚`, amount: unit('hoken', { n: plan.ins }), col: 'new' },
@@ -601,6 +636,11 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
   }
   const c0 = caps(open)
   const c1 = planCaps(plan, st)
+  // 配置転換で増減する人数（＋＝増える）。移せる人数で丸めた後の値
+  const staff = planStaff(plan, st)
+  const mvMfg = staff.toMfg - staff.toSales
+  const mvSales = -mvMfg
+  const signed = (n: number) => (n > 0 ? `＋${n}` : `−${-n}`)
 
   // ---- 製造：（採用・機械）→ 教育 ----
   // 製造スタッフと機械はセットで効く（機械1台で作業できるのは2人まで）。別々の段にすると
@@ -616,15 +656,17 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
     b = next
     cur = after
   }
-  if (plan.hireMfg > 0 || plan.machinesNew > 0) {
+  // 配置転換で製造スタッフが増減するときも、機械との組み合わせで効くので同じ段に入れる
+  if (plan.hireMfg > 0 || plan.machinesNew > 0 || mvMfg !== 0) {
     const parts = [
       plan.hireMfg > 0 ? `製造スタッフを ${plan.hireMfg}人採用` : '',
+      mvMfg !== 0 ? `配置転換で製造スタッフ ${signed(mvMfg)}人` : '',
       plan.machinesNew > 0 ? `機械を ${plan.machinesNew}台購入` : '',
     ].filter(Boolean)
     addMfg(
       'staffMachines',
       parts.join('・'),
-      { ...b, staffMfg: b.staffMfg + plan.hireMfg, machines: b.machines + plan.machinesNew },
+      { ...b, staffMfg: b.staffMfg + plan.hireMfg + mvMfg, machines: b.machines + plan.machinesNew },
       (_delta, nb) => {
         const slots = nb.machines * 2 // 機械で作業できる人数の上限
         const workers = Math.min(nb.staffMfg, slots)
@@ -676,6 +718,11 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
       // 期首の広告が人数の上限で効いていなかった分が、採用で効くようになることがある
       return { note: delta > base ? `1人あたり 2個 ＋ 効くようになった広告 ${delta - base}個` : '1人あたり 2個', limited: false }
     })
+  if (mvSales !== 0)
+    addSales('haichi', `配置転換で販売スタッフ ${signed(mvSales)}人`, { ...sb, staffSales: sb.staffSales + mvSales }, (delta) => ({
+      note: delta !== mvSales * 2 ? `1人あたり 2個（広告の効く枚数も ${signed(delta - mvSales * 2)}個ぶん変わる）` : '1人あたり 2個',
+      limited: false,
+    }))
   if (plan.ads > 0)
     addSales('ads', `広告を ${plan.ads}枚`, { ...sb, ads: sb.ads + plan.ads }, (delta, nb) => {
       const cap = nb.staffSales * 2 // 広告が効く枚数の上限
@@ -695,7 +742,7 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
       add: c1.mfgCap - c0.mfgCap,
       total: c1.mfgCap,
       openDetail: mfgDetail(open.staffMfg, open.machines, 0),
-      totalDetail: mfgDetail(open.staffMfg + plan.hireMfg, open.machines + plan.machinesNew, plan.edu),
+      totalDetail: mfgDetail(staff.mfg, open.machines + plan.machinesNew, plan.edu),
       steps: mfgSteps,
     },
     {
@@ -705,7 +752,7 @@ export function capacityCompare(plan: Plan, st: St): CapacityRow[] {
       add: c1.salesCap - c0.salesCap,
       total: c1.salesCap,
       openDetail: salesDetail(open.staffSales, open.ads),
-      totalDetail: salesDetail(open.staffSales + plan.hireSales, open.ads + plan.ads),
+      totalDetail: salesDetail(staff.sales, open.ads + plan.ads),
       steps: salesSteps,
     },
   ]
@@ -867,6 +914,14 @@ export function actionNeeds(plan: Plan, st: St): ActionNeed[] {
   }
   if (plan.hireMfg + plan.hireSales > 0)
     push('saiyo', 1, `製造 ${plan.hireMfg}人・販売 ${plan.hireSales}人（1回でまとめて実施）`)
+  // 配置転換は記帳1回で向きを1つしか選べないので、向きごとに1回
+  const mv = planStaff(plan, st)
+  if (mv.toSales + mv.toMfg > 0)
+    push(
+      'haichi',
+      (mv.toSales > 0 ? 1 : 0) + (mv.toMfg > 0 ? 1 : 0),
+      [mv.toSales > 0 ? `製造→販売 ${mv.toSales}人` : '', mv.toMfg > 0 ? `販売→製造 ${mv.toMfg}人` : ''].filter(Boolean).join('・') + '（向きごとに1回）',
+    )
   if (plan.machinesNew > 0) push('kikai', 1, `${plan.machinesNew}台（1回でまとめて実施）`)
   if (plan.ads > 0) push('koukoku', 1, `${plan.ads}枚（1回でまとめて実施）`)
   if (plan.ins > 0) push('hoken', 1, `${plan.ins}枚（1回でまとめて実施）`)
@@ -1136,6 +1191,9 @@ function investedSoFar(st: St) {
   return {
     hireMfg: sum('saiyo', 'mfg'),
     hireSales: sum('saiyo', 'sales'),
+    // 配置転換は向き（dir）ごとに数える。dir が無い行は記帳の既定（製造→販売）
+    moveToSales: st.tx.filter((t) => t.key === 'haichi' && t.fvals?.dir !== 'sales->mfg').reduce((s, t) => s + (Number(t.fvals?.n) || 0), 0),
+    moveToMfg: st.tx.filter((t) => t.key === 'haichi' && t.fvals?.dir === 'sales->mfg').reduce((s, t) => s + (Number(t.fvals?.n) || 0), 0),
     machinesNew: sum('kikai', 'n'),
     edu: sum('kyoiku', 'n'),
     ins: sum('hoken', 'n'),
@@ -1155,7 +1213,7 @@ export function progressNow(plan: Plan, st: St): Guide | null {
   // 計画に入れたのに、まだ記帳していない投資。その固定費を見込みに足す
   const done = investedSoFar(st)
   const rest: Plan = { ...defaultPlan() }
-  for (const k of ['hireMfg', 'hireSales', 'machinesNew', 'edu', 'ins', 'ads', 'dev', 'loanNew'] as const)
+  for (const k of ['hireMfg', 'hireSales', 'moveToSales', 'moveToMfg', 'machinesNew', 'edu', 'ins', 'ads', 'dev', 'loanNew'] as const)
     rest[k] = Math.max(0, plan[k] - done[k])
   const restFc = fixedCosts(rest, st)
   const remainItems = restFc.items

@@ -210,6 +210,13 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await expect(page.getByTestId('plan-cap-mfg-open')).toContainText('2')
     await expect(page.getByTestId('plan-cap-mfg-total')).toContainText('2')
     await expect(page.getByTestId('plan-cap-sales-open')).toContainText('2')
+    // 戦略的投資の配置転換（issue #124）：製造→販売 1人で配置転換費 5 が F に入り、製造 0人・販売 2人の能力になる。0 に戻すと元どおり
+    await page.getByTestId('plan-moveToSales').fill('1')
+    await expect(page.getByTestId('plan-F')).toHaveText('102')
+    await expect(page.getByTestId('plan-cap-mfg-total')).toContainText('0')
+    await expect(page.getByTestId('plan-cap-sales-total')).toContainText('4')
+    await page.getByTestId('plan-moveToSales').fill('0')
+    await expect(page.getByTestId('plan-F')).toHaveText('97')
     // 必要な現金：仕入代は（Q10 − 期首の材料1個）× V12 ＝ 108、機械代 0
     await expect(page.getByTestId('plan-cash-buy')).toHaveText('108')
     await expect(page.getByTestId('plan-cash-machine')).toHaveText('0')

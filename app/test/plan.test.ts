@@ -24,6 +24,7 @@ import {
   stateAtPeriod,
   PLAN_ROWS,
   PLAN_ACTION_KEYS,
+  planStaff,
 } from '../src/lib/plan.ts'
 import { progressNow, progressVisible } from '../src/lib/plan.ts'
 
@@ -73,7 +74,7 @@ test('固定費：現況は期首の盤面から（給料・減価償却・家�
   assert.equal(fc.items.find((x) => x.key === 'salary')?.detail, '現在雇用しているスタッフ 4人 × 給料 31')
   assert.equal(fc.items.filter((x) => x.col === 'now' && x.label === '労務費').length, 0)
   // 表示用の単価
-  assert.deepEqual(fc.units, { sal: 31, dep: 10, hire: 5, edu: 20, ins: 5, ads: 10, dev: 20, ratePct: 5 })
+  assert.deepEqual(fc.units, { sal: 31, dep: 10, hire: 5, move: 5, edu: 20, ins: 5, ads: 10, dev: 20, ratePct: 5 })
   reset()
 })
 
@@ -806,4 +807,32 @@ test('能力の比較の内訳：投資を流れ順に足して増えた個数�
 
   // 投資が無ければ内訳は空
   assert.deepEqual(capacityCompare(defaultPlan(), st).map((x) => x.steps.length), [0, 0])
+})
+
+test('戦略的投資の配置転換：固定費に配置転換費が入り、能力の比較・必要な回数にスタッフの移動が効く（issue #124）', () => {
+  const st = st3() // 製造2・販売2・機械1
+  const plan = { ...defaultPlan(), moveToSales: 1 }
+  const fc = fixedCosts(plan, st)
+  const mv = fc.items.find((x) => x.key === 'moveToSales')
+  assert.equal(mv?.amount, 5)
+  assert.equal(fc.units.move, 5)
+  assert.equal(fc.next, 5) // 人が移るだけなので給料は増えない
+  const [mfg, sales] = capacityCompare(plan, st)
+  assert.equal(mfg.total, 2) // 製造スタッフ 2人 → 1人：作業者1人 × 2個
+  assert.equal(sales.total, 6) // 販売スタッフ 2人 → 3人 × 2個
+  assert.ok(sales.steps.some((x) => x.key === 'haichi' && x.delta === 2))
+  assert.match(mfg.steps[0].label, /配置転換で製造スタッフ −1人/)
+  const need = actionNeeds(plan, st).find((x) => x.key === 'haichi')
+  assert.equal(need?.need, 1)
+})
+
+test('戦略的投資の配置転換：移せるのは期首＋採用の人数まで。保存済みの計画（欄が無い）は 0 人として読む', () => {
+  const st = st3() // 製造2・販売2
+  // 製造→販売 5人は、期首2＋採用1＝3人までしか移せない。その後の販売→製造 1人は移した後の販売5人から
+  const s = planStaff({ ...defaultPlan(), moveToSales: 5, moveToMfg: 1, hireMfg: 1 }, st)
+  assert.deepEqual(s, { mfg: 1, sales: 4, toSales: 3, toMfg: 1 })
+  const old = normalizePlan({ hireMfg: 1 })
+  assert.equal(old.moveToSales, 0)
+  assert.equal(old.moveToMfg, 0)
+  assert.equal(normalizePlan({ moveToMfg: 2.4 }).moveToMfg, 2)
 })
