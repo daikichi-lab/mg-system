@@ -474,6 +474,11 @@ export default function PlanTab({
                       {invRow('hireSales', '一般管理費', '今期 採用する販売員', plan.hireSales, (v) => update({ hireSales: v }), '人',
                         `採用費 ${u.hire} × ${plan.hireSales}人`, item('hireSales').amount)}
                       {derivedRow('hireSalary', '人件費', '採用したスタッフの期末給料', `給料 ${u.sal} × ${plan.hireMfg + plan.hireSales}人`, item('hireSalary').amount)}
+                      {/* 配置転換は向きごとに入れる（issue #124）。移せるのは期首の人数＋今期の採用まで（製造→販売を先に移す） */}
+                      {invRow('moveToSales', '一般管理費', '今期 配置転換する人数（製造→販売）', plan.moveToSales, (v) => update({ moveToSales: v }), '人',
+                        `配置転換費 ${u.move} × ${plan.moveToSales}人`, item('moveToSales').amount, st.openingStaffMfg + plan.hireMfg)}
+                      {invRow('moveToMfg', '一般管理費', '今期 配置転換する人数（販売→製造）', plan.moveToMfg, (v) => update({ moveToMfg: v }), '人',
+                        `配置転換費 ${u.move} × ${plan.moveToMfg}人`, item('moveToMfg').amount, st.openingStaffSales + plan.hireSales + Math.min(plan.moveToSales, st.openingStaffMfg + plan.hireMfg))}
                       {invRow('machinesNew', '減価償却費', '今期 購入する機械（什器）', plan.machinesNew, (v) => update({ machinesNew: v }), '台',
                         `減価償却 ${u.dep} × ${plan.machinesNew}台`, item('depNew').amount)}
                       {/* 教育チップは期を通して最大1枚（記帳と同じ） */}
