@@ -208,6 +208,8 @@ export const EVENTS: EventDef[] = [
   { key: 'suigai', cat: '在庫被害', label: '水害発生' },
   { key: 'taishoku_mfg', cat: '退職', label: '製造スタッフ退職' },
   { key: 'taishoku_sales', cat: '退職', label: '販売スタッフ退職' },
+  { key: 'hikitome_mfg', cat: '退職', label: '製造スタッフ退職（引き留め成功）' },
+  { key: 'hikitome_sales', cat: '退職', label: '販売スタッフ退職（引き留め成功）' },
   { key: 'claim', cat: '費用・トラブル', label: 'クレーム発生' },
   { key: 'kitchen', cat: '費用・トラブル', label: '厨房機器故障' },
   { key: 'rousai', cat: '費用・トラブル', label: '労災発生' },

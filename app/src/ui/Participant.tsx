@@ -848,6 +848,8 @@ const STY: Record<string, { c: string; i: string }> = {
   suigai: { c: '#b85c7e', i: '🌊' },
   taishoku_mfg: { c: '#2f5f93', i: '🚪' },
   taishoku_sales: { c: '#2f5f93', i: '🚪' },
+  hikitome_mfg: { c: '#2f5f93', i: '🤝' },
+  hikitome_sales: { c: '#2f5f93', i: '🤝' },
   claim: { c: '#1f7a8c', i: '📞' },
   kitchen: { c: '#4a55a8', i: '🔧' },
   rousai: { c: '#4a55a8', i: '🩹' },

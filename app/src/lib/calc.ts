@@ -642,6 +642,11 @@ export const ACTIONS: Record<string, ActionDef> = {
       if (st.staffSales > 0) st.staffSales--
     },
   },
+  // 退職カードの「ただし教育チップがあれば、サイコロをふり偶数で引留め成功！」（docs/eventcard）。
+  // 引き留めに成功したら退職しない：スタッフは減らず、退職金5も期末の退職者の半額給料（calcSalary の retired）も付かない。記録のみ。
+  // 教育チップが無いときは記帳できない（lib/game.ts の validate）
+  hikitome_mfg: { label: '製造スタッフ退職（引き留め成功）', rule: 'X', cat: '退職', col: null, noCash: true, account: '金額', amount: () => 0 },
+  hikitome_sales: { label: '販売スタッフ退職（引き留め成功）', rule: 'X', cat: '退職', col: null, noCash: true, account: '金額', amount: () => 0 },
   claim: { label: 'クレーム発生', rule: 'X', cat: '費用・トラブル', col: 7, side: 'out', account: '販売費', amount: () => 5 },
   kitchen: { label: '厨房機器故障', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', account: '管理費', amount: () => 5 },
   rousai: { label: '労災発生', rule: 'X', cat: '費用・トラブル', col: 8, side: 'out', account: '管理費', amount: () => 5 },

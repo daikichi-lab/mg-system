@@ -504,6 +504,8 @@ test.describe.serial('戦略MG 本番アプリ E2E', () => {
     await event(page, 'ibutsu') // custom（保険で補償）
     await event(page, 'suigai') // custom（残材料破棄）
     await event(page, 'taishoku_sales')
+    await act(page, 'kyoiku') // ルールB：教育（引き留め成功の条件）
+    await event(page, 'hikitome_mfg') // 退職の引き留め成功（記録のみ）
     await event(page, 'kitchen')
     await event(page, 'rousai')
     await event(page, 'kaihatsu_fail')
