@@ -619,3 +619,28 @@ test('第1期の借入：純資産倍率を第1期からにすると借りられ
     calc.setRules(null)
   }
 })
+
+test('退職の引き留め成功：教育チップが無いと記帳できない。成功ならスタッフも現金も変わらず、期末の退職者の半額給料も付かない', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'saiyo', { mfg: 2, sales: 1, fail: 0 }), [])
+  // 教育チップが無い：カードの条件を満たさないので拒否
+  assert.match(game.recordAction(st, 'hikitome_mfg', {}).join(), /教育チップ/)
+  assert.deepEqual(game.recordAction(st, 'kyoiku', { n: 1 }), [])
+  const cash = calc.cashNow(st)
+  assert.deepEqual(game.recordAction(st, 'hikitome_mfg', {}), [])
+  assert.deepEqual(game.recordAction(st, 'hikitome_sales', {}), [])
+  assert.equal(st.staffMfg, 2)
+  assert.equal(st.staffSales, 1)
+  assert.equal(calc.cashNow(st), cash)
+  // 期末の給料：在籍3人分だけ（退職者の半額は付かない）
+  calc.doClosingPrep(st)
+  const sal = st.tx.find((t) => t.label === '給料(期末)')
+  assert.equal(sal?.note, '3×' + calc.salaryFor(st.period))
+})
+
+test('退職の引き留め成功：対象の区分のスタッフが居なければ記帳できない', () => {
+  const st = newGame()
+  assert.deepEqual(game.recordAction(st, 'saiyo', { mfg: 1, sales: 0, fail: 0 }), [])
+  assert.deepEqual(game.recordAction(st, 'kyoiku', { n: 1 }), [])
+  assert.match(game.recordAction(st, 'hikitome_sales', {}).join(), /販売スタッフがいません/)
+})

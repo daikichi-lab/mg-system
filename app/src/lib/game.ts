@@ -327,6 +327,14 @@ export function validate(st: St, key: string, f: Fvals): string[] {
     case 'taishoku_sales':
       if (st.staffSales <= 0) errs.push('退職できる販売スタッフがいません')
       break
+    // 引き留め成功：カードの条件は「教育チップがあれば」。退職の対象になるスタッフが居ることも退職と同じく求める
+    case 'hikitome_mfg':
+    case 'hikitome_sales': {
+      const mfg = key === 'hikitome_mfg'
+      if ((mfg ? st.staffMfg : st.staffSales) <= 0) errs.push(`退職の対象になる${mfg ? '製造' : '販売'}スタッフがいません`)
+      if (st.edu <= 0) errs.push('教育チップが無いため引き留めできません（退職を記帳してください）')
+      break
+    }
     // 水害・異物混入：記帳時は盤面から自動算出するため常に成立するが、
     // 後から前方の行を削除・編集すると破棄数や保険金の根拠が消える（幽霊保険金）ため再検証で捕まえる
     case 'suigai': {
